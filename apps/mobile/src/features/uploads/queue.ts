@@ -60,7 +60,8 @@ function emit() {
 }
 
 function persist() {
-  queueFile.write(JSON.stringify(items));
+  // Sync so back-to-back saves can't interleave and corrupt the file.
+  queueFile.writeSync(JSON.stringify(items));
 }
 
 export function getQueue() {
@@ -112,16 +113,18 @@ export async function enqueuePhoto(input: {
 
   // Keep the original exactly as captured.
   const original = new File(dir, `${id}.${EXT[contentType]}`);
-  new File(input.uri).copy(original);
+  // copy/move are async: the file must be complete before we read it or its size.
+  await new File(input.uri).copy(original);
 
   // Small preview for the gallery grid (originals are never recompressed).
-  const landscape = (input.width ?? 1) >= (input.height ?? 1);
-  const rendered = await ImageManipulator.manipulate(original.uri)
-    .resize(landscape ? { width: THUMB_MAX_EDGE } : { height: THUMB_MAX_EDGE })
-    .renderAsync();
+  // Downsample while decoding so a full-size photo is never held in memory as one bitmap.
+  const rendered = await ImageManipulator.manipulate(original.uri, {
+    maxWidth: THUMB_MAX_EDGE,
+    maxHeight: THUMB_MAX_EDGE,
+  }).renderAsync();
   const saved = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.8 });
   const thumb = new File(dir, `${id}-thumb.jpg`);
-  new File(saved.uri).move(thumb);
+  await new File(saved.uri).move(thumb);
 
   items.push({
     id,
