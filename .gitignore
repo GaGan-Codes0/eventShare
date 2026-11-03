@@ -1,0 +1,30 @@
+node_modules/
+.turbo/
+dist/
+build/
+coverage/
+
+# env
+.env
+.env.*
+!.env.example
+
+# expo / native
+.expo/
+apps/mobile/ios/
+apps/mobile/android/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log
+apps/mobile/expo-env.d.ts
+*.keystore
+*.tsbuildinfo

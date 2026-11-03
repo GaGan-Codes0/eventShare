@@ -1,0 +1,45 @@
+# Checks every push and pull request (any branch). It never deploys: going live is done by hand
+# on the server with scripts/server-deploy.sh <branch>.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: API tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci -w @eventshare/api -w @eventshare/shared
+      - name: Start Postgres + local S3
+        run: docker compose up -d --wait postgres s3 && docker compose up s3-init
+      - run: npm run build -w @eventshare/shared
+      - name: Test config
+        working-directory: apps/api
+        run: sed "s|^JWT_SECRET=.*|JWT_SECRET=$(openssl rand -base64 48)|" .env.example > .env
+      - working-directory: apps/api
+        run: npm run db:migrate && npm run typecheck && npm run lint && npm run test:e2e
+
+  mobile:
+    name: App checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @eventshare/shared
+      - run: npm run typecheck -w @eventshare/mobile && npm run lint -w @eventshare/mobile
+

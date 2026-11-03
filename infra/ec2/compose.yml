@@ -1,0 +1,48 @@
+# Production stack on the EC2 server. Started from the git checkout by scripts/server-deploy.sh.
+# Secrets live in /opt/eventshare/.env and .env.db, created on the server at first boot; they never leave it.
+name: eventshare
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    env_file: /opt/eventshare/.env.db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U eventshare']
+      interval: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    image: eventshare-api:current
+    restart: unless-stopped
+    env_file: /opt/eventshare/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # HTTPS in front of the API: fetches and renews a free Let's Encrypt certificate.
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    environment:
+      API_HOST: ${API_HOST:?set by server-deploy.sh}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

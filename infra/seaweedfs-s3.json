@@ -1,0 +1,9 @@
+{
+  "identities": [
+    {
+      "name": "eventshare-dev",
+      "credentials": [{ "accessKey": "eventshare", "secretKey": "eventshare-dev-secret" }],
+      "actions": ["Admin", "Read", "List", "Tagging", "Write"]
+    }
+  ]
+}

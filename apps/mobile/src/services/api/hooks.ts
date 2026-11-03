@@ -1,0 +1,121 @@
+import type {
+  CreateEventInput,
+  EventDetail,
+  EventPreview,
+  EventSummary,
+  Member,
+  Page,
+  Photo,
+  PhotoVisibility,
+  User,
+} from '@eventshare/shared';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+
+import { api } from './client';
+
+export const keys = {
+  me: ['me'] as const,
+  events: ['events'] as const,
+  event: (id: string) => ['events', id] as const,
+  members: (id: string) => ['events', id, 'members'] as const,
+  photos: (id: string) => ['events', id, 'photos'] as const,
+};
+
+export function useMe() {
+  return useQuery({ queryKey: keys.me, queryFn: () => api<User>('/me') });
+}
+
+export function useEvents() {
+  return useQuery({ queryKey: keys.events, queryFn: () => api<EventSummary[]>('/events') });
+}
+
+export function useEvent(id: string | null) {
+  return useQuery({
+    queryKey: keys.event(id ?? ''),
+    queryFn: () => api<EventDetail>(`/events/${id}`),
+    enabled: Boolean(id),
+  });
+}
+
+export function useMembers(id: string | null) {
+  return useQuery({
+    queryKey: keys.members(id ?? ''),
+    queryFn: () => api<Member[]>(`/events/${id}/members`),
+    enabled: Boolean(id),
+  });
+}
+
+/** Gallery, newest first. Refreshes every 15 s so everyone's photos show up during the event. */
+export function usePhotos(id: string | null) {
+  return useInfiniteQuery({
+    queryKey: keys.photos(id ?? ''),
+    queryFn: ({ pageParam }) =>
+      api<Page<Photo>>(`/events/${id}/photos${pageParam ? `?cursor=${encodeURIComponent(pageParam)}` : ''}`),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor,
+    enabled: Boolean(id),
+    refetchInterval: 15_000,
+  });
+}
+
+export function useJoinPreview(code: string | null) {
+  return useQuery({
+    queryKey: ['join', code],
+    queryFn: () => api<EventPreview>(`/join/${encodeURIComponent(code ?? '')}`),
+    enabled: Boolean(code && code.replace(/[\s-]/g, '').length === 8),
+    retry: false,
+  });
+}
+
+export function useCreateEvent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateEventInput) => api<EventDetail>('/events', { body: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.events }),
+  });
+}
+
+export function useJoinEvent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (code: string) => api<EventDetail>('/join', { body: { code } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.events }),
+  });
+}
+
+export function useRemoveMember(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => api<void>(`/events/${eventId}/members/${userId}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.event(eventId) }),
+  });
+}
+
+export function useRotateCode(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<EventDetail>(`/events/${eventId}/rotate-code`, { method: 'POST' }),
+    onSuccess: (event) => qc.setQueryData(keys.event(eventId), event),
+  });
+}
+
+export function useDeletePhoto(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (photoId: string) => api<void>(`/photos/${photoId}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.event(eventId) }),
+  });
+}
+
+export function useSetPhotoVisibility(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ photoId, visibility }: { photoId: string; visibility: PhotoVisibility }) =>
+      api<Photo>(`/photos/${photoId}`, { method: 'PATCH', body: { visibility } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.photos(eventId) }),
+  });
+}
+
+export function getDownloadUrl(photoId: string) {
+  return api<{ url: string }>(`/photos/${photoId}/download`);
+}

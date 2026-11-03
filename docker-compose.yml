@@ -1,0 +1,43 @@
+# Local development infrastructure. Production uses AWS (RDS Postgres + S3, Mumbai).
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: eventshare
+      POSTGRES_PASSWORD: eventshare
+      POSTGRES_DB: eventshare
+    # 5433 on the host: 5432 is often taken by a locally installed Postgres.
+    ports:
+      - '5433:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U eventshare']
+      interval: 5s
+      retries: 10
+
+  # S3-compatible object storage so uploads work locally without AWS.
+  s3:
+    image: chrislusf/seaweedfs:latest
+    command: server -dir=/data -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json
+    ports:
+      - '9000:8333'
+    volumes:
+      - s3data:/data
+      - ./infra/seaweedfs-s3.json:/etc/seaweedfs/s3.json:ro
+
+  # Creates the private photos bucket once storage is up.
+  s3-init:
+    image: chrislusf/seaweedfs:latest
+    depends_on:
+      - s3
+    entrypoint: >
+      /bin/sh -c "
+      until echo 's3.bucket.list' | weed shell -master=s3:9333 >/dev/null 2>&1; do sleep 1; done;
+      echo 's3.bucket.create -name eventshare-photos' | weed shell -master=s3:9333;
+      echo done
+      "
+
+volumes:
+  pgdata:
+  s3data:

@@ -1,0 +1,74 @@
+{
+  "expo": {
+    "name": "eventShare",
+    "slug": "eventshare",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "eventshare",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "icon": "./assets/expo.icon",
+      "bundleIdentifier": "in.co.klyra.eventshare"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "in.co.klyra.eventshare"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#208AEF",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 76
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "eventShare uses your camera to take photos for the events you join.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "eventShare needs access to your photos so you can add them to an event gallery.",
+          "cameraPermission": "eventShare uses your camera to take photos for the events you join.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "eventShare needs access to your photos so you can add them to an event gallery.",
+          "savePhotosPermission": "eventShare saves photos you download from an event to your library.",
+          "granularPermissions": [
+            "photo"
+          ]
+        }
+      ],
+      "expo-secure-store",
+      "@clerk/expo",
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "platforms": [
+      "ios",
+      "android"
+    ]
+  }
+}
