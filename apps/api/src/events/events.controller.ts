@@ -6,9 +6,9 @@ import {
   updateEventSchema,
   updateMemberSchema,
   type CreateEventImageUploadInput,
-  type CreateEventInput,
+  type CreateEventData,
   type JoinEventInput,
-  type UpdateEventInput,
+  type UpdateEventData,
   type UpdateMemberInput,
 } from '@eventshare/shared';
 
@@ -27,7 +27,7 @@ export class EventsController {
   }
 
   @Post('events')
-  create(@CurrentUser() user: AuthUser, @Body(new ZodPipe(createEventSchema)) body: CreateEventInput) {
+  create(@CurrentUser() user: AuthUser, @Body(new ZodPipe(createEventSchema)) body: CreateEventData) {
     return this.events.create(user.id, body);
   }
 
@@ -40,7 +40,7 @@ export class EventsController {
   update(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodPipe(updateEventSchema)) body: UpdateEventInput,
+    @Body(new ZodPipe(updateEventSchema)) body: UpdateEventData,
   ) {
     return this.events.update(id, user.id, body);
   }

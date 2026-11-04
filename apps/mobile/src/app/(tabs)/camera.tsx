@@ -89,7 +89,9 @@ export default function CameraScreen() {
   const granted = permission?.granted ?? false;
   // Photos still on this phone count too, until the server has counted them itself.
   const limit = event?.photoLimit ?? 0;
-  const left = event ? Math.max(0, event.photoLimit - event.photosUsed - queue.unreserved) : 0;
+  // No limit for this person: Infinity keeps the arithmetic simple; it's shown as ∞.
+  const left = !event ? 0 : event.photoLimit === null ? Infinity : Math.max(0, event.photoLimit - event.photosUsed - queue.unreserved);
+  const leftLabel = Number.isFinite(left) ? String(left) : '∞';
   const outOfShots = Boolean(event) && left === 0;
 
   async function enableCamera() {
@@ -123,7 +125,7 @@ export default function CameraScreen() {
     if (!shot || !id) return;
     setBusy(true);
     try {
-      await enqueuePhoto({ eventId: id, uri: shot.uri, contentType: 'image/jpeg', width: shot.width, height: shot.height, takenAt: shot.takenAt });
+      await enqueuePhoto({ eventId: id, uri: shot.uri, contentType: 'image/jpeg', width: shot.width, height: shot.height, takenAt: shot.takenAt, source: 'camera' });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setShot(null);
     } catch (err) {
@@ -174,6 +176,7 @@ export default function CameraScreen() {
         contentType: original.contentType,
         width: asset.width,
         height: asset.height,
+        source: 'library',
       });
     }
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -193,8 +196,8 @@ export default function CameraScreen() {
             </Text>
           </View>
           {event && (
-            <View style={styles.counterBox} accessibilityLabel={`${left} of ${limit} photos left`}>
-              <Text style={styles.counter}>{left}</Text>
+            <View style={styles.counterBox} accessibilityLabel={Number.isFinite(left) ? `${left} of ${limit} photos left` : 'No photo limit'}>
+              <Text style={styles.counter}>{leftLabel}</Text>
               <Text variant="caption" color="muted">
                 left
               </Text>
@@ -283,7 +286,7 @@ export default function CameraScreen() {
         <SafeAreaView style={styles.preview}>
           {shot && <Image source={{ uri: shot.uri }} style={styles.previewImage} contentFit="contain" accessibilityLabel="The photo you just took" />}
           <Text variant="caption" align="center" style={styles.previewHint}>
-            Uploading uses 1 of your {left} photos left. Discarded photos don’t count.
+            {Number.isFinite(left) ? `Uploading uses 1 of your ${left} photos left. ` : ''}Discarded photos don’t count.
           </Text>
           <View style={styles.previewActions}>
             <View style={styles.flex}>

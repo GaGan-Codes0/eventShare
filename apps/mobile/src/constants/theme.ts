@@ -59,12 +59,15 @@ export type FontToken = keyof typeof fonts;
 /** The font families for one theme. */
 export type Fonts = Record<FontToken, string>;
 
-/** The type scale, set in a theme's fonts. */
-export const typeScale = (fonts: Fonts) => ({
-  display: { fontFamily: fonts.serif, fontSize: 40, lineHeight: 42, letterSpacing: -1 },
-  h1: { fontFamily: fonts.serif, fontSize: 32, lineHeight: 36, letterSpacing: -1 },
-  h2: { fontFamily: fonts.serif, fontSize: 24, lineHeight: 28, letterSpacing: -0.6 },
-  h3: { fontFamily: fonts.serif, fontSize: 20, lineHeight: 24, letterSpacing: -0.4 },
+/**
+ * The type scale, set in a theme's fonts. Heading fonts differ in size at the same point size
+ * (a script runs small, a heavy sans large), so a theme can scale its headings to even them out.
+ */
+export const typeScale = (fonts: Fonts, heading = 1) => ({
+  display: { fontFamily: fonts.serif, fontSize: 40 * heading, lineHeight: 44 * heading, letterSpacing: -1 },
+  h1: { fontFamily: fonts.serif, fontSize: 32 * heading, lineHeight: 36 * heading, letterSpacing: -1 },
+  h2: { fontFamily: fonts.serif, fontSize: 24 * heading, lineHeight: 28 * heading, letterSpacing: -0.6 },
+  h3: { fontFamily: fonts.serif, fontSize: 20 * heading, lineHeight: 24 * heading, letterSpacing: -0.4 },
   title: { fontFamily: fonts.sansSemiBold, fontSize: 17, lineHeight: 22, letterSpacing: -0.3 },
   body: { fontFamily: fonts.sans, fontSize: 15, lineHeight: 22 },
   bodyStrong: { fontFamily: fonts.sansSemiBold, fontSize: 15, lineHeight: 22 },

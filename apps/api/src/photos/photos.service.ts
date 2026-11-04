@@ -9,21 +9,33 @@ import {
 } from '@nestjs/common';
 import {
   PHOTO_PAGE_SIZE,
+  type ApiError,
   type CreateUploadInput,
+  type EventRole,
   type Page,
   type Photo,
-  type PhotoVisibility,
+  type PhotoLikes,
+  type PhotoListFilter,
+  type UpdatePhotoInput,
   type UploadTicket,
 } from '@eventshare/shared';
-import { and, desc, eq, isNull, lt, or, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
 import sharp from 'sharp';
 
 import { DB, type Db } from '../db/db.module.js';
-import { photos, users } from '../db/schema.js';
-import { EventsService } from '../events/events.service.js';
+import { eventMembers, photoLikes, photos, users } from '../db/schema.js';
+import { albumOpen, EventsService, visibleTo } from '../events/events.service.js';
 import { StorageService } from '../storage/storage.service.js';
 
 type PhotoRow = typeof photos.$inferSelect;
+type CreateUploadData = Omit<CreateUploadInput, 'source'> & { source: 'camera' | 'library' };
+/** What a photo's card needs besides the row: who took it and its likes, as seen by the viewer. */
+type PhotoExtras = { uploaderName: string; uploaderRole: EventRole; likeCount: number; likedByMe: boolean };
+
+function forbidden(code: ApiError['code'], message: string) {
+  const body: ApiError = { statusCode: 403, code, message };
+  return new ForbiddenException(body);
+}
 
 const EXTENSIONS: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -61,8 +73,11 @@ export class PhotosService {
    * Step 1 of an upload. Idempotent per (uploader, clientUploadId): a retry gets the same
    * photo back, and once it's complete there is nothing left to upload.
    */
-  async createUpload(eventId: string, userId: string, input: CreateUploadInput): Promise<UploadTicket> {
-    await this.events.requireMember(eventId, userId);
+  async createUpload(eventId: string, userId: string, input: CreateUploadData): Promise<UploadTicket> {
+    const { event, role } = await this.events.requireMember(eventId, userId);
+    if (input.source === 'library' && role === 'member' && !event.allowLibraryUploads) {
+      throw forbidden('LIBRARY_UPLOADS_OFF', 'The hosts turned off camera-roll uploads for this event');
+    }
 
     let row = await this.db.query.photos.findFirst({
       where: and(eq(photos.uploaderId, userId), eq(photos.clientUploadId, input.clientUploadId)),
@@ -90,6 +105,9 @@ export class PhotosService {
               width: input.width,
               height: input.height,
               takenAt: input.takenAt ? new Date(input.takenAt) : null,
+              // Guest photos wait for the host when the event asks for review; photographers skip the queue.
+              pendingReview: event.requireReview && role === 'member',
+              prompt: input.prompt ?? null,
             })
             .onConflictDoNothing()
             .returning();
@@ -127,7 +145,7 @@ export class PhotosService {
     const row = await this.db.query.photos.findFirst({ where: and(eq(photos.id, photoId), isNull(photos.deletedAt)) });
     if (!row || row.uploaderId !== userId) throw new NotFoundException('Photo not found');
     await this.events.requireMember(row.eventId, userId);
-    if (row.status === 'ready') return this.toDto(row, await this.uploaderName(row.uploaderId));
+    if (row.status === 'ready') return this.dtoFor(row, userId);
 
     const [original, thumb] = await Promise.all([this.storage.head(row.storageKey), this.storage.head(row.thumbKey)]);
     if (!original || !thumb) throw new BadRequestException('Upload not finished');
@@ -147,24 +165,29 @@ export class PhotosService {
     }
 
     const [ready] = await this.db.update(photos).set({ status: 'ready' }).where(eq(photos.id, row.id)).returning();
-    return this.toDto(ready, await this.uploaderName(ready.uploaderId));
+    return this.dtoFor(ready, userId);
   }
 
-  /** Newest first, cursor-paginated. Hidden photos are only listed for the host. */
-  async list(eventId: string, userId: string, cursor?: string): Promise<Page<Photo>> {
-    const { role } = await this.events.requireMember(eventId, userId);
+  /**
+   * Newest first, cursor-paginated. Guests see the shared album once it opens (approved, visible
+   * photos) plus their own; the host sees everything, and can list the review queue and hidden ones.
+   */
+  async list(eventId: string, userId: string, cursor?: string, filter: PhotoListFilter = 'all'): Promise<Page<Photo>> {
+    const { event, role } = await this.events.requireMember(eventId, userId);
+    if ((filter === 'review' || filter === 'hidden') && role !== 'host') throw new ForbiddenException('Only the host can do that');
 
-    const conditions: SQL[] = [eq(photos.eventId, eventId), eq(photos.status, 'ready'), isNull(photos.deletedAt)];
-    if (role !== 'host') conditions.push(eq(photos.visibility, 'visible'));
+    const conditions: SQL[] = [visibleTo(event, role, userId)];
+    if (filter === 'photographers') conditions.push(eq(eventMembers.role, 'photographer'));
+    if (filter === 'guests') conditions.push(eq(eventMembers.role, 'member'));
+    if (filter === 'mine') conditions.push(eq(photos.uploaderId, userId));
+    if (filter === 'review') conditions.push(eq(photos.pendingReview, true));
+    if (filter === 'hidden') conditions.push(eq(photos.visibility, 'hidden'));
     if (cursor) {
       const c = decodeCursor(cursor);
       conditions.push(or(lt(photos.createdAt, c.createdAt), and(eq(photos.createdAt, c.createdAt), lt(photos.id, c.id)))!);
     }
 
-    const rows = await this.db
-      .select({ p: photos, uploaderName: users.name })
-      .from(photos)
-      .innerJoin(users, eq(users.id, photos.uploaderId))
+    const rows = await this.withExtras(userId)
       .where(and(...conditions))
       .orderBy(desc(photos.createdAt), desc(photos.id))
       .limit(PHOTO_PAGE_SIZE + 1);
@@ -172,9 +195,31 @@ export class PhotosService {
     const page = rows.slice(0, PHOTO_PAGE_SIZE);
     const last = page.at(-1);
     return {
-      items: await Promise.all(page.map((r) => this.toDto(r.p, r.uploaderName))),
+      items: await Promise.all(page.map(({ p, ...extras }) => this.toDto(p, extras))),
       nextCursor: rows.length > PHOTO_PAGE_SIZE && last ? encodeCursor(last.p) : null,
     };
+  }
+
+  /** Photos with their uploader's name and role, and likes as seen by `viewerId`. */
+  private withExtras(viewerId: string) {
+    return this.db
+      .select({
+        p: photos,
+        uploaderName: users.name,
+        uploaderRole: sql<EventRole>`coalesce(${eventMembers.role}, 'member')`,
+        likeCount: sql<number>`(SELECT count(*)::int FROM ${photoLikes} WHERE ${photoLikes.photoId} = ${photos.id})`,
+        likedByMe: sql<boolean>`EXISTS (SELECT 1 FROM ${photoLikes} WHERE ${photoLikes.photoId} = ${photos.id} AND ${photoLikes.userId} = ${viewerId})`,
+      })
+      .from(photos)
+      .innerJoin(users, eq(users.id, photos.uploaderId))
+      .leftJoin(eventMembers, and(eq(eventMembers.eventId, photos.eventId), eq(eventMembers.userId, photos.uploaderId)));
+  }
+
+  private async dtoFor(row: PhotoRow, viewerId: string): Promise<Photo> {
+    const [found] = await this.withExtras(viewerId).where(eq(photos.id, row.id)).limit(1);
+    if (!found) throw new NotFoundException('Photo not found');
+    const { p, ...extras } = found;
+    return this.toDto(p, extras);
   }
 
   /** Uploader can delete their own photo; the host can delete any. Soft delete, purged later. */
@@ -185,21 +230,55 @@ export class PhotosService {
     await this.db.update(photos).set({ deletedAt: new Date() }).where(eq(photos.id, row.id));
   }
 
-  /** Host only: hide a photo from guests without deleting it. */
-  async setVisibility(photoId: string, userId: string, visibility: PhotoVisibility): Promise<Photo> {
+  /** Host only: hide or unhide a photo, or approve a guest photo waiting for review. */
+  async update(photoId: string, userId: string, input: UpdatePhotoInput): Promise<Photo> {
     const row = await this.findForUser(photoId, userId);
     await this.events.requireHost(row.eventId, userId);
-    const [updated] = await this.db.update(photos).set({ visibility }).where(eq(photos.id, row.id)).returning();
-    return this.toDto(updated, await this.uploaderName(updated.uploaderId));
+    const [updated] = await this.db
+      .update(photos)
+      .set({
+        ...(input.visibility && { visibility: input.visibility }),
+        ...(input.approved && { pendingReview: false }),
+      })
+      .where(eq(photos.id, row.id))
+      .returning();
+    return this.dtoFor(updated, userId);
   }
 
-  /** Signed link to the untouched original, as a file download. */
+  /**
+   * Signed link to the untouched original, as a file download. Guests can't save others' photos
+   * when the host turned saving off; everyone can always save their own.
+   */
   async downloadUrl(photoId: string, userId: string) {
     const row = await this.findForUser(photoId, userId);
-    const { role } = await this.events.requireMember(row.eventId, userId);
-    if (row.status !== 'ready' || (row.visibility === 'hidden' && role !== 'host')) throw new NotFoundException('Photo not found');
+    const { event, role } = await this.events.requireMember(row.eventId, userId);
+    if (row.status !== 'ready' || !this.canSee(row, event, role, userId)) throw new NotFoundException('Photo not found');
+    if (role !== 'host' && row.uploaderId !== userId && !event.allowDownloads) {
+      throw forbidden('DOWNLOADS_OFF', 'The hosts turned off saving photos for this event');
+    }
     const ext = row.storageKey.split('.').pop();
     return { url: await this.storage.presignDownload(row.storageKey, `eventshare-${row.id}.${ext}`) };
+  }
+
+  /** Like or unlike a photo you can see. */
+  async setLiked(photoId: string, userId: string, liked: boolean): Promise<PhotoLikes> {
+    const row = await this.findForUser(photoId, userId);
+    const { event, role } = await this.events.requireMember(row.eventId, userId);
+    if (row.status !== 'ready' || !this.canSee(row, event, role, userId)) throw new NotFoundException('Photo not found');
+    if (liked) await this.db.insert(photoLikes).values({ photoId: row.id, userId }).onConflictDoNothing();
+    else await this.db.delete(photoLikes).where(and(eq(photoLikes.photoId, row.id), eq(photoLikes.userId, userId)));
+    const [[n], [mine]] = await Promise.all([
+      this.db.select({ n: count() }).from(photoLikes).where(eq(photoLikes.photoId, row.id)),
+      this.db.select({ n: count() }).from(photoLikes).where(and(eq(photoLikes.photoId, row.id), eq(photoLikes.userId, userId))),
+    ]);
+    return { likeCount: n?.n ?? 0, likedByMe: (mine?.n ?? 0) > 0 };
+  }
+
+  /** The same rule as visibleTo(), for one photo. */
+  private canSee(row: PhotoRow, event: { albumOpensAt: Date | null }, role: EventRole, userId: string) {
+    if (role === 'host') return true;
+    if (row.visibility !== 'visible') return false;
+    return row.uploaderId === userId || (!row.pendingReview && albumOpen(event, role));
   }
 
   private async findForUser(photoId: string, userId: string) {
@@ -213,12 +292,7 @@ export class PhotosService {
     await this.db.update(photos).set({ status }).where(eq(photos.id, id));
   }
 
-  private async uploaderName(id: string) {
-    const u = await this.db.query.users.findFirst({ where: eq(users.id, id), columns: { name: true } });
-    return u?.name ?? 'Someone';
-  }
-
-  private async toDto(row: PhotoRow, uploaderName: string): Promise<Photo> {
+  private async toDto(row: PhotoRow, extras: PhotoExtras): Promise<Photo> {
     const ready = row.status === 'ready';
     const [thumbUrl, url] = ready
       ? await Promise.all([this.storage.presignDownload(row.thumbKey), this.storage.presignDownload(row.storageKey)])
@@ -226,9 +300,13 @@ export class PhotosService {
     return {
       id: row.id,
       eventId: row.eventId,
-      uploader: { id: row.uploaderId, name: uploaderName },
+      uploader: { id: row.uploaderId, name: extras.uploaderName, role: extras.uploaderRole },
       status: row.status,
       visibility: row.visibility,
+      pendingReview: row.pendingReview,
+      prompt: row.prompt,
+      likeCount: Number(extras.likeCount),
+      likedByMe: Boolean(extras.likedByMe),
       width: row.width,
       height: row.height,
       takenAt: row.takenAt?.toISOString() ?? null,

@@ -1,15 +1,23 @@
 /**
- * Event themes: the host picks a preset, or their own colour, plus fonts and a poster frame.
- * The server stores only those choices (EventTheme); the full palette is built here.
+ * Event themes: the host picks one of six looks (two of them dark), optionally their own accent
+ * colour, a heading font and a poster frame. The server stores only those choices (EventTheme);
+ * the full palette is built here.
  */
 import type { EventTheme, FontPairing, PosterFrame, ThemePreset } from '@eventshare/shared';
 
 import { colors, fonts, typeScale, type Fonts, type Palette, type TypeScale } from '@/constants/theme';
 
-export type Theme = { colors: Palette; fonts: Fonts; type: TypeScale; frame: PosterFrame };
+export type Theme = {
+  colors: Palette;
+  fonts: Fonts;
+  type: TypeScale;
+  frame: PosterFrame;
+  /** Light text on dark backgrounds: the status bar and a few photo overlays follow it. */
+  dark: boolean;
+};
 
-export function createTheme(palette: Palette, fontSet: Fonts, frame: PosterFrame = 'none'): Theme {
-  return { colors: palette, fonts: fontSet, type: typeScale(fontSet), frame };
+export function createTheme(palette: Palette, fontSet: Fonts, frame: PosterFrame = 'none', heading = 1, dark = false): Theme {
+  return { colors: palette, fonts: fontSet, type: typeScale(fontSet, heading), frame, dark };
 }
 
 /** eventShare's own look, used outside any event and until an event's theme loads. */
@@ -17,115 +25,112 @@ export const defaultTheme = createTheme(colors, fonts);
 
 // ---------- colour ----------
 
-type Hsl = { h: number; s: number; l: number };
+const channels = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 
-function toHsl(hex: string): Hsl {
-  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const l = (max + min) / 2;
-  const d = max - min;
-  if (d === 0) return { h: 0, s: 0, l };
-  const s = d / (1 - Math.abs(2 * l - 1));
-  const h = max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
-  return { h: h * 60, s, l };
-}
-
-function toHex({ h, s, l }: Hsl): string {
-  const a = s * Math.min(l, 1 - l);
-  const f = (n: number) => {
-    const k = (n + h / 30) % 12;
-    const c = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
-    return Math.round(c * 255)
-      .toString(16)
-      .padStart(2, '0');
-  };
-  return `#${f(0)}${f(8)}${f(4)}`.toUpperCase();
+/** `a` moved `t` of the way towards `b`. */
+function mix(a: string, b: string, t: number) {
+  const [x, y] = [channels(a), channels(b)];
+  return `#${x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, '0')).join('')}`.toUpperCase();
 }
 
 function luminance(hex: string) {
-  const [r, g, b] = [1, 3, 5].map((i) => {
-    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  });
+  const [r, g, b] = channels(hex).map((v) => v / 255);
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
-export function contrast(a: string, b: string) {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-}
-
 function rgba(hex: string, alpha: number) {
-  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
-  return `rgba(${r},${g},${b},${alpha})`;
+  return `rgba(${channels(hex).join(',')},${alpha})`;
 }
 
-/**
- * A whole palette from one brand colour. Buttons use the colour itself, darkened until white
- * text on it is readable (WCAG AA); backgrounds and lines are faint tints of the same hue.
- */
-export function paletteFromColor(hex: string): Palette {
-  const { h, s } = toHsl(hex);
-  // Greys and near-greys get neutral backgrounds instead of a muddy tint.
-  const tinted = s < 0.08 ? 0 : 1;
-  const tint = (sat: number, l: number, hue = h) => toHex({ h: hue, s: sat * tinted, l });
+/** Text that reads on a button of this colour. */
+export function onColor(hex: string) {
+  return luminance(hex) > 0.55 ? '#141414' : '#FFFFFF';
+}
 
-  const onPrimary = tint(0.4, 0.992);
-  let primary = toHsl(hex);
-  // Light colours get darker and a little calmer, or they turn neon by the time white text reads on them.
-  while (contrast(toHex(primary), onPrimary) < 4.5 && primary.l > 0.05) {
-    primary = { ...primary, l: primary.l - 0.02, s: primary.s * 0.97 };
-  }
-  const ink = toHex({ h, s: Math.min(s, 0.3), l: 0.2 });
+/** The few colours that define a look; everything else is derived from them. */
+type Look = { bg: string; surface: string; ink: string; muted: string; line: string; soft: string; accent: string; on: string };
 
+export const PRESETS: Record<ThemePreset, Look & { name: string }> = {
+  sage: { name: 'Sage & ivory', bg: '#FAF9F5', surface: '#FFFEFA', ink: '#273C32', muted: '#727868', line: '#E3E4D8', soft: '#E9EDDF', accent: '#385447', on: '#FFFEFA' },
+  blush: { name: 'Blush & rose', bg: '#FBF5F3', surface: '#FFFCFB', ink: '#3D2428', muted: '#8A7376', line: '#EEDEDB', soft: '#F6E3DF', accent: '#A3455A', on: '#FFFFFF' },
+  marigold: { name: 'Marigold', bg: '#FFF8EC', surface: '#FFFDF8', ink: '#3B2413', muted: '#85705A', line: '#EFE0C4', soft: '#FBE8C6', accent: '#C4521A', on: '#FFFFFF' },
+  midnight: { name: 'Midnight & gold', bg: '#11151E', surface: '#1A202D', ink: '#F2EDDE', muted: '#A6A293', line: '#2B3244', soft: '#232A3A', accent: '#D6B36C', on: '#11151E' },
+  navy: { name: 'Boardroom', bg: '#F4F6F9', surface: '#FFFFFF', ink: '#0E1A2C', muted: '#5F6B7E', line: '#DDE3EB', soft: '#E5ECF7', accent: '#1F4FD1', on: '#FFFFFF' },
+  graphite: { name: 'Graphite & lime', bg: '#101210', surface: '#191C19', ink: '#EDF0E8', muted: '#9AA196', line: '#2A2E2A', soft: '#222622', accent: '#C3EE4F', on: '#101210' },
+};
+
+export const isDarkLook = (preset: ThemePreset) => luminance(PRESETS[preset].bg) < 0.2;
+
+/** Every colour the app uses, from a look and an optional accent of the host's own. */
+function paletteFrom(look: Look, accentOverride: string | null): Palette {
+  const accent = accentOverride ?? look.accent;
+  const on = accentOverride ? onColor(accentOverride) : look.on;
+  const dark = luminance(look.bg) < 0.2;
   return {
     ...colors,
-    paper: tint(0.28, 0.972),
-    surface: onPrimary,
-    surfaceBar: tint(0.3, 0.984),
-    ink,
-    inkDeep: toHex({ h, s: Math.min(s, 0.3), l: 0.16 }),
-    primary: toHex(primary),
-    primaryPressed: toHex({ ...primary, l: Math.max(primary.l - 0.07, 0.04) }),
-    onPrimary,
-    muted: tint(0.05, 0.5),
-    subtle: tint(0.06, 0.58),
-    accent: toHex({ h, s: Math.min(s, 0.22), l: 0.42 }),
-    line: tint(0.16, 0.895),
-    lineStrong: tint(0.14, 0.85),
-    sage: tint(0.26, 0.915),
-    sageDeep: tint(0.2, 0.63),
-    field: tint(0.16, 0.935),
-    warm: tint(0.35, 0.9, (h + 20) % 360),
-    warmDeep: tint(0.3, 0.82, (h + 20) % 360),
-    viewfinder: toHex({ h, s: Math.min(primary.s, 0.35), l: 0.22 }),
-    viewfinderText: tint(0.45, 0.93),
-    viewfinderAccent: tint(0.42, 0.78),
-    overlay: rgba(ink, 0.4),
-    photoShade: rgba(toHex({ h, s: Math.min(s, 0.35), l: 0.11 }), 0.78),
+    paper: look.bg,
+    surface: look.surface,
+    surfaceBar: mix(look.surface, look.bg, 0.5),
+    ink: look.ink,
+    // The photo viewer's backdrop: always near-black.
+    inkDeep: dark ? mix(look.bg, '#000000', 0.35) : mix(look.ink, '#000000', 0.15),
+    primary: accent,
+    primaryPressed: mix(accent, dark ? '#FFFFFF' : '#000000', 0.14),
+    onPrimary: on,
+    muted: look.muted,
+    subtle: mix(look.muted, look.bg, 0.25),
+    accent: dark ? accent : mix(accent, look.muted, 0.45),
+    line: look.line,
+    lineStrong: mix(look.line, look.ink, 0.08),
+    sage: look.soft,
+    sageDeep: mix(look.soft, accent, 0.35),
+    field: mix(look.soft, look.surface, 0.45),
+    warm: look.soft,
+    warmDeep: mix(look.soft, look.ink, 0.1),
+    viewfinder: dark ? mix(look.surface, accent, 0.12) : mix(accent, '#000000', 0.25),
+    viewfinderText: dark ? look.ink : mix(look.bg, accent, 0.06),
+    viewfinderAccent: dark ? accent : mix(accent, '#FFFFFF', 0.62),
+    danger: dark ? mix(colors.danger, '#FFFFFF', 0.35) : colors.danger,
+    dangerBg: mix(colors.danger, look.bg, 0.82),
+    notice: dark ? mix(colors.notice, '#FFFFFF', 0.35) : colors.notice,
+    noticeBg: mix(colors.notice, look.bg, 0.82),
+    overlay: dark ? 'rgba(0,0,0,0.55)' : rgba(look.ink, 0.4),
+    photoShade: rgba(mix(accent, '#000000', 0.7), 0.78),
   };
 }
 
 // ---------- fonts ----------
 
+type FontSet = { label: string; fonts: Fonts; scale: number };
+
 /** Keys must be loaded in src/app/_layout.tsx. Body text stays DM Sans; headings change. */
-const FONT_SETS: Record<FontPairing, Fonts> = {
-  classic: fonts,
-  modern: { ...fonts, serif: 'DMSans_700Bold', serifItalic: 'DMSans_700Bold_Italic' },
-  elegant: { ...fonts, serif: 'PlayfairDisplay_500Medium', serifItalic: 'PlayfairDisplay_500Medium_Italic' },
-  romantic: { ...fonts, serif: 'CormorantGaramond_600SemiBold', serifItalic: 'CormorantGaramond_600SemiBold_Italic' },
+const FONT_SETS: Record<FontPairing, FontSet> = {
+  classic: { label: 'Classic', fonts, scale: 1 },
+  romantic: {
+    label: 'Romantic',
+    fonts: { ...fonts, serif: 'CormorantGaramond_500Medium_Italic', serifItalic: 'CormorantGaramond_500Medium_Italic' },
+    scale: 1.1,
+  },
+  script: { label: 'Script', fonts: { ...fonts, serif: 'PinyonScript_400Regular', serifItalic: 'PinyonScript_400Regular' }, scale: 1.12 },
+  editorial: {
+    label: 'Editorial',
+    fonts: { ...fonts, serif: 'BodoniModa_500Medium_Italic', serifItalic: 'BodoniModa_500Medium_Italic' },
+    scale: 0.94,
+  },
+  modern: { label: 'Modern', fonts: { ...fonts, serif: 'SpaceGrotesk_600SemiBold', serifItalic: 'SpaceGrotesk_600SemiBold' }, scale: 0.86 },
+  bold: { label: 'Statement', fonts: { ...fonts, serif: 'Syne_800ExtraBold', serifItalic: 'Syne_800ExtraBold' }, scale: 0.8 },
 };
 
-export const FONT_PAIRING_LABEL: Record<FontPairing, string> = {
-  classic: 'Classic',
-  modern: 'Modern',
-  elegant: 'Elegant',
-  romantic: 'Romantic',
-};
+export const FONT_PAIRING_LABEL = Object.fromEntries(
+  Object.entries(FONT_SETS).map(([k, v]) => [k, v.label]),
+) as Record<FontPairing, string>;
 
 export function headingFont(pairing: FontPairing) {
-  return FONT_SETS[pairing].serif;
+  return FONT_SETS[pairing].fonts.serif;
+}
+
+export function headingScale(pairing: FontPairing) {
+  return FONT_SETS[pairing].scale;
 }
 
 export const POSTER_FRAME_LABEL: Record<PosterFrame, string> = {
@@ -135,42 +140,23 @@ export const POSTER_FRAME_LABEL: Record<PosterFrame, string> = {
   polaroid: 'Polaroid',
 };
 
-// ---------- presets ----------
+// ---------- themes ----------
 
-type Preset = { name: string; color: string; fonts: FontPairing; frame: PosterFrame };
-
-export const PRESETS: Record<ThemePreset, Preset> = {
-  evergreen: { name: 'Evergreen', color: colors.primary, fonts: 'classic', frame: 'none' },
-  rose: { name: 'Rose', color: '#A2475E', fonts: 'romantic', frame: 'line' },
-  marigold: { name: 'Marigold', color: '#B5701A', fonts: 'elegant', frame: 'double' },
-  ocean: { name: 'Ocean', color: '#2F5D7C', fonts: 'modern', frame: 'line' },
-  plum: { name: 'Plum', color: '#5B3A6E', fonts: 'elegant', frame: 'polaroid' },
-  terracotta: { name: 'Terracotta', color: '#A4553A', fonts: 'classic', frame: 'polaroid' },
-  charcoal: { name: 'Charcoal', color: '#3A3D42', fonts: 'modern', frame: 'none' },
-};
-
-/** A preset exactly as designed. */
-export function presetTheme(preset: ThemePreset): EventTheme {
-  const p = PRESETS[preset];
-  return { preset, color: null, fonts: p.fonts, frame: p.frame };
-}
-
-/** Brand colours offered next to the free hex field. */
-export const COLOR_SWATCHES = [
-  '#385447', '#1F6F5C', '#2F5D7C', '#3B4F9A', '#5B3A6E', '#8E3B6B',
-  '#A2475E', '#B3403A', '#A4553A', '#B5701A', '#7A6A2E', '#3A3D42',
-] as const;
+/** eventShare's own choices, as a theme the host can start from. */
+export const DEFAULT_EVENT_THEME: EventTheme = { preset: 'sage', accent: null, fonts: 'classic', frame: 'none' };
 
 const built = new Map<string, Theme>();
 
 /** The theme to draw an event with. Same choices, same object, so styles are built once. */
 export function themeFor(theme: EventTheme | null | undefined): Theme {
   if (!theme) return defaultTheme;
-  const key = `${theme.preset}|${theme.color ?? ''}|${theme.fonts}|${theme.frame}`;
+  const key = `${theme.preset}|${theme.accent ?? ''}|${theme.fonts}|${theme.frame}`;
   let t = built.get(key);
   if (!t) {
-    const base = theme.color ?? (theme.preset === 'evergreen' ? null : PRESETS[theme.preset].color);
-    t = createTheme(base ? paletteFromColor(base) : colors, FONT_SETS[theme.fonts], theme.frame);
+    const set = FONT_SETS[theme.fonts];
+    // Sage with no accent of its own is exactly eventShare's look.
+    const palette = theme.preset === 'sage' && !theme.accent ? colors : paletteFrom(PRESETS[theme.preset], theme.accent);
+    t = createTheme(palette, set.fonts, theme.frame, set.scale, isDarkLook(theme.preset));
     built.set(key, t);
   }
   return t;

@@ -28,6 +28,10 @@ export type QueueItem = {
   width?: number;
   height?: number;
   takenAt?: string;
+  /** Camera-roll picks are 'library' (the host can turn those off). Older items have none. */
+  source?: 'camera' | 'library';
+  /** The shot-list prompt it answers. */
+  prompt?: string;
   createdAt: number;
   attempts: number;
   nextAttemptAt: number;
@@ -117,6 +121,8 @@ export async function enqueuePhoto(input: {
   width?: number;
   height?: number;
   takenAt?: string;
+  source: 'camera' | 'library';
+  prompt?: string;
 }) {
   await initUploadQueue();
   const id = Crypto.randomUUID();
@@ -148,6 +154,8 @@ export async function enqueuePhoto(input: {
     width: input.width,
     height: input.height,
     takenAt: input.takenAt,
+    source: input.source,
+    prompt: input.prompt,
     createdAt: Date.now(),
     attempts: 0,
     nextAttemptAt: 0,
@@ -198,6 +206,8 @@ async function uploadOne(item: QueueItem) {
       width: item.width,
       height: item.height,
       takenAt: item.takenAt,
+      source: item.source,
+      prompt: item.prompt,
     },
   });
   if (!item.reserved) {

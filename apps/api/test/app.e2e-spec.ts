@@ -118,35 +118,35 @@ describe('core flow (e2e)', () => {
         .send({ clientUploadId, contentType: 'image/jpeg', byteSize: original.length, thumbByteSize: thumb.length });
 
     await http().post('/events').set(as(host2)).send({ name: 'Sangeet', guestPhotoLimit: 30 }).expect(400);
-    const created = await http().post('/events').set(as(host2)).send({ name: 'Sangeet', guestPhotoLimit: 40 }).expect(201);
+    const created = await http().post('/events').set(as(host2)).send({ name: 'Sangeet', guestPhotoLimit: 24 }).expect(201);
     eventId = created.body.id;
-    expect(created.body).toMatchObject({ guestPhotoLimit: 40, photoLimit: 500, photosUsed: 0 });
+    expect(created.body).toMatchObject({ guestPhotoLimit: 24, photoLimit: 500, photosUsed: 0 });
 
-    // Only the host changes the guest allowance, and only to 20, 40 or 60.
+    // Only the host changes the guest allowance, and only to 10, 24, 36, 50 or no limit.
     const joined = await http().post('/join').set(as(shooter)).send({ code: created.body.joinCode }).expect(201);
-    expect(joined.body).toMatchObject({ role: 'member', photoLimit: 40 });
-    await http().patch(`/events/${eventId}`).set(as(shooter)).send({ guestPhotoLimit: 60 }).expect(403);
-    await http().patch(`/events/${eventId}`).set(as(host2)).send({ guestPhotoLimit: 50 }).expect(400);
-    await http().patch(`/events/${eventId}`).set(as(host2)).send({ guestPhotoLimit: 20 }).expect(200);
+    expect(joined.body).toMatchObject({ role: 'member', photoLimit: 24 });
+    await http().patch(`/events/${eventId}`).set(as(shooter)).send({ guestPhotoLimit: 36 }).expect(403);
+    await http().patch(`/events/${eventId}`).set(as(host2)).send({ guestPhotoLimit: 40 }).expect(400);
+    await http().patch(`/events/${eventId}`).set(as(host2)).send({ guestPhotoLimit: 10 }).expect(200);
 
-    // 18 photos, then 5 at once with 2 slots left: exactly 2 get through.
-    for (let i = 0; i < 18; i++) await startUpload(shooter).expect(201);
+    // 8 photos, then 5 at once with 2 slots left: exactly 2 get through.
+    for (let i = 0; i < 8; i++) await startUpload(shooter).expect(201);
     const burst = await Promise.all(Array.from({ length: 5 }, () => startUpload(shooter)));
     expect(burst.map((r) => r.status).sort((a, b) => a - b)).toEqual([201, 201, 403, 403, 403]);
     expect(burst.find((r) => r.status === 403)!.body).toMatchObject({
       code: 'PHOTO_LIMIT_REACHED',
-      message: "You've used all 20 of your photos for this event",
+      message: "You've used all 10 of your photos for this event",
     });
 
     // A photo that already has its slot can still be retried at the limit; a new one can't.
     const kept = randomUUID();
-    await http().patch(`/events/${eventId}`).set(as(host2)).send({ guestPhotoLimit: 40 }).expect(200);
+    await http().patch(`/events/${eventId}`).set(as(host2)).send({ guestPhotoLimit: 24 }).expect(200);
     await startUpload(shooter, kept).expect(201);
-    await http().patch(`/events/${eventId}`).set(as(host2)).send({ guestPhotoLimit: 20 }).expect(200);
+    await http().patch(`/events/${eventId}`).set(as(host2)).send({ guestPhotoLimit: 10 }).expect(200);
     await startUpload(shooter, kept).expect(201);
     await startUpload(shooter).expect(403);
 
-    // Promoted to photographer: 500 photos, listed right after the host.
+    // Promoted to photographer: 1,000 photos, listed right after the host.
     const shooterId = (await http().get('/me').set(as(shooter))).body.id as string;
     const hostId = (await http().get('/me').set(as(host2))).body.id as string;
     await http().patch(`/events/${eventId}/members/${shooterId}`).set(as(shooter)).send({ role: 'photographer' }).expect(403);
@@ -157,10 +157,10 @@ describe('core flow (e2e)', () => {
       .set(as(host2))
       .send({ role: 'photographer' })
       .expect(200);
-    expect(promoted.body).toMatchObject({ role: 'photographer', photosUsed: 21 });
+    expect(promoted.body).toMatchObject({ role: 'photographer', photosUsed: 11 });
     await startUpload(shooter).expect(201);
     const asShooter = await http().get(`/events/${eventId}`).set(as(shooter)).expect(200);
-    expect(asShooter.body).toMatchObject({ role: 'photographer', photoLimit: 500, photosUsed: 22 });
+    expect(asShooter.body).toMatchObject({ role: 'photographer', photoLimit: 1000, photosUsed: 12 });
     const members = await http().get(`/events/${eventId}/members`).set(as(host2)).expect(200);
     expect(members.body.map((m: { role: string }) => m.role)).toEqual(['host', 'photographer']);
 
@@ -175,12 +175,12 @@ describe('core flow (e2e)', () => {
 
     // The host's theme reaches guests and the join preview; guests can't change it.
     expect(created.body.theme).toBeNull();
-    const theme = { preset: 'rose', color: '#a2475e', fonts: 'elegant', frame: 'polaroid' };
+    const theme = { preset: 'blush', accent: '#a2475e', fonts: 'romantic', frame: 'polaroid' };
     await http().patch(`/events/${eventId}`).set(as(shooter)).send({ theme }).expect(403);
-    await http().patch(`/events/${eventId}`).set(as(host2)).send({ theme: { ...theme, color: 'pink' } }).expect(400);
+    await http().patch(`/events/${eventId}`).set(as(host2)).send({ theme: { ...theme, accent: 'pink' } }).expect(400);
     await http().patch(`/events/${eventId}`).set(as(host2)).send({ theme: { ...theme, frame: 'neon' } }).expect(400);
     const themed = await http().patch(`/events/${eventId}`).set(as(host2)).send({ theme }).expect(200);
-    expect(themed.body.theme).toEqual({ ...theme, color: '#A2475E' });
+    expect(themed.body.theme).toEqual({ ...theme, accent: '#A2475E' });
     expect((await http().get(`/events/${eventId}`).set(as(shooter))).body.theme).toEqual(themed.body.theme);
     expect((await http().get(`/join/${created.body.joinCode}`).set(as(`late${run}`))).body.theme).toEqual(themed.body.theme);
     const reset = await http().patch(`/events/${eventId}`).set(as(host2)).send({ theme: null }).expect(200);
@@ -208,6 +208,127 @@ describe('core flow (e2e)', () => {
     const cleared = await http().patch(`/events/${eventId}`).set(as(host2)).send({ posterKey: null }).expect(200);
     expect(cleared.body).toMatchObject({ posterUrl: null, logoUrl: null });
     expect(cleared.body.coverUrl).toBeNull(); // no finished photos in this event to fall back on
+  });
+
+  it('applies the host rules: names, review, reveal, camera roll, saving, likes, photographer slots', async () => {
+    const http = () => request(app.getHttpServer());
+    const h = `wedhost${run}`;
+    const g1 = `wedg1${run}`;
+    const g2 = `wedg2${run}`;
+    let eventId = '';
+    /** Ticket → PUT both files → complete. Returns the photo id. */
+    const upload = async (user: string, extra: Record<string, unknown> = {}) => {
+      const ticket = await http()
+        .post(`/events/${eventId}/photos/uploads`)
+        .set(as(user))
+        .send({ clientUploadId: randomUUID(), contentType: 'image/jpeg', byteSize: original.length, thumbByteSize: thumb.length, ...extra })
+        .expect(201);
+      for (const [target, bytes] of [
+        [ticket.body.original, original],
+        [ticket.body.thumb, thumb],
+      ] as const) {
+        await fetch(target.url, { method: 'PUT', headers: target.headers, body: new Uint8Array(bytes) });
+      }
+      await http().post(`/photos/${ticket.body.photoId}/complete`).set(as(user)).expect(201);
+      return ticket.body.photoId as string;
+    };
+    const album = async (user: string, filter = 'all') =>
+      ((await http().get(`/events/${eventId}/photos?filter=${filter}`).set(as(user)).expect(200)).body.items as { id: string }[]).map((p) => p.id);
+
+    // A wedding is named after the couple; without both names it's refused.
+    await http().post('/events').set(as(h)).send({ type: 'wedding', partner1: 'Tanya' }).expect(400);
+    const created = await http()
+      .post('/events')
+      .set(as(h))
+      .send({ type: 'wedding', partner1: 'Tanya', partner2: 'Paul', tagline: 'Shoot everything.', prompts: ['The first look'] })
+      .expect(201);
+    eventId = created.body.id;
+    expect(created.body).toMatchObject({
+      name: 'Tanya & Paul',
+      type: 'wedding',
+      joiner: '&',
+      guestPhotoLimit: 36,
+      revealMode: 'live',
+      albumOpen: true,
+      requireReview: false,
+      allowDownloads: true,
+      allowLibraryUploads: true,
+      dateStamp: true,
+      filter: 'natural',
+      prompts: ['The first look'],
+    });
+    const renamed = await http().patch(`/events/${eventId}`).set(as(h)).send({ joiner: 'and', filter: 'golden' }).expect(200);
+    expect(renamed.body).toMatchObject({ name: 'Tanya and Paul', filter: 'golden' });
+    await http().post('/join').set(as(g1)).send({ code: created.body.joinCode }).expect(201);
+    await http().post('/join').set(as(g2)).send({ code: created.body.joinCode }).expect(201);
+
+    // No limit: guests have no allowance number.
+    const unlimited = await http().patch(`/events/${eventId}`).set(as(h)).send({ guestPhotoLimit: null }).expect(200);
+    expect(unlimited.body.guestPhotoLimit).toBeNull();
+    expect((await http().get(`/events/${eventId}`).set(as(g1))).body.photoLimit).toBeNull();
+
+    // Review first: a guest's photo waits for the host; its taker still sees it, others don't.
+    await http().patch(`/events/${eventId}`).set(as(h)).send({ requireReview: true }).expect(200);
+    const waiting = await upload(g1, { prompt: 'The first look' });
+    expect(await album(g1)).toContain(waiting);
+    expect(await album(g2)).not.toContain(waiting);
+    expect(await album(h, 'review')).toEqual([waiting]);
+    await http().get(`/events/${eventId}/photos?filter=review`).set(as(g1)).expect(403);
+    expect((await http().get(`/events/${eventId}`).set(as(h))).body.pendingReviewCount).toBe(1);
+    await http().patch(`/photos/${waiting}`).set(as(g1)).send({ approved: true }).expect(403);
+    const approved = await http().patch(`/photos/${waiting}`).set(as(h)).send({ approved: true }).expect(200);
+    expect(approved.body).toMatchObject({ pendingReview: false, prompt: 'The first look', uploader: { role: 'member' } });
+    expect(await album(g2)).toContain(waiting);
+
+    // Album opens later: until then guests see only their own photos.
+    const later = new Date(Date.now() + 3_600_000).toISOString();
+    const locked = await http().patch(`/events/${eventId}`).set(as(h)).send({ revealMode: 'morning', albumOpensAt: later }).expect(200);
+    expect(locked.body.albumOpen).toBe(true); // the host always sees it
+    expect((await http().get(`/events/${eventId}`).set(as(g2))).body.albumOpen).toBe(false);
+    expect(await album(g2)).toEqual([]);
+    expect(await album(g1)).toEqual([waiting]);
+    await http().get(`/photos/${waiting}/download`).set(as(g2)).expect(404);
+    await http().patch(`/events/${eventId}`).set(as(h)).send({ revealMode: 'live' }).expect(200);
+    expect(await album(g2)).toContain(waiting);
+
+    // Camera roll off: guests can only shoot with the camera.
+    await http().patch(`/events/${eventId}`).set(as(h)).send({ allowLibraryUploads: false, requireReview: false }).expect(200);
+    const blocked = await http()
+      .post(`/events/${eventId}/photos/uploads`)
+      .set(as(g2))
+      .send({ clientUploadId: randomUUID(), contentType: 'image/jpeg', byteSize: original.length, thumbByteSize: thumb.length, source: 'library' })
+      .expect(403);
+    expect(blocked.body.code).toBe('LIBRARY_UPLOADS_OFF');
+    const own = await upload(g2);
+
+    // Saving off: guests can't save others' photos, but can save their own; the host always can.
+    await http().patch(`/events/${eventId}`).set(as(h)).send({ allowDownloads: false }).expect(200);
+    expect((await http().get(`/photos/${waiting}/download`).set(as(g2)).expect(403)).body.code).toBe('DOWNLOADS_OFF');
+    await http().get(`/photos/${own}/download`).set(as(g2)).expect(200);
+    await http().get(`/photos/${waiting}/download`).set(as(h)).expect(200);
+
+    // Likes: one per person.
+    await http().put(`/photos/${waiting}/like`).set(as(g2)).expect(200);
+    expect((await http().put(`/photos/${waiting}/like`).set(as(h)).expect(200)).body).toEqual({ likeCount: 2, likedByMe: true });
+    expect((await http().delete(`/photos/${waiting}/like`).set(as(h)).expect(200)).body).toEqual({ likeCount: 1, likedByMe: false });
+    const listed = (await http().get(`/events/${eventId}/photos`).set(as(g2))).body.items.find((p: { id: string }) => p.id === waiting);
+    expect(listed).toMatchObject({ likeCount: 1, likedByMe: true });
+
+    // At most 3 photographers.
+    const ids: string[] = [];
+    for (const u of ['ph1', 'ph2', 'ph3', 'ph4'].map((n) => `${n}${run}`)) {
+      await http().post('/join').set(as(u)).send({ code: created.body.joinCode }).expect(201);
+      ids.push((await http().get('/me').set(as(u))).body.id);
+    }
+    for (const id of ids.slice(0, 3)) await http().patch(`/events/${eventId}/members/${id}`).set(as(h)).send({ role: 'photographer' }).expect(200);
+    const full = await http().patch(`/events/${eventId}/members/${ids[3]}`).set(as(h)).send({ role: 'photographer' }).expect(409);
+    expect(full.body.code).toBe('PHOTOGRAPHER_SLOTS_FULL');
+    const preview = await http().get(`/join/${created.body.joinCode}`).set(as(`late2${run}`)).expect(200);
+    expect(preview.body).toMatchObject({ name: 'Tanya and Paul', type: 'wedding', tagline: 'Shoot everything.', guestPhotoLimit: null });
+    expect(preview.body.photographers).toHaveLength(3);
+    expect(await album(g2, 'photographers')).toEqual([]);
+    expect(await album(g2, 'guests')).toEqual(expect.arrayContaining([waiting, own]));
+    expect(await album(g2, 'mine')).toEqual([own]);
   });
 
   it('signs up and logs in with email + password', async () => {

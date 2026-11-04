@@ -1,4 +1,4 @@
-import { FONT_PAIRINGS, POSTER_FRAMES, THEME_PRESETS, type EventDetail, type EventImageKind, type EventTheme } from '@eventshare/shared';
+import { FONT_PAIRINGS, POSTER_FRAMES, THEME_ACCENTS, THEME_PRESETS, type EventDetail, type EventImageKind, type EventTheme } from '@eventshare/shared';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { Check, ImagePlus } from 'lucide-react-native';
@@ -13,20 +13,19 @@ import { ROLE_LABEL } from '@/features/events/roles';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { useUpdateEvent } from '@/services/api/hooks';
 import {
-  COLOR_SWATCHES,
   FONT_PAIRING_LABEL,
   headingFont,
   makeStyles,
   POSTER_FRAME_LABEL,
   PRESETS,
-  presetTheme,
+  DEFAULT_EVENT_THEME,
   themeFor,
   ThemeProvider,
   useTheme,
 } from '@/theme';
 
 const HEX = /^#[0-9A-Fa-f]{6}$/;
-const DEFAULT = presetTheme('evergreen');
+const DEFAULT = DEFAULT_EVENT_THEME;
 const same = (a: EventTheme, b: EventTheme) => JSON.stringify(a) === JSON.stringify(b);
 
 /** A logo / poster picked in this sheet and already uploaded; key null means removed. */
@@ -42,7 +41,7 @@ export default function EventThemeScreen() {
 function Editor({ event }: { event: EventDetail }) {
   const saved = event.theme ?? DEFAULT;
   const [draft, setDraft] = useState<EventTheme>(saved);
-  const [hex, setHex] = useState(saved.color ?? '');
+  const [hex, setHex] = useState(saved.accent ?? '');
   const [images, setImages] = useState<Partial<Record<EventImageKind, Picked>>>({});
   const [busy, setBusy] = useState<EventImageKind | null>(null);
   const update = useUpdateEvent(event.id);
@@ -66,19 +65,20 @@ function Editor({ event }: { event: EventDetail }) {
   }
 
   function pickPreset(preset: EventTheme['preset']) {
-    setDraft(presetTheme(preset));
+    // A new look keeps your fonts and frame, and uses its own accent.
+    setDraft((d) => ({ ...d, preset, accent: null }));
     setHex('');
   }
 
   function pickColor(color: string) {
-    setDraft((d) => ({ ...d, color }));
+    setDraft((d) => ({ ...d, accent: color }));
     setHex(color);
   }
 
   function typeHex(text: string) {
     const value = text.startsWith('#') ? text : `#${text}`;
     setHex(value);
-    if (HEX.test(value)) setDraft((d) => ({ ...d, color: value.toUpperCase() }));
+    if (HEX.test(value)) setDraft((d) => ({ ...d, accent: value.toUpperCase() }));
   }
 
   function save() {
@@ -110,7 +110,10 @@ function Editor({ event }: { event: EventDetail }) {
         onColor={pickColor}
         onHex={typeHex}
         onChange={(change) => setDraft((d) => ({ ...d, ...change }))}
-        onReset={() => pickPreset('evergreen')}
+        onReset={() => {
+          setDraft(DEFAULT);
+          setHex('');
+        }}
         onSave={save}
       />
     </ThemeProvider>
@@ -140,7 +143,6 @@ type BodyProps = {
 function Body({ event, draft, posterUri, logoUri, busy, onPickImage, onRemoveImage, hex, hexError, dirty, saving, onPreset, onColor, onHex, onChange, onReset, onSave }: BodyProps) {
   const { colors } = useTheme();
   const styles = useStyles();
-  const deepened = draft.color !== null && colors.primary !== draft.color;
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
@@ -178,7 +180,7 @@ function Body({ event, draft, posterUri, logoUri, busy, onPickImage, onRemoveIma
       </Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presets}>
         {THEME_PRESETS.map((p) => {
-          const selected = draft.preset === p && draft.color === null;
+          const selected = draft.preset === p;
           return (
             <Pressable
               key={p}
@@ -188,8 +190,8 @@ function Body({ event, draft, posterUri, logoUri, busy, onPickImage, onRemoveIma
               onPress={() => onPreset(p)}
               style={styles.preset}>
               <View style={[styles.ring, selected && styles.ringOn]}>
-                <View style={[styles.presetDot, { backgroundColor: PRESETS[p].color }]}>
-                  <Text style={[styles.presetAa, { fontFamily: headingFont(PRESETS[p].fonts) }]}>Aa</Text>
+                <View style={[styles.presetDot, { backgroundColor: PRESETS[p].bg, borderColor: PRESETS[p].line }]}>
+                  <Text style={[styles.presetAa, { color: PRESETS[p].accent, fontFamily: headingFont(draft.fonts) }]}>Aa</Text>
                 </View>
               </View>
               <Text variant="caption" color={selected ? 'ink' : 'muted'}>
@@ -201,11 +203,11 @@ function Body({ event, draft, posterUri, logoUri, busy, onPickImage, onRemoveIma
       </ScrollView>
 
       <Text variant="eyebrow" style={styles.section}>
-        Your colour
+        Accent
       </Text>
       <View style={styles.swatches}>
-        {COLOR_SWATCHES.map((c) => {
-          const selected = draft.color === c;
+        {THEME_ACCENTS.map((c) => {
+          const selected = draft.accent === c;
           return (
             <Pressable
               key={c}
@@ -222,7 +224,7 @@ function Body({ event, draft, posterUri, logoUri, busy, onPickImage, onRemoveIma
         })}
       </View>
       <TextField
-        label="Or your brand colour"
+        label="Or your own colour"
         placeholder="#A2475E"
         value={hex}
         onChangeText={onHex}
@@ -230,7 +232,6 @@ function Body({ event, draft, posterUri, logoUri, busy, onPickImage, onRemoveIma
         autoCorrect={false}
         maxLength={7}
         error={hexError}
-        hint={deepened ? 'Deepened a little so text on buttons stays easy to read.' : undefined}
       />
 
       <Text variant="eyebrow" style={styles.section}>
@@ -349,13 +350,13 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
   preset: { alignItems: 'center', gap: space.xs },
   ring: { padding: 3, borderRadius: radius.full, borderWidth: 2, borderColor: 'transparent' },
   ringOn: { borderColor: colors.ink },
-  presetDot: { width: DOT, height: DOT, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center' },
-  presetAa: { color: colors.white, fontSize: 18 },
+  presetDot: { width: DOT, height: DOT, borderRadius: radius.full, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  presetAa: { fontSize: 18 },
   swatches: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
   swatch: { width: 36, height: 36, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center' },
-  fonts: { flexDirection: 'row', gap: space.sm },
+  fonts: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   font: {
-    flex: 1,
+    width: '31.5%',
     alignItems: 'center',
     gap: space.xs,
     paddingVertical: space.md,

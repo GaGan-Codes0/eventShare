@@ -3,15 +3,17 @@ import {
   DMSans_500Medium,
   DMSans_600SemiBold,
   DMSans_700Bold,
-  DMSans_700Bold_Italic,
   useFonts,
 } from '@expo-google-fonts/dm-sans';
-import { CormorantGaramond_600SemiBold, CormorantGaramond_600SemiBold_Italic } from '@expo-google-fonts/cormorant-garamond';
+import { BodoniModa_500Medium_Italic } from '@expo-google-fonts/bodoni-moda';
+import { CormorantGaramond_500Medium_Italic } from '@expo-google-fonts/cormorant-garamond';
 // Clerk is switched off for now (own email + password login instead).
 // import { ClerkProvider } from '@clerk/expo';
 // import { tokenCache } from '@clerk/expo/token-cache';
 import { DMSerifDisplay_400Regular, DMSerifDisplay_400Regular_Italic } from '@expo-google-fonts/dm-serif-display';
-import { PlayfairDisplay_500Medium, PlayfairDisplay_500Medium_Italic } from '@expo-google-fonts/playfair-display';
+import { PinyonScript_400Regular } from '@expo-google-fonts/pinyon-script';
+import { SpaceGrotesk_600SemiBold } from '@expo-google-fonts/space-grotesk';
+import { Syne_800ExtraBold } from '@expo-google-fonts/syne';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { router, Stack, type NativeStackNavigationOptions } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -76,11 +78,11 @@ export default function RootLayout() {
     DMSerifDisplay_400Regular,
     DMSerifDisplay_400Regular_Italic,
     // Heading fonts for event themes (src/theme/event-theme.ts).
-    DMSans_700Bold_Italic,
-    PlayfairDisplay_500Medium,
-    PlayfairDisplay_500Medium_Italic,
-    CormorantGaramond_600SemiBold,
-    CormorantGaramond_600SemiBold_Italic,
+    CormorantGaramond_500Medium_Italic,
+    PinyonScript_400Regular,
+    BodoniModa_500Medium_Italic,
+    SpaceGrotesk_600SemiBold,
+    Syne_800ExtraBold,
   });
   const [stateLoaded, setStateLoaded] = useState(false);
 

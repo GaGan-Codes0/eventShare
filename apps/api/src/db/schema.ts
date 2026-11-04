@@ -1,7 +1,8 @@
-import type { EventTheme, GuestPhotoLimit } from '@eventshare/shared';
+import { EVENT_TYPES, NAME_JOINERS, PHOTO_FILTERS, REVEAL_MODES, type EventTheme } from '@eventshare/shared';
 import { sql } from 'drizzle-orm';
 import {
   bigint,
+  boolean,
   check,
   index,
   integer,
@@ -23,6 +24,9 @@ export const memberRole = pgEnum('member_role', ['host', 'photographer', 'member
 export const memberStatus = pgEnum('member_status', ['active', 'removed']);
 export const photoStatus = pgEnum('photo_status', ['pending', 'processing', 'ready', 'failed']);
 export const photoVisibility = pgEnum('photo_visibility', ['visible', 'hidden']);
+export const eventType = pgEnum('event_type', EVENT_TYPES);
+export const revealMode = pgEnum('reveal_mode', REVEAL_MODES);
+export const photoFilter = pgEnum('photo_filter', PHOTO_FILTERS);
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -48,14 +52,34 @@ export const events = pgTable(
     ownerId: uuid('owner_id')
       .notNull()
       .references(() => users.id),
+    /** Display name: the title, or the couple's names for a wedding (kept in step by the service). */
     name: text('name').notNull(),
+    type: eventType('type').notNull().default('other'),
+    /** A wedding's couple, shown as "partner1 joiner partner2". */
+    partner1: text('partner1'),
+    partner2: text('partner2'),
+    joiner: text('joiner').$type<(typeof NAME_JOINERS)[number]>().notNull().default('&'),
+    /** "Hosted by", or the company for corporate events. */
+    organizer: text('organizer'),
+    /** The host's welcome line on the event's home. */
+    tagline: text('tagline'),
     location: text('location'),
     startsAt: timestamp('starts_at', { withTimezone: true }),
     /** One code per event, shared as a link and a QR. Host can rotate it. */
     joinCode: text('join_code').notNull().unique(),
     coverPhotoId: uuid('cover_photo_id'),
-    /** How many photos each guest may upload. The host picks 20, 40 or 60. */
-    guestPhotoLimit: integer('guest_photo_limit').$type<GuestPhotoLimit>().notNull().default(20),
+    /** How many photos each guest may upload: 10, 24, 36 or 50; null is no limit. Older events may have 20/40/60. */
+    guestPhotoLimit: integer('guest_photo_limit').default(36),
+    revealMode: revealMode('reveal_mode').notNull().default('live'),
+    /** Until then guests see only their own photos. Null: open now. */
+    albumOpensAt: timestamp('album_opens_at', { withTimezone: true }),
+    requireReview: boolean('require_review').notNull().default(false),
+    allowDownloads: boolean('allow_downloads').notNull().default(true),
+    allowLibraryUploads: boolean('allow_library_uploads').notNull().default(true),
+    dateStamp: boolean('date_stamp').notNull().default(true),
+    filter: photoFilter('filter').notNull().default('natural'),
+    /** The host's shot list. */
+    prompts: jsonb('prompts').$type<string[]>().notNull().default([]),
     /** The host's theme (validated by eventThemeSchema). Null is eventShare's own look. */
     theme: jsonb('theme').$type<EventTheme>(),
     /** Storage keys of the host's logo and poster (events/<id>/logo|poster/...). */
@@ -64,7 +88,10 @@ export const events = pgTable(
     ...timestamps,
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
-  (t) => [check('events_guest_photo_limit_check', sql`${t.guestPhotoLimit} IN (20, 40, 60)`)],
+  (t) => [
+    check('events_guest_photo_limit_check', sql`${t.guestPhotoLimit} IS NULL OR ${t.guestPhotoLimit} IN (10, 24, 36, 50, 20, 40, 60)`),
+    check('events_joiner_check', sql`${t.joiner} IN ('&', 'and', '+')`),
+  ],
 );
 
 export const eventMembers = pgTable(
@@ -109,6 +136,10 @@ export const photos = pgTable(
     takenAt: timestamp('taken_at', { withTimezone: true }),
     status: photoStatus('status').notNull().default('pending'),
     visibility: photoVisibility('visibility').notNull().default('visible'),
+    /** A guest photo waiting for the host's OK (when the event requires review). */
+    pendingReview: boolean('pending_review').notNull().default(false),
+    /** The shot-list prompt it was taken for. */
+    prompt: text('prompt'),
     ...timestamps,
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
@@ -120,4 +151,19 @@ export const photos = pgTable(
       .on(t.eventId, t.createdAt.desc(), t.id.desc())
       .where(sql`${t.deletedAt} IS NULL`),
   ],
+);
+
+/** One like per person per photo. */
+export const photoLikes = pgTable(
+  'photo_likes',
+  {
+    photoId: uuid('photo_id')
+      .notNull()
+      .references(() => photos.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    ...timestamps,
+  },
+  (t) => [primaryKey({ columns: [t.photoId, t.userId] })],
 );

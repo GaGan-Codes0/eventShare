@@ -1,6 +1,7 @@
 import { randomInt, randomUUID } from 'node:crypto';
 
 import {
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -13,11 +14,12 @@ import {
   JOIN_CODE_ALPHABET,
   JOIN_CODE_LENGTH,
   MAX_EVENT_IMAGE_BYTES,
+  MAX_PHOTOGRAPHERS,
   PHOTOGRAPHER_PHOTO_LIMIT,
   photoLimitFor,
   type ApiError,
   type CreateEventImageUploadInput,
-  type CreateEventInput,
+  type CreateEventData,
   type EventImageKind,
   type EventImageUpload,
   type EventDetail,
@@ -25,10 +27,12 @@ import {
   type EventRole,
   type EventSummary,
   type Member,
-  type UpdateEventInput,
+  type EventIdentity,
+  type EventRules,
+  type UpdateEventData,
   type UpdateMemberInput,
 } from '@eventshare/shared';
-import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, count, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import sharp from 'sharp';
 
 import { DB, type Db } from '../db/db.module.js';
@@ -45,6 +49,28 @@ const IMAGE_EXTENSIONS: Record<CreateEventImageUploadInput['contentType'], strin
 type MemberRow = typeof eventMembers.$inferSelect;
 /** The db itself or an open transaction. */
 type Conn = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
+
+/** "Tanya & Paul" for a wedding with both names, else the title. */
+export function displayName(e: Pick<EventRow, 'type' | 'name' | 'partner1' | 'partner2' | 'joiner'>) {
+  return e.type === 'wedding' && e.partner1 && e.partner2 ? `${e.partner1} ${e.joiner} ${e.partner2}` : e.name;
+}
+
+/** Guests see each other's photos once the album opens. The host always sees everything. */
+export function albumOpen(event: Pick<EventRow, 'albumOpensAt'>, role: EventRole) {
+  return role === 'host' || !event.albumOpensAt || event.albumOpensAt.getTime() <= Date.now();
+}
+
+/**
+ * Which photos of an event this person may see: the host sees all. Others never see hidden
+ * photos; they see their own (even while waiting for review or before the album opens), and
+ * everyone else's approved ones once the album is open.
+ */
+export function visibleTo(event: Pick<EventRow, 'id' | 'albumOpensAt'>, role: EventRole, userId: string): SQL {
+  const base = and(eq(photos.eventId, event.id), eq(photos.status, 'ready'), isNull(photos.deletedAt))!;
+  if (role === 'host') return base;
+  const others = albumOpen(event, role) ? eq(photos.pendingReview, false) : sql`false`;
+  return and(base, eq(photos.visibility, 'visible'), or(eq(photos.uploaderId, userId), others))!;
+}
 
 export function generateJoinCode(): string {
   let code = '';
@@ -87,17 +113,31 @@ export class EventsService {
     return m;
   }
 
-  async create(userId: string, input: CreateEventInput): Promise<EventDetail> {
+  async create(userId: string, input: CreateEventData): Promise<EventDetail> {
     const event = await this.db.transaction(async (tx) => {
+      const fields = {
+        type: input.type,
+        name: input.name ?? '',
+        partner1: input.partner1 || null,
+        partner2: input.partner2 || null,
+        joiner: input.joiner,
+      };
       const [created] = await tx
         .insert(events)
         .values({
           ownerId: userId,
-          name: input.name,
+          ...fields,
+          name: displayName(fields),
+          organizer: input.organizer ?? null,
+          tagline: input.tagline ?? null,
           location: input.location || null,
           startsAt: input.startsAt ? new Date(input.startsAt) : null,
           joinCode: generateJoinCode(),
-          guestPhotoLimit: input.guestPhotoLimit ?? DEFAULT_GUEST_PHOTO_LIMIT,
+          guestPhotoLimit: input.guestPhotoLimit === undefined ? DEFAULT_GUEST_PHOTO_LIMIT : input.guestPhotoLimit,
+          revealMode: input.revealMode ?? 'live',
+          albumOpensAt: input.albumOpensAt ? new Date(input.albumOpensAt) : null,
+          theme: input.theme ?? null,
+          prompts: input.prompts ?? [],
         })
         .returning();
       await tx.insert(eventMembers).values({ eventId: created.id, userId, role: 'host' });
@@ -137,14 +177,20 @@ export class EventsService {
   async preview(code: string): Promise<EventPreview> {
     const event = await this.findByCode(code);
     const host = await this.db.query.users.findFirst({ where: eq(users.id, event.ownerId) });
+    const shooters = await this.db
+      .select({ name: users.name })
+      .from(eventMembers)
+      .innerJoin(users, eq(users.id, eventMembers.userId))
+      .where(and(eq(eventMembers.eventId, event.id), eq(eventMembers.role, 'photographer'), eq(eventMembers.status, 'active')));
     return {
-      name: event.name,
-      location: event.location,
-      startsAt: event.startsAt?.toISOString() ?? null,
+      ...(await this.identity(event)),
       hostName: host?.name ?? 'Your host',
       memberCount: await this.memberCount(event.id),
-      theme: event.theme,
-      ...(await this.imageUrls(event)),
+      guestPhotoLimit: event.guestPhotoLimit,
+      photographers: shooters.map((s) => s.name.split(' ')[0] ?? s.name),
+      revealMode: event.revealMode,
+      albumOpensAt: event.albumOpensAt?.toISOString() ?? null,
+      requireReview: event.requireReview,
     };
   }
 
@@ -180,11 +226,24 @@ export class EventsService {
     }));
   }
 
-  async update(eventId: string, hostId: string, input: UpdateEventInput): Promise<EventDetail> {
-    await this.requireHost(eventId, hostId);
+  async update(eventId: string, hostId: string, input: UpdateEventData): Promise<EventDetail> {
+    const { event } = await this.requireHost(eventId, hostId);
     if (input.logoKey) await this.checkImage(eventId, 'logo', input.logoKey);
     if (input.posterKey) await this.checkImage(eventId, 'poster', input.posterKey);
-    await this.db.update(events).set(input).where(eq(events.id, eventId));
+    const { startsAt, albumOpensAt, ...rest } = input;
+    const next = { ...event, ...rest };
+    if (next.type === 'wedding' && (!next.partner1 || !next.partner2)) throw new BadRequestException('Add both names');
+    await this.db
+      .update(events)
+      .set({
+        ...rest,
+        ...(startsAt !== undefined && { startsAt: startsAt ? new Date(startsAt) : null }),
+        ...(albumOpensAt !== undefined && { albumOpensAt: albumOpensAt ? new Date(albumOpensAt) : null }),
+        // Going back to live opens the album now.
+        ...(input.revealMode === 'live' && { albumOpensAt: null }),
+        name: displayName(next),
+      })
+      .where(eq(events.id, eventId));
     return this.detail(eventId, hostId);
   }
 
@@ -213,6 +272,27 @@ export class EventsService {
   /** Host makes a guest the photographer, or back. Photos they already took stay theirs. */
   async setMemberRole(eventId: string, hostId: string, targetUserId: string, input: UpdateMemberInput): Promise<Member> {
     await this.requireHost(eventId, hostId);
+    if (input.role === 'photographer') {
+      const [taken] = await this.db
+        .select({ n: count() })
+        .from(eventMembers)
+        .where(
+          and(
+            eq(eventMembers.eventId, eventId),
+            eq(eventMembers.role, 'photographer'),
+            eq(eventMembers.status, 'active'),
+            ne(eventMembers.userId, targetUserId),
+          ),
+        );
+      if ((taken?.n ?? 0) >= MAX_PHOTOGRAPHERS) {
+        const body: ApiError = {
+          statusCode: 409,
+          code: 'PHOTOGRAPHER_SLOTS_FULL',
+          message: `All ${MAX_PHOTOGRAPHERS} photographer slots are taken. Remove one first.`,
+        };
+        throw new ConflictException(body);
+      }
+    }
     const updated = await this.db
       .update(eventMembers)
       .set({ role: input.role })
@@ -238,7 +318,7 @@ export class EventsService {
     const limit = sql`CASE ${eventMembers.role}
       WHEN 'host' THEN ${HOST_PHOTO_LIMIT}::int
       WHEN 'photographer' THEN ${PHOTOGRAPHER_PHOTO_LIMIT}::int
-      ELSE (SELECT ${events.guestPhotoLimit} FROM ${events} WHERE ${events.id} = ${eventId})
+      ELSE coalesce((SELECT ${events.guestPhotoLimit} FROM ${events} WHERE ${events.id} = ${eventId}), 2147483647)
     END`;
     const reserved = await conn
       .update(eventMembers)
@@ -258,7 +338,7 @@ export class EventsService {
     const body: ApiError = {
       statusCode: 403,
       code: 'PHOTO_LIMIT_REACHED',
-      message: `You've used all ${photoLimitFor(member.role, event.guestPhotoLimit)} of your photos for this event`,
+      message: `You've used all ${photoLimitFor(member.role, event.guestPhotoLimit) ?? 0} of your photos for this event`,
     };
     throw new ForbiddenException(body);
   }
@@ -295,32 +375,80 @@ export class EventsService {
     return { posterUrl, logoUrl };
   }
 
+  private async identity(event: EventRow): Promise<EventIdentity> {
+    return {
+      name: event.name,
+      type: event.type,
+      partner1: event.partner1,
+      partner2: event.partner2,
+      joiner: event.joiner,
+      organizer: event.organizer,
+      tagline: event.tagline,
+      location: event.location,
+      startsAt: event.startsAt?.toISOString() ?? null,
+      theme: event.theme,
+      ...(await this.imageUrls(event)),
+    };
+  }
+
+  private rules(event: EventRow, role: EventRole): EventRules {
+    return {
+      guestPhotoLimit: event.guestPhotoLimit,
+      revealMode: event.revealMode,
+      albumOpensAt: event.albumOpensAt?.toISOString() ?? null,
+      albumOpen: albumOpen(event, role),
+      requireReview: event.requireReview,
+      allowDownloads: event.allowDownloads,
+      allowLibraryUploads: event.allowLibraryUploads,
+      dateStamp: event.dateStamp,
+      filter: event.filter,
+      prompts: event.prompts,
+    };
+  }
+
   private async toSummary(event: EventRow, member: MemberRow): Promise<EventSummary> {
-    const shown = and(eq(photos.eventId, event.id), eq(photos.status, 'ready'), eq(photos.visibility, 'visible'), isNull(photos.deletedAt));
-    const [p] = await this.db.select({ n: count() }).from(photos).where(shown);
-    const { posterUrl, logoUrl } = await this.imageUrls(event);
-    // Without a poster from the host, the newest photo is the event's cover.
+    const identity = await this.identity(event);
+    // Counts are of the shared album: visible, approved, finished photos.
+    const shared = and(
+      eq(photos.eventId, event.id),
+      eq(photos.status, 'ready'),
+      eq(photos.visibility, 'visible'),
+      eq(photos.pendingReview, false),
+      isNull(photos.deletedAt),
+    );
+    const [[p], [pending], [shooters], memberCount] = await Promise.all([
+      this.db.select({ n: count() }).from(photos).where(shared),
+      member.role === 'host'
+        ? this.db
+            .select({ n: count() })
+            .from(photos)
+            .where(and(eq(photos.eventId, event.id), eq(photos.pendingReview, true), isNull(photos.deletedAt)))
+        : Promise.resolve([{ n: 0 }]),
+      this.db
+        .select({ n: count() })
+        .from(eventMembers)
+        .where(and(eq(eventMembers.eventId, event.id), eq(eventMembers.role, 'photographer'), eq(eventMembers.status, 'active'))),
+      this.memberCount(event.id),
+    ]);
+    // Without a poster from the host, the newest photo you can see is the cover.
     const [latest] = await this.db
       .select({ thumbKey: photos.thumbKey })
       .from(photos)
-      .where(shown)
+      .where(and(visibleTo(event, member.role, member.userId), eq(photos.visibility, 'visible')))
       .orderBy(desc(photos.createdAt))
       .limit(1);
     return {
+      ...identity,
+      ...this.rules(event, member.role),
       id: event.id,
-      name: event.name,
-      location: event.location,
-      startsAt: event.startsAt?.toISOString() ?? null,
-      coverUrl: posterUrl ?? (latest ? await this.storage.presignDownload(latest.thumbKey) : null),
-      posterUrl,
-      logoUrl,
+      coverUrl: identity.posterUrl ?? (latest ? await this.storage.presignDownload(latest.thumbKey) : null),
       role: member.role,
-      memberCount: await this.memberCount(event.id),
+      memberCount,
+      photographerCount: shooters?.n ?? 0,
       photoCount: p?.n ?? 0,
-      guestPhotoLimit: event.guestPhotoLimit,
+      pendingReviewCount: pending?.n ?? 0,
       photoLimit: photoLimitFor(member.role, event.guestPhotoLimit),
       photosUsed: member.photosUsed,
-      theme: event.theme,
     };
   }
 }

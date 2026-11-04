@@ -2,7 +2,7 @@
 import { router } from 'expo-router';
 import { Check, LogOut, Palette, Plus, QrCode, ScanLine } from 'lucide-react-native';
 import { Alert, ScrollView, View } from 'react-native';
-import { GUEST_PHOTO_LIMITS, PHOTOGRAPHER_PHOTO_LIMIT } from '@eventshare/shared';
+import { GUEST_PHOTO_LIMITS, PHOTOGRAPHER_PHOTO_LIMIT, type GuestPhotoLimit } from '@eventshare/shared';
 
 import { Avatar, Header, MenuGroup, MenuLabel, MenuRow, Pill, Segmented, Text } from '@/components/ui';
 import { icon, radius, screenPadding, space } from '@/constants/theme';
@@ -69,7 +69,7 @@ export default function More() {
                 <MenuRow
                   icon={Palette}
                   title="Event theme"
-                  caption={event.theme ? (event.theme.color ? 'Your colour' : PRESETS[event.theme.preset].name) : 'eventShare’s look'}
+                  caption={event.theme ? PRESETS[event.theme.preset].name + (event.theme.accent ? ' · your accent' : '') : 'eventShare’s look'}
                   onPress={() => router.push('/event-theme')}
                 />
               )}
@@ -81,11 +81,15 @@ export default function More() {
             <Text variant="bodyStrong">Photos per guest</Text>
             <Segmented
               accessibilityLabel="Photos per guest"
-              options={GUEST_PHOTO_LIMITS.map((n) => ({ value: n, label: String(n) }))}
-              value={event.guestPhotoLimit}
+              // 0 stands for no limit (null) in this control.
+              options={[...GUEST_PHOTO_LIMITS.map((n) => ({ value: n as number, label: String(n) })), { value: 0, label: '∞' }]}
+              value={event.guestPhotoLimit ?? 0}
               disabled={update.isPending}
-              onChange={(guestPhotoLimit) =>
-                update.mutate({ guestPhotoLimit }, { onError: (e) => Alert.alert("Couldn't change the limit", e.message) })
+              onChange={(n) =>
+                update.mutate(
+                  { guestPhotoLimit: n === 0 ? null : (n as GuestPhotoLimit) },
+                  { onError: (e) => Alert.alert("Couldn't change the limit", e.message) },
+                )
               }
             />
             <Text variant="caption" color="muted">
