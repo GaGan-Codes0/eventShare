@@ -23,6 +23,7 @@ import { initUploadQueue, onPhotoUploaded, onSlotReserved } from '@/features/upl
 import { keys } from '@/services/api/hooks';
 import { getSessionUser, loadSession, subscribeSession } from '@/services/api/session';
 import { loadCurrentEvent } from '@/store/current-event';
+import { loadPreferences } from '@/store/preferences';
 import { defaultTheme, ThemeProvider, useTheme } from '@/theme';
 
 void SplashScreen.preventAutoHideAsync();
@@ -84,7 +85,7 @@ export default function RootLayout() {
   const [stateLoaded, setStateLoaded] = useState(false);
 
   useEffect(() => {
-    void Promise.all([loadSession(), loadCurrentEvent()]).then(() => {
+    void Promise.all([loadSession(), loadCurrentEvent(), loadPreferences()]).then(() => {
       setStateLoaded(true);
       void initUploadQueue();
     });

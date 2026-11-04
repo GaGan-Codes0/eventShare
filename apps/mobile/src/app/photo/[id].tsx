@@ -1,9 +1,7 @@
 import type { Photo } from '@eventshare/shared';
 import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
-import { Directory, File, Paths } from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import { Asset, requestPermissionsAsync } from 'expo-media-library';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Download, Eye, EyeOff, Trash2, X } from 'lucide-react-native';
 import { useState } from 'react';
@@ -13,7 +11,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/ui';
 import { icon, radius, screenPadding, space } from '@/constants/theme';
 import { makeStyles, ThemeProvider, useCurrentEventTheme, useTheme } from '@/theme';
-import { getDownloadUrl, keys, useDeletePhoto, useEvent, useMe, useSetPhotoVisibility } from '@/services/api/hooks';
+import { SaveSheet } from '@/features/gallery/save-sheet';
+import { keys, useDeletePhoto, useEvent, useMe, useSetPhotoVisibility } from '@/services/api/hooks';
 import { timeAgo } from '@/utils/format';
 
 function ActionButton({ icon: Icon, label, onPress, busy }: { icon: typeof X; label: string; onPress: () => void; busy?: boolean }) {
@@ -53,28 +52,6 @@ function PhotoViewer() {
 
   const isHost = event.data?.role === 'host';
   const isMine = photo.uploader.id === me.data?.id;
-
-  async function save() {
-    if (!photo) return;
-    setSaving(true);
-    try {
-      const perm = await requestPermissionsAsync(true);
-      if (!perm.granted) throw new Error('Allow eventShare to add photos in Settings.');
-      // Download the untouched original, then add it to the phone's library.
-      const { url } = await getDownloadUrl(photo.id);
-      const dir = new Directory(Paths.cache, 'downloads');
-      dir.create({ intermediates: true, idempotent: true });
-      const file = await File.downloadFileAsync(url, dir, { idempotent: true });
-      await Asset.create(file.uri);
-      file.delete();
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert('Saved', 'The original photo is in your library.');
-    } catch (err) {
-      Alert.alert("Couldn't save", err instanceof Error ? err.message : 'Please try again.');
-    } finally {
-      setSaving(false);
-    }
-  }
 
   function confirmDelete() {
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -129,7 +106,7 @@ function PhotoViewer() {
           </Text>
         </View>
         <View style={styles.actions}>
-          <ActionButton icon={Download} label="Save" onPress={save} busy={saving} />
+          <ActionButton icon={Download} label="Save" onPress={() => setSaving(true)} />
           {isHost && (
             <ActionButton
               icon={photo.visibility === 'hidden' ? Eye : EyeOff}
@@ -141,6 +118,7 @@ function PhotoViewer() {
           {(isMine || isHost) && <ActionButton icon={Trash2} label="Delete" onPress={confirmDelete} busy={del.isPending} />}
         </View>
       </View>
+      {saving && <SaveSheet photo={photo} event={event.data} onClose={() => setSaving(false)} />}
     </View>
   );
 }

@@ -1,12 +1,14 @@
+import { ALLOWED_PHOTO_TYPES } from '@eventshare/shared';
 import { CameraView, useCameraPermissions, type CameraType } from 'expo-camera';
 import { File } from 'expo-file-system';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import * as LegacyLibrary from 'expo-media-library/legacy';
 import { requestPermissionsAsync as requestLibraryAccess } from 'expo-media-library';
 import { useIsFocused } from 'expo-router';
-import { ArrowUpRight, Camera, CloudUpload, Images, SwitchCamera, Upload, X } from 'lucide-react-native';
+import { ArrowUpRight, Camera, CloudUpload, Frame, Images, SwitchCamera, Upload, X } from 'lucide-react-native';
 import { useRef, useState } from 'react';
 import { Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,10 +17,12 @@ import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } 
 import { Button, Header, IconButton, Text } from '@/components/ui';
 import { icon, radius, screenPadding, space } from '@/constants/theme';
 import { makeStyles, useTheme } from '@/theme';
+import { ViewfinderFrame } from '@/features/events/event-frame';
 import { NoEventYet } from '@/features/events/no-event';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { enqueuePhoto } from '@/features/uploads/queue';
 import { useUploadQueue } from '@/features/uploads/use-upload-queue';
+import { setPreference, usePreferences } from '@/store/preferences';
 import { plural } from '@/utils/format';
 
 const TYPE_BY_EXT: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', heic: 'image/heic', heif: 'image/heif', png: 'image/png', webp: 'image/webp' };
@@ -39,6 +43,19 @@ async function originalFile(asset: ImagePicker.ImagePickerAsset, canReadLibrary:
     }
   }
   return { uri: asset.uri, contentType: asset.mimeType };
+}
+
+const UPLOADABLE = new Set<string>(ALLOWED_PHOTO_TYPES);
+
+/**
+ * RAW photos (DNG and the like) are huge and most phones can't show them, so the album takes
+ * a full-resolution JPEG developed from them on this phone instead. Everything else is as is.
+ */
+async function uploadable(file: { uri: string; contentType?: string }) {
+  if (file.contentType && UPLOADABLE.has(file.contentType)) return { uri: file.uri, contentType: file.contentType };
+  const rendered = await ImageManipulator.manipulate(file.uri).renderAsync();
+  const jpeg = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.95 });
+  return { uri: jpeg.uri, contentType: 'image/jpeg' };
 }
 
 type Shot = { uri: string; width: number; height: number; takenAt: string };
@@ -64,6 +81,7 @@ export default function CameraScreen() {
   const [busy, setBusy] = useState(false);
   const [shot, setShot] = useState<Shot | null>(null);
   const camera = useRef<CameraView>(null);
+  const prefs = usePreferences();
   const queue = useUploadQueue(id);
   const flash = useSharedValue(0);
   const flashStyle = useAnimatedStyle(() => ({ opacity: flash.get() }));
@@ -143,7 +161,13 @@ export default function CameraScreen() {
       Alert.alert(`Adding ${plural(picked.length, 'photo')}`, `You had ${left} left for this event, so the rest weren't added.`);
     }
     for (const asset of picked) {
-      const original = await originalFile(asset, access.granted);
+      let original: { uri: string; contentType: string };
+      try {
+        original = await uploadable(await originalFile(asset, access.granted));
+      } catch {
+        Alert.alert("Couldn't add a photo", 'This phone couldn’t read one of the photos (it may be a RAW file). Try saving it as JPEG first.');
+        continue;
+      }
       await enqueuePhoto({
         eventId: id,
         uri: original.uri,
@@ -201,6 +225,18 @@ export default function CameraScreen() {
                 </Pressable>
               )}
             </View>
+          )}
+          {granted && focused && prefs.viewfinderFrame && <ViewfinderFrame logoUrl={event?.logoUrl ?? null} />}
+          {granted && (
+            <Pressable
+              accessibilityRole="switch"
+              accessibilityLabel="Show the event frame on screen"
+              accessibilityState={{ checked: prefs.viewfinderFrame }}
+              hitSlop={8}
+              onPress={() => setPreference('viewfinderFrame', !prefs.viewfinderFrame)}
+              style={[styles.frameToggle, prefs.viewfinderFrame && styles.frameToggleOn]}>
+              <Frame size={icon.sm} color={prefs.viewfinderFrame ? colors.viewfinder : colors.viewfinderText} />
+            </Pressable>
           )}
           <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.flash, flashStyle]} />
         </View>
@@ -302,6 +338,18 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
     borderColor: 'rgba(170,182,139,0.45)',
   },
   flash: { backgroundColor: colors.white },
+  frameToggle: {
+    position: 'absolute',
+    top: space.md,
+    right: space.md,
+    width: 36,
+    height: 36,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  frameToggleOn: { backgroundColor: colors.viewfinderText },
   shutterRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: space['3xl'] + space.lg, marginTop: space['2xl'] },
   shutter: {
     width: 78,
