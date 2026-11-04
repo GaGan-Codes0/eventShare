@@ -21,8 +21,9 @@ export default function Join() {
     join.mutate(normalized, {
       onSuccess: (event) => {
         setCurrentEvent(event.id);
+        // Close the sheet and open the new event's album.
         router.dismissAll();
-        router.replace('/(tabs)');
+        router.navigate('/(tabs)/album');
       },
     });
   }

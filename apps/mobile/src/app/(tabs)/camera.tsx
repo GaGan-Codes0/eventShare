@@ -14,6 +14,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } 
 
 import { Button, Header, IconButton, Text } from '@/components/ui';
 import { colors, fonts, icon, radius, screenPadding, space } from '@/constants/theme';
+import { NoEventYet } from '@/features/events/no-event';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { enqueuePhoto } from '@/features/uploads/queue';
 import { useUploadQueue } from '@/features/uploads/use-upload-queue';
@@ -150,6 +151,8 @@ export default function CameraScreen() {
     }
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }
+
+  if (!id) return <NoEventYet title="Your camera" />;
 
   return (
     <View style={styles.screen}>

@@ -82,6 +82,11 @@ describe('core flow (e2e)', () => {
     const downloaded = Buffer.from(await (await fetch(gallery.body.items[0].url)).arrayBuffer());
     expect(downloaded.equals(original)).toBe(true);
 
+    // The newest photo is the event's cover in everyone's events list.
+    const listed = (await http().get('/events').set(as(guest))).body.find((e: { id: string }) => e.id === eventId);
+    const cover = Buffer.from(await (await fetch(listed.coverUrl)).arrayBuffer());
+    expect(cover.equals(thumb)).toBe(true);
+
     // Outsiders and guests are kept in their lane.
     await http().get(`/events/${eventId}/photos`).set(as(outsider)).expect(404);
     await http().patch(`/photos/${photoId}`).set(as(guest)).send({ visibility: 'hidden' }).expect(403);
@@ -90,6 +95,9 @@ describe('core flow (e2e)', () => {
     await http().patch(`/photos/${photoId}`).set(as(host)).send({ visibility: 'hidden' }).expect(200);
     expect((await http().get(`/events/${eventId}/photos`).set(as(guest))).body.items).toHaveLength(0);
     expect((await http().get(`/events/${eventId}/photos`).set(as(host))).body.items).toHaveLength(1);
+    // A hidden photo never becomes the event's cover.
+    const hiddenCover = (await http().get('/events').set(as(host))).body.find((e: { id: string }) => e.id === eventId);
+    expect(hiddenCover.coverUrl).toBeNull();
 
     // Host removes the guest: access gone, and the code no longer lets them back in.
     const guestId = (await http().get('/me').set(as(guest))).body.id as string;

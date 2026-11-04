@@ -102,7 +102,6 @@ export default function RootLayout() {
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.paper } }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="sign-in" options={{ animation: 'fade' }} />
-        <Stack.Screen name="welcome" options={{ animation: 'fade' }} />
         <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
         <Stack.Screen name="create-event" options={sheet} />
         <Stack.Screen name="join" options={sheet} />

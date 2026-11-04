@@ -7,6 +7,7 @@ import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View } from 'r
 
 import { Button, EmptyState, Header, LoadingState, PhotoTile, Text } from '@/components/ui';
 import { colors, screenPadding, space } from '@/constants/theme';
+import { NoEventYet } from '@/features/events/no-event';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { retryNow, type QueueItem } from '@/features/uploads/queue';
 import { useUploadQueue } from '@/features/uploads/use-upload-queue';
@@ -29,6 +30,7 @@ export default function Album() {
     ];
   }, [photos.data, queue.items, event?.photoCount]);
 
+  if (!id) return <NoEventYet title="The album" />;
   if (!event || photos.isPending) return <LoadingState />;
 
   return (

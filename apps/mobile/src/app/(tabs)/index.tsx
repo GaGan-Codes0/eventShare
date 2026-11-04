@@ -1,112 +1,100 @@
 import { router } from 'expo-router';
-import { ArrowUpRight, Camera, ChevronRight, CloudUpload, Heart, QrCode } from 'lucide-react-native';
+import { Plus, ScanLine } from 'lucide-react-native';
+import { useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
-import { Avatar, Banner, Button, Header, IconButton, IconTile, LoadingState, PhotoTile, SectionHeading, Text } from '@/components/ui';
+import { Avatar, Button, Header, Text } from '@/components/ui';
 import { colors, radius, screenPadding, space } from '@/constants/theme';
-import { EventCover } from '@/features/events/event-cover';
-import { useCurrentEvent } from '@/features/events/use-current-event';
-import { retryNow } from '@/features/uploads/queue';
-import { useUploadQueue } from '@/features/uploads/use-upload-queue';
-import { useMe, usePhotos } from '@/services/api/hooks';
-import { plural } from '@/utils/format';
+import { EventPoster } from '@/features/events/event-poster';
+import { useEvents, useMe } from '@/services/api/hooks';
+import { setCurrentEvent, useCurrentEventId } from '@/store/current-event';
 
+/** How many events Home shows before "See all". */
+const RECENT = 4;
+
+function pairs<T>(items: T[]) {
+  const rows: T[][] = [];
+  for (let i = 0; i < items.length; i += 2) rows.push(items.slice(i, i + 2));
+  return rows;
+}
+
+/** Home: the events you're part of, then join or create one. Picking one opens its album. */
 export default function Home() {
-  const { id, event, query } = useCurrentEvent();
+  const events = useEvents();
   const me = useMe();
-  const photos = usePhotos(id);
-  const queue = useUploadQueue(id);
+  const currentId = useCurrentEventId();
+  const [showAll, setShowAll] = useState(false);
+  const list = events.data ?? [];
+  const shown = showAll ? list : list.slice(0, RECENT);
 
-  if (!event) return <LoadingState />;
-  const recent = photos.data?.pages[0]?.items.slice(0, 10) ?? [];
+  function open(id: string) {
+    setCurrentEvent(id);
+    router.navigate('/(tabs)/album');
+  }
 
   return (
     <View style={styles.screen}>
       <Header
         right={
-          <>
-            <IconButton icon={QrCode} accessibilityLabel="Invite people" onPress={() => router.push('/invite')} />
-            <Pressable accessibilityLabel="More" onPress={() => router.navigate('/(tabs)/more')}>
-              <Avatar name={me.data?.name ?? ''} uri={me.data?.avatarUrl} />
-            </Pressable>
-          </>
+          <Pressable accessibilityLabel="More" onPress={() => router.navigate('/(tabs)/more')}>
+            <Avatar name={me.data?.name ?? ''} uri={me.data?.avatarUrl} />
+          </Pressable>
         }
       />
-      {queue.pending > 0 && (
-        <Banner icon={CloudUpload}>
-          {`${plural(queue.pending, 'photo')} waiting to upload. They're safe on this phone.`}
-        </Banner>
-      )}
       <ScrollView
         contentContainerStyle={styles.body}
-        refreshControl={
-          <RefreshControl
-            refreshing={query.isRefetching || photos.isRefetching}
-            onRefresh={() => {
-              retryNow();
-              void query.refetch();
-              void photos.refetch();
-            }}
-          />
-        }>
-        <EventCover event={event} imageUri={recent[0]?.thumbUrl} />
-
-        <View style={styles.roll}>
-          <IconTile icon={Camera} />
-          <View style={styles.flex}>
-            <Text variant="h3">A shared roll.</Text>
-            <Text variant="caption" color="muted">
-              {plural(event.photoCount, 'photo')} from {plural(event.memberCount, 'guest')} so far
+        refreshControl={<RefreshControl refreshing={events.isRefetching} onRefresh={() => void events.refetch()} />}>
+        {list.length === 0 ? (
+          <View style={styles.welcome}>
+            <Text variant="eyebrow" style={{ color: colors.viewfinderAccent }}>
+              A shared camera roll
+            </Text>
+            <Text variant="h1" style={{ color: colors.viewfinderText }}>
+              Be there.{'\n'}
+              <Text variant="h1" emphasis color="viewfinderAccent">
+                Keep all of it.
+              </Text>
+            </Text>
+            <Text style={{ color: colors.viewfinderText, opacity: 0.8 }}>
+              Everyone at your event takes photos, and they all land in one gallery for everyone.
             </Text>
           </View>
-        </View>
-        <Button
-          label="Open your camera"
-          leadingIcon={Camera}
-          trailingIcon={ArrowUpRight}
-          fullWidth
-          onPress={() => router.navigate('/(tabs)/camera')}
-        />
-
-        <View style={styles.section}>
-          <SectionHeading
-            eyebrow="Through everyone's eyes"
-            title="Little moments, kept."
-            onPressMore={recent.length > 0 ? () => router.navigate('/(tabs)/album') : undefined}
-            moreLabel="Open the album"
-          />
-          {recent.length > 0 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
-              {recent.map((p) => (
-                <View key={p.id} style={styles.stripItem}>
-                  <PhotoTile
-                    uri={p.thumbUrl}
-                    height={150}
-                    title={p.uploader.name}
-                    accessibilityLabel={`Photo by ${p.uploader.name}`}
-                    onPress={() => router.push({ pathname: '/photo/[id]', params: { id: p.id, eventId: event.id } })}
-                  />
+        ) : (
+          <>
+            <View style={styles.intro}>
+              <Text variant="eyebrow">Your events</Text>
+              <Text variant="h1">
+                Every event, <Text variant="h1" emphasis>kept together.</Text>
+              </Text>
+            </View>
+            <View style={styles.posters}>
+              {pairs(shown).map((row) => (
+                <View key={row[0].id} style={styles.row}>
+                  {row.map((e) => (
+                    <EventPoster key={e.id} event={e} current={e.id === currentId} onPress={() => open(e.id)} />
+                  ))}
+                  {row.length === 1 && <View style={styles.flex} />}
                 </View>
               ))}
-            </ScrollView>
-          ) : (
-            <Text color="muted">No photos yet. Be the first — open your camera.</Text>
-          )}
-        </View>
+            </View>
+            {list.length > RECENT && (
+              <Button
+                label={showAll ? 'Show fewer' : `See all ${list.length} events`}
+                variant="ghost"
+                fullWidth
+                onPress={() => setShowAll((v) => !v)}
+              />
+            )}
+          </>
+        )}
 
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.push('/invite')}
-          style={({ pressed }) => [styles.invite, pressed && { opacity: 0.85 }]}>
-          <IconTile icon={Heart} tone="warm" />
-          <View style={styles.flex}>
-            <Text variant="h3">Invite your people</Text>
-            <Text variant="caption" color="muted">
-              Share the QR or code. Everyone’s photos land here.
-            </Text>
-          </View>
-          <ChevronRight size={18} color={colors.subtle} />
-        </Pressable>
+        <View style={styles.actions}>
+          <Button label="Join an event" leadingIcon={ScanLine} fullWidth onPress={() => router.push('/join')} />
+          <Button label="Create an event" leadingIcon={Plus} variant="secondary" fullWidth onPress={() => router.push('/create-event')} />
+          <Text variant="caption" color="subtle" align="center">
+            Got a code or a QR from your host? Join with it.
+          </Text>
+        </View>
       </ScrollView>
     </View>
   );
@@ -115,18 +103,17 @@ export default function Home() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   body: { padding: screenPadding, paddingBottom: space['4xl'], gap: space.lg },
-  roll: { flexDirection: 'row', alignItems: 'center', gap: space.md, marginTop: space.sm },
-  flex: { flex: 1, gap: 2 },
-  section: { marginTop: space.lg },
-  strip: { gap: space.sm + 1 },
-  stripItem: { width: 116 },
-  invite: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  intro: { gap: space.sm, paddingTop: space.sm },
+  posters: { gap: space.md },
+  row: { flexDirection: 'row', gap: space.md },
+  flex: { flex: 1 },
+  welcome: {
+    minHeight: 360,
+    justifyContent: 'flex-end',
     gap: space.md,
-    padding: space.lg,
-    marginTop: space.lg,
-    borderRadius: radius.lg,
-    backgroundColor: colors.warm,
+    padding: space['2xl'],
+    borderRadius: radius.xl,
+    backgroundColor: colors.viewfinder,
   },
+  actions: { gap: space.md, marginTop: space.sm },
 });

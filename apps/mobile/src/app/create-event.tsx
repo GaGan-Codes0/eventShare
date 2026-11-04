@@ -30,8 +30,9 @@ export default function CreateEvent() {
     create.mutate(parsed.data, {
       onSuccess: (event) => {
         setCurrentEvent(event.id);
+        // Close the sheet and open the new event's album.
         router.dismissAll();
-        router.replace('/(tabs)');
+        router.navigate('/(tabs)/album');
       },
     });
   }

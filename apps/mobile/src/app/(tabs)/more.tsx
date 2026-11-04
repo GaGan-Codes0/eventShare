@@ -51,16 +51,20 @@ export default function More() {
               trailing={e.id === currentId ? <Check size={icon.sm} color={colors.primary} /> : undefined}
               onPress={() => {
                 setCurrentEvent(e.id);
-                router.navigate('/(tabs)');
+                router.navigate('/(tabs)/album');
               }}
             />
           ))}
         </MenuGroup>
 
-        <MenuLabel>This event</MenuLabel>
-        <MenuGroup>
-          <MenuRow icon={QrCode} title="Invite people" caption="QR code, link and code" onPress={() => router.push('/invite')} />
-        </MenuGroup>
+        {event && (
+          <>
+            <MenuLabel>This event</MenuLabel>
+            <MenuGroup>
+              <MenuRow icon={QrCode} title="Invite people" caption="QR code, link and code" onPress={() => router.push('/invite')} />
+            </MenuGroup>
+          </>
+        )}
         {isHost && event && (
           <View style={styles.setting}>
             <Text variant="bodyStrong">Photos per guest</Text>

@@ -5,6 +5,7 @@ import { Alert, FlatList, RefreshControl, StyleSheet, View } from 'react-native'
 
 import { Avatar, Button, Header, IconButton, ListRow, LoadingState, Pill, Text } from '@/components/ui';
 import { screenPadding, space } from '@/constants/theme';
+import { NoEventYet } from '@/features/events/no-event';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { ROLE_LABEL } from '@/features/events/roles';
 import { useMe, useMembers, useRemoveMember, useSetMemberRole } from '@/services/api/hooks';
@@ -17,6 +18,7 @@ export default function People() {
   const remove = useRemoveMember(id ?? '');
   const setRole = useSetMemberRole(id ?? '');
 
+  if (!id) return <NoEventYet title="People" />;
   if (!event || members.isPending) return <LoadingState />;
 
   function confirmRemove(m: Member) {

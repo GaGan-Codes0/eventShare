@@ -28,6 +28,7 @@ import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
 
 import { DB, type Db } from '../db/db.module.js';
 import { eventMembers, events, photos, users } from '../db/schema.js';
+import { StorageService } from '../storage/storage.service.js';
 
 type EventRow = typeof events.$inferSelect;
 type MemberRow = typeof eventMembers.$inferSelect;
@@ -42,7 +43,10 @@ export function generateJoinCode(): string {
 
 @Injectable()
 export class EventsService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly storage: StorageService,
+  ) {}
 
   /**
    * The authorization check every event-scoped route goes through.
@@ -248,16 +252,21 @@ export class EventsService {
   }
 
   private async toSummary(event: EventRow, member: MemberRow): Promise<EventSummary> {
-    const [p] = await this.db
-      .select({ n: count() })
+    const shown = and(eq(photos.eventId, event.id), eq(photos.status, 'ready'), eq(photos.visibility, 'visible'), isNull(photos.deletedAt));
+    const [p] = await this.db.select({ n: count() }).from(photos).where(shown);
+    // Until hosts can upload a poster, the newest photo is the event's cover.
+    const [latest] = await this.db
+      .select({ thumbKey: photos.thumbKey })
       .from(photos)
-      .where(and(eq(photos.eventId, event.id), eq(photos.status, 'ready'), eq(photos.visibility, 'visible'), isNull(photos.deletedAt)));
+      .where(shown)
+      .orderBy(desc(photos.createdAt))
+      .limit(1);
     return {
       id: event.id,
       name: event.name,
       location: event.location,
       startsAt: event.startsAt?.toISOString() ?? null,
-      coverUrl: null,
+      coverUrl: latest ? await this.storage.presignDownload(latest.thumbKey) : null,
       role: member.role,
       memberCount: await this.memberCount(event.id),
       photoCount: p?.n ?? 0,

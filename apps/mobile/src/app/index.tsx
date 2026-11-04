@@ -9,7 +9,7 @@ import { useEvents } from '@/services/api/hooks';
 import { getSessionUser, subscribeSession } from '@/services/api/session';
 import { setCurrentEvent, useCurrentEventId } from '@/store/current-event';
 
-/** Decides where the app opens: sign in → your events → or the welcome screen. */
+/** Decides where the app opens: sign in, or Home with your events. */
 export default function Gate() {
   // Clerk: const { isLoaded, isSignedIn } = useAuth();
   const user = useSyncExternalStore(subscribeSession, getSessionUser);
@@ -23,9 +23,9 @@ function EventGate() {
   const list = events.data;
   const currentIsValid = Boolean(currentId && list?.some((e) => e.id === currentId));
 
-  // Fall back to your most recent event if the remembered one is gone.
+  // The camera, album and people tabs show one event: your last one, else your most recent.
   useEffect(() => {
-    if (list && list.length > 0 && !currentIsValid) setCurrentEvent(list[0].id);
+    if (list && !currentIsValid) setCurrentEvent(list[0]?.id ?? null);
   }, [list, currentIsValid]);
 
   if (events.isPending) return <LoadingState />;
@@ -41,7 +41,6 @@ function EventGate() {
       </View>
     );
   }
-  if (events.data.length === 0) return <Redirect href="/welcome" />;
-  if (!currentIsValid) return <LoadingState />;
+  if (events.data.length > 0 && !currentIsValid) return <LoadingState />;
   return <Redirect href="/(tabs)" />;
 }
