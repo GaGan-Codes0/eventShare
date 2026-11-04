@@ -7,6 +7,8 @@ import type {
   Page,
   Photo,
   PhotoVisibility,
+  UpdateEventInput,
+  UpdateMemberInput,
   User,
 } from '@eventshare/shared';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -88,6 +90,27 @@ export function useRemoveMember(eventId: string) {
   return useMutation({
     mutationFn: (userId: string) => api<void>(`/events/${eventId}/members/${userId}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.event(eventId) }),
+  });
+}
+
+export function useUpdateEvent(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateEventInput) => api<EventDetail>(`/events/${eventId}`, { method: 'PATCH', body: input }),
+    onSuccess: (event) => {
+      qc.setQueryData(keys.event(eventId), event);
+      void qc.invalidateQueries({ queryKey: keys.events });
+    },
+  });
+}
+
+/** Host makes a guest the event's photographer, or back. */
+export function useSetMemberRole(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, role }: { userId: string } & UpdateMemberInput) =>
+      api<Member>(`/events/${eventId}/members/${userId}`, { method: 'PATCH', body: { role } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.members(eventId) }),
   });
 }
 

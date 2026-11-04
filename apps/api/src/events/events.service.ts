@@ -8,14 +8,21 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import {
+  DEFAULT_GUEST_PHOTO_LIMIT,
+  HOST_PHOTO_LIMIT,
   JOIN_CODE_ALPHABET,
   JOIN_CODE_LENGTH,
+  PHOTOGRAPHER_PHOTO_LIMIT,
+  photoLimitFor,
+  type ApiError,
   type CreateEventInput,
   type EventDetail,
   type EventPreview,
   type EventRole,
   type EventSummary,
   type Member,
+  type UpdateEventInput,
+  type UpdateMemberInput,
 } from '@eventshare/shared';
 import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
 
@@ -23,6 +30,9 @@ import { DB, type Db } from '../db/db.module.js';
 import { eventMembers, events, photos, users } from '../db/schema.js';
 
 type EventRow = typeof events.$inferSelect;
+type MemberRow = typeof eventMembers.$inferSelect;
+/** The db itself or an open transaction. */
+type Conn = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
 
 export function generateJoinCode(): string {
   let code = '';
@@ -38,9 +48,9 @@ export class EventsService {
    * The authorization check every event-scoped route goes through.
    * Removed members and outsiders get a 404 (we don't reveal that the event exists).
    */
-  async requireMember(eventId: string, userId: string): Promise<{ event: EventRow; role: EventRole }> {
+  async requireMember(eventId: string, userId: string): Promise<{ event: EventRow; role: EventRole; member: MemberRow }> {
     const [row] = await this.db
-      .select({ event: events, role: eventMembers.role })
+      .select({ event: events, role: eventMembers.role, member: eventMembers })
       .from(eventMembers)
       .innerJoin(events, eq(events.id, eventMembers.eventId))
       .where(
@@ -72,6 +82,7 @@ export class EventsService {
           location: input.location || null,
           startsAt: input.startsAt ? new Date(input.startsAt) : null,
           joinCode: generateJoinCode(),
+          guestPhotoLimit: input.guestPhotoLimit ?? DEFAULT_GUEST_PHOTO_LIMIT,
         })
         .returning();
       await tx.insert(eventMembers).values({ eventId: created.id, userId, role: 'host' });
@@ -82,18 +93,18 @@ export class EventsService {
 
   async listMine(userId: string): Promise<EventSummary[]> {
     const rows = await this.db
-      .select({ event: events, role: eventMembers.role })
+      .select({ event: events, member: eventMembers })
       .from(eventMembers)
       .innerJoin(events, eq(events.id, eventMembers.eventId))
       .where(and(eq(eventMembers.userId, userId), eq(eventMembers.status, 'active'), isNull(events.deletedAt)))
       .orderBy(desc(sql`coalesce(${events.startsAt}, ${events.createdAt})`));
-    return Promise.all(rows.map((r) => this.toSummary(r.event, r.role)));
+    return Promise.all(rows.map((r) => this.toSummary(r.event, r.member)));
   }
 
   async detail(eventId: string, userId: string): Promise<EventDetail> {
-    const { event, role } = await this.requireMember(eventId, userId);
+    const { event, member } = await this.requireMember(eventId, userId);
     return {
-      ...(await this.toSummary(event, role)),
+      ...(await this.toSummary(event, member)),
       joinCode: event.joinCode,
       ownerId: event.ownerId,
       createdAt: event.createdAt.toISOString(),
@@ -141,14 +152,74 @@ export class EventsService {
       .from(eventMembers)
       .innerJoin(users, eq(users.id, eventMembers.userId))
       .where(and(eq(eventMembers.eventId, eventId), eq(eventMembers.status, 'active')))
-      .orderBy(desc(sql`${eventMembers.role} = 'host'`), eventMembers.joinedAt);
+      .orderBy(desc(sql`${eventMembers.role} = 'host'`), desc(sql`${eventMembers.role} = 'photographer'`), eventMembers.joinedAt);
     return rows.map(({ m, u }) => ({
       userId: u.id,
       name: u.name,
       avatarUrl: u.avatarUrl,
       role: m.role,
       joinedAt: m.joinedAt.toISOString(),
+      photosUsed: m.photosUsed,
     }));
+  }
+
+  async update(eventId: string, hostId: string, input: UpdateEventInput): Promise<EventDetail> {
+    await this.requireHost(eventId, hostId);
+    await this.db.update(events).set(input).where(eq(events.id, eventId));
+    return this.detail(eventId, hostId);
+  }
+
+  /** Host makes a guest the photographer, or back. Photos they already took stay theirs. */
+  async setMemberRole(eventId: string, hostId: string, targetUserId: string, input: UpdateMemberInput): Promise<Member> {
+    await this.requireHost(eventId, hostId);
+    const updated = await this.db
+      .update(eventMembers)
+      .set({ role: input.role })
+      .where(
+        and(
+          eq(eventMembers.eventId, eventId),
+          eq(eventMembers.userId, targetUserId),
+          eq(eventMembers.status, 'active'),
+          sql`${eventMembers.role} <> 'host'`,
+        ),
+      )
+      .returning();
+    const member = updated.length ? (await this.members(eventId, hostId)).find((m) => m.userId === targetUserId) : undefined;
+    if (!member) throw new NotFoundException('Not a guest in this event');
+    return member;
+  }
+
+  /**
+   * Takes one photo slot for this person, or refuses once they've used their allowance.
+   * A single conditional UPDATE, so two uploads at the same moment can't both slip past the limit.
+   */
+  async reservePhotoSlot(conn: Conn, eventId: string, userId: string) {
+    const limit = sql`CASE ${eventMembers.role}
+      WHEN 'host' THEN ${HOST_PHOTO_LIMIT}::int
+      WHEN 'photographer' THEN ${PHOTOGRAPHER_PHOTO_LIMIT}::int
+      ELSE (SELECT ${events.guestPhotoLimit} FROM ${events} WHERE ${events.id} = ${eventId})
+    END`;
+    const reserved = await conn
+      .update(eventMembers)
+      .set({ photosUsed: sql`${eventMembers.photosUsed} + 1` })
+      .where(
+        and(
+          eq(eventMembers.eventId, eventId),
+          eq(eventMembers.userId, userId),
+          eq(eventMembers.status, 'active'),
+          sql`${eventMembers.photosUsed} < ${limit}`,
+        ),
+      )
+      .returning({ photosUsed: eventMembers.photosUsed });
+    if (reserved.length) return;
+
+    const { event, member } = await this.requireMember(eventId, userId);
+    const body: ApiError = {
+      statusCode: 403,
+      code: 'PHOTO_LIMIT_REACHED',
+      message: `You've used all ${photoLimitFor(member.role, event.guestPhotoLimit)} of your photos for this event`,
+    };
+    throw new ForbiddenException(body);
   }
 
   async removeMember(eventId: string, hostId: string, targetUserId: string) {
@@ -176,7 +247,7 @@ export class EventsService {
     return r?.n ?? 0;
   }
 
-  private async toSummary(event: EventRow, role: EventRole): Promise<EventSummary> {
+  private async toSummary(event: EventRow, member: MemberRow): Promise<EventSummary> {
     const [p] = await this.db
       .select({ n: count() })
       .from(photos)
@@ -187,9 +258,12 @@ export class EventsService {
       location: event.location,
       startsAt: event.startsAt?.toISOString() ?? null,
       coverUrl: null,
-      role,
+      role: member.role,
       memberCount: await this.memberCount(event.id),
       photoCount: p?.n ?? 0,
+      guestPhotoLimit: event.guestPhotoLimit,
+      photoLimit: photoLimitFor(member.role, event.guestPhotoLimit),
+      photosUsed: member.photosUsed,
     };
   }
 }

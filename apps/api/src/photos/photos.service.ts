@@ -44,6 +44,9 @@ function decodeCursor(cursor: string): { createdAt: Date; id: string } {
   return { createdAt, id };
 }
 
+/** Rolls back a photo-slot reservation when a concurrent retry already created the row. */
+class LostRace extends Error {}
+
 @Injectable()
 export class PhotosService {
   private readonly log = new Logger(PhotosService.name);
@@ -69,23 +72,35 @@ export class PhotosService {
     if (!row) {
       const id = crypto.randomUUID();
       const base = `events/${eventId}/photos/${id}`;
-      [row] = await this.db
-        .insert(photos)
-        .values({
-          id,
-          eventId,
-          uploaderId: userId,
-          clientUploadId: input.clientUploadId,
-          storageKey: `${base}/original.${EXTENSIONS[input.contentType]}`,
-          thumbKey: `${base}/thumb.jpg`,
-          contentType: input.contentType,
-          byteSize: input.byteSize,
-          width: input.width,
-          height: input.height,
-          takenAt: input.takenAt ? new Date(input.takenAt) : null,
+      // A new photo takes one slot of the uploader's allowance; retries of it (found above) don't.
+      row = await this.db
+        .transaction(async (tx) => {
+          await this.events.reservePhotoSlot(tx, eventId, userId);
+          const [created] = await tx
+            .insert(photos)
+            .values({
+              id,
+              eventId,
+              uploaderId: userId,
+              clientUploadId: input.clientUploadId,
+              storageKey: `${base}/original.${EXTENSIONS[input.contentType]}`,
+              thumbKey: `${base}/thumb.jpg`,
+              contentType: input.contentType,
+              byteSize: input.byteSize,
+              width: input.width,
+              height: input.height,
+              takenAt: input.takenAt ? new Date(input.takenAt) : null,
+            })
+            .onConflictDoNothing()
+            .returning();
+          // A concurrent retry of the same photo created it first: roll back to hand the slot back.
+          if (!created) throw new LostRace();
+          return created;
         })
-        .onConflictDoNothing()
-        .returning();
+        .catch((err: unknown) => {
+          if (err instanceof LostRace) return undefined;
+          throw err;
+        });
       // Lost a race with a concurrent retry: use the row it created.
       row ??= await this.db.query.photos.findFirst({
         where: and(eq(photos.uploaderId, userId), eq(photos.clientUploadId, input.clientUploadId)),

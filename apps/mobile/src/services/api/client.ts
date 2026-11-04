@@ -1,4 +1,4 @@
-import type { ApiError } from '@eventshare/shared';
+import type { ApiError, ApiErrorCode } from '@eventshare/shared';
 
 import { getAuthHeaders, setSession } from './session';
 
@@ -9,6 +9,7 @@ export class ApiRequestError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly code?: ApiErrorCode,
   ) {
     super(message);
   }
@@ -39,6 +40,6 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
   if (res.status === 401 && 'Authorization' in auth) void setSession(null);
   if (res.status === 204) return undefined as T;
   const data = (await res.json().catch(() => null)) as (T & Partial<ApiError>) | null;
-  if (!res.ok) throw new ApiRequestError(res.status, data?.message ?? 'Something went wrong');
+  if (!res.ok) throw new ApiRequestError(res.status, data?.message ?? 'Something went wrong', data?.code);
   return data as T;
 }

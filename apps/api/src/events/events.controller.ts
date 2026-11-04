@@ -1,5 +1,14 @@
-import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
-import { createEventSchema, joinEventSchema, type CreateEventInput, type JoinEventInput } from '@eventshare/shared';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  createEventSchema,
+  joinEventSchema,
+  updateEventSchema,
+  updateMemberSchema,
+  type CreateEventInput,
+  type JoinEventInput,
+  type UpdateEventInput,
+  type UpdateMemberInput,
+} from '@eventshare/shared';
 
 import { AuthGuard, CurrentUser, type AuthUser } from '../auth/auth.guard.js';
 import { ZodPipe } from '../common/zod.pipe.js';
@@ -25,9 +34,28 @@ export class EventsController {
     return this.events.detail(id, user.id);
   }
 
+  @Patch('events/:id')
+  update(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(updateEventSchema)) body: UpdateEventInput,
+  ) {
+    return this.events.update(id, user.id, body);
+  }
+
   @Get('events/:id/members')
   members(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.events.members(id, user.id);
+  }
+
+  @Patch('events/:id/members/:userId')
+  setMemberRole(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body(new ZodPipe(updateMemberSchema)) body: UpdateMemberInput,
+  ) {
+    return this.events.setMemberRole(id, user.id, userId, body);
   }
 
   @Delete('events/:id/members/:userId')

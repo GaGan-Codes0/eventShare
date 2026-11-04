@@ -1,12 +1,13 @@
-import type { Member } from '@eventshare/shared';
+import { PHOTOGRAPHER_PHOTO_LIMIT, type Member } from '@eventshare/shared';
 import { router } from 'expo-router';
-import { UserMinus, UserPlus } from 'lucide-react-native';
+import { Aperture, UserMinus, UserPlus } from 'lucide-react-native';
 import { Alert, FlatList, RefreshControl, StyleSheet, View } from 'react-native';
 
 import { Avatar, Button, Header, IconButton, ListRow, LoadingState, Pill, Text } from '@/components/ui';
 import { screenPadding, space } from '@/constants/theme';
 import { useCurrentEvent } from '@/features/events/use-current-event';
-import { useMe, useMembers, useRemoveMember } from '@/services/api/hooks';
+import { ROLE_LABEL } from '@/features/events/roles';
+import { useMe, useMembers, useRemoveMember, useSetMemberRole } from '@/services/api/hooks';
 import { plural } from '@/utils/format';
 
 export default function People() {
@@ -14,6 +15,7 @@ export default function People() {
   const me = useMe();
   const members = useMembers(id);
   const remove = useRemoveMember(id ?? '');
+  const setRole = useSetMemberRole(id ?? '');
 
   if (!event || members.isPending) return <LoadingState />;
 
@@ -32,6 +34,27 @@ export default function People() {
     ]);
   }
 
+  function confirmRole(m: Member) {
+    const promote = m.role === 'member';
+    Alert.alert(
+      promote ? `Make ${m.name} the photographer?` : `Make ${m.name} a guest again?`,
+      promote
+        ? `They can take up to ${PHOTOGRAPHER_PHOTO_LIMIT} photos and are shown as the Photographer.`
+        : `They go back to the guest limit of ${event?.guestPhotoLimit ?? 20} photos. Photos they already took stay.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: promote ? 'Make photographer' : 'Make guest',
+          onPress: () =>
+            setRole.mutate(
+              { userId: m.userId, role: promote ? 'photographer' : 'member' },
+              { onError: (e) => Alert.alert("Couldn't change their role", e.message) },
+            ),
+        },
+      ],
+    );
+  }
+
   return (
     <View style={styles.screen}>
       <Header title="People" />
@@ -47,23 +70,30 @@ export default function People() {
               The people <Text variant="h1" emphasis>who were there.</Text>
             </Text>
             <Text variant="caption" color="muted">
-              {plural(members.data?.length ?? 0, 'guest')} in this event
+              {plural(members.data?.length ?? 0, 'person', 'people')} in this event
             </Text>
             <Button label="Invite people" leadingIcon={UserPlus} fullWidth onPress={() => router.push('/invite')} style={styles.cta} />
           </View>
         }
         renderItem={({ item: m }) => {
           const isMe = m.userId === me.data?.id;
-          const canRemove = isHost && m.role !== 'host' && !isMe;
+          const canManage = isHost && m.role !== 'host' && !isMe;
           return (
             <ListRow
               leading={<Avatar name={m.name} uri={m.avatarUrl} size={40} />}
               title={isMe ? `${m.name} (you)` : m.name}
-              caption={`Joined ${new Date(m.joinedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`}
+              caption={`${plural(m.photosUsed, 'photo')} · ${new Date(m.joinedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`}
               trailing={
                 <View style={styles.trailing}>
-                  <Pill label={m.role === 'host' ? 'Host' : 'Guest'} />
-                  {canRemove && (
+                  <Pill label={ROLE_LABEL[m.role]} />
+                  {canManage && (
+                    <IconButton
+                      icon={Aperture}
+                      accessibilityLabel={m.role === 'photographer' ? `Make ${m.name} a guest` : `Make ${m.name} the photographer`}
+                      onPress={() => confirmRole(m)}
+                    />
+                  )}
+                  {canManage && (
                     <IconButton icon={UserMinus} color="danger" accessibilityLabel={`Remove ${m.name}`} onPress={() => confirmRemove(m)} />
                   )}
                 </View>

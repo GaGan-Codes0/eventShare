@@ -1,18 +1,21 @@
 // import { useClerk } from '@clerk/expo'; // Clerk is switched off for now.
 import { router } from 'expo-router';
 import { Check, LogOut, Plus, QrCode, ScanLine } from 'lucide-react-native';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { GUEST_PHOTO_LIMITS, PHOTOGRAPHER_PHOTO_LIMIT } from '@eventshare/shared';
 
-import { Avatar, Header, MenuGroup, MenuLabel, MenuRow, Pill, Text } from '@/components/ui';
+import { Avatar, Header, MenuGroup, MenuLabel, MenuRow, Pill, Segmented, Text } from '@/components/ui';
 import { colors, icon, radius, screenPadding, space } from '@/constants/theme';
+import { ROLE_LABEL } from '@/features/events/roles';
 import { useCurrentEvent } from '@/features/events/use-current-event';
-import { useEvents, useMe } from '@/services/api/hooks';
+import { useEvents, useMe, useUpdateEvent } from '@/services/api/hooks';
 import { setSession } from '@/services/api/session';
 import { setCurrentEvent } from '@/store/current-event';
 import { formatEventDate, plural } from '@/utils/format';
 
 export default function More() {
-  const { id: currentId, event } = useCurrentEvent();
+  const { id: currentId, event, isHost } = useCurrentEvent();
+  const update = useUpdateEvent(currentId ?? '');
   const events = useEvents();
   const me = useMe();
 
@@ -33,7 +36,7 @@ export default function More() {
               {me.data?.email ?? ''}
             </Text>
           </View>
-          {event && <Pill label={event.role === 'host' ? 'Host' : 'Guest'} />}
+          {event && <Pill label={ROLE_LABEL[event.role]} />}
         </View>
 
         <MenuLabel>Your events</MenuLabel>
@@ -58,6 +61,23 @@ export default function More() {
         <MenuGroup>
           <MenuRow icon={QrCode} title="Invite people" caption="QR code, link and code" onPress={() => router.push('/invite')} />
         </MenuGroup>
+        {isHost && event && (
+          <View style={styles.setting}>
+            <Text variant="bodyStrong">Photos per guest</Text>
+            <Segmented
+              accessibilityLabel="Photos per guest"
+              options={GUEST_PHOTO_LIMITS.map((n) => ({ value: n, label: String(n) }))}
+              value={event.guestPhotoLimit}
+              disabled={update.isPending}
+              onChange={(guestPhotoLimit) =>
+                update.mutate({ guestPhotoLimit }, { onError: (e) => Alert.alert("Couldn't change the limit", e.message) })
+              }
+            />
+            <Text variant="caption" color="muted">
+              Applies to every guest, including people already in. Photographers get {PHOTOGRAPHER_PHOTO_LIMIT}.
+            </Text>
+          </View>
+        )}
 
         <MenuLabel>More events</MenuLabel>
         <MenuGroup>
@@ -85,4 +105,5 @@ const styles = StyleSheet.create({
     backgroundColor: colors.sage,
   },
   flex: { flex: 1, gap: 2 },
+  setting: { gap: space.sm, padding: space.lg, marginTop: space.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
 });

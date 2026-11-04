@@ -1,6 +1,8 @@
+import type { GuestPhotoLimit } from '@eventshare/shared';
 import { sql } from 'drizzle-orm';
 import {
   bigint,
+  check,
   index,
   integer,
   pgEnum,
@@ -16,7 +18,7 @@ const timestamps = {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 };
 
-export const memberRole = pgEnum('member_role', ['host', 'member']);
+export const memberRole = pgEnum('member_role', ['host', 'photographer', 'member']);
 export const memberStatus = pgEnum('member_status', ['active', 'removed']);
 export const photoStatus = pgEnum('photo_status', ['pending', 'processing', 'ready', 'failed']);
 export const photoVisibility = pgEnum('photo_visibility', ['visible', 'hidden']);
@@ -38,20 +40,26 @@ export const users = pgTable('users', {
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
 
-export const events = pgTable('events', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  ownerId: uuid('owner_id')
-    .notNull()
-    .references(() => users.id),
-  name: text('name').notNull(),
-  location: text('location'),
-  startsAt: timestamp('starts_at', { withTimezone: true }),
-  /** One code per event, shared as a link and a QR. Host can rotate it. */
-  joinCode: text('join_code').notNull().unique(),
-  coverPhotoId: uuid('cover_photo_id'),
-  ...timestamps,
-  deletedAt: timestamp('deleted_at', { withTimezone: true }),
-});
+export const events = pgTable(
+  'events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => users.id),
+    name: text('name').notNull(),
+    location: text('location'),
+    startsAt: timestamp('starts_at', { withTimezone: true }),
+    /** One code per event, shared as a link and a QR. Host can rotate it. */
+    joinCode: text('join_code').notNull().unique(),
+    coverPhotoId: uuid('cover_photo_id'),
+    /** How many photos each guest may upload. The host picks 20, 40 or 60. */
+    guestPhotoLimit: integer('guest_photo_limit').$type<GuestPhotoLimit>().notNull().default(20),
+    ...timestamps,
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (t) => [check('events_guest_photo_limit_check', sql`${t.guestPhotoLimit} IN (20, 40, 60)`)],
+);
 
 export const eventMembers = pgTable(
   'event_members',
@@ -66,6 +74,11 @@ export const eventMembers = pgTable(
     status: memberStatus('status').notNull().default('active'),
     joinedAt: timestamp('joined_at', { withTimezone: true }).notNull().defaultNow(),
     removedAt: timestamp('removed_at', { withTimezone: true }),
+    /**
+     * Photos this person has started uploading here. Raised atomically, only while under their
+     * limit, so concurrent uploads can't overshoot. Deleting a photo doesn't give the slot back.
+     */
+    photosUsed: integer('photos_used').notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.eventId, t.userId] }), index('event_members_user_idx').on(t.userId)],
 );

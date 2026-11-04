@@ -15,6 +15,13 @@
       "when": 1793633314517,
       "tag": "0001_auth_passwords",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793769379563,
+      "tag": "0002_photographer_and_photo_limits",
+      "breakpoints": true
     }
   ]
 }

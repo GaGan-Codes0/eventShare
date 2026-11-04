@@ -7,5 +7,6 @@ export { ListRow } from './list-row';
 export { MenuGroup, MenuLabel, MenuRow } from './menu';
 export { PhotoTile } from './photo-tile';
 export { SectionHeading } from './section-heading';
+export { Segmented } from './segmented';
 export { Text } from './text';
 export { TextField } from './text-field';

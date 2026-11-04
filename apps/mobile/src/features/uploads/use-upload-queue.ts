@@ -10,5 +10,7 @@ export function useUploadQueue(eventId?: string | null) {
     items: scoped,
     pending: scoped.filter((i) => !i.permanent).length,
     failed: scoped.filter((i) => i.permanent),
+    /** Waiting to reach the server, so not yet counted in the event's photosUsed. */
+    unreserved: scoped.filter((i) => !i.permanent && !i.reserved).length,
   };
 }

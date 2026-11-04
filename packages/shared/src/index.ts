@@ -48,14 +48,45 @@ export type AuthSession = { token: string; user: User };
 
 // ---------- events ----------
 
-export type EventRole = 'host' | 'member';
+/** `member` is a guest. A photographer is a guest the host trusts with a bigger photo allowance. */
+export const EVENT_ROLES = ['host', 'photographer', 'member'] as const;
+export type EventRole = (typeof EVENT_ROLES)[number];
+
+/** The host picks one of these for every guest in the event. */
+export const GUEST_PHOTO_LIMITS = [20, 40, 60] as const;
+export type GuestPhotoLimit = (typeof GUEST_PHOTO_LIMITS)[number];
+export const DEFAULT_GUEST_PHOTO_LIMIT: GuestPhotoLimit = 20;
+export const PHOTOGRAPHER_PHOTO_LIMIT = 500;
+export const HOST_PHOTO_LIMIT = 500;
+
+/** How many photos someone in this role may upload to one event. */
+export function photoLimitFor(role: EventRole, guestPhotoLimit: number): number {
+  if (role === 'host') return HOST_PHOTO_LIMIT;
+  if (role === 'photographer') return PHOTOGRAPHER_PHOTO_LIMIT;
+  return guestPhotoLimit;
+}
+
+const guestPhotoLimit = z.literal(GUEST_PHOTO_LIMITS, {
+  error: `Choose ${GUEST_PHOTO_LIMITS.join(', ')} photos`,
+});
 
 export const createEventSchema = z.object({
   name: z.string().trim().min(2, 'Give your event a name').max(80),
   location: z.string().trim().max(120).optional(),
   startsAt: z.iso.datetime().optional(),
+  guestPhotoLimit: guestPhotoLimit.optional(),
 });
 export type CreateEventInput = z.infer<typeof createEventSchema>;
+
+export const updateEventSchema = z
+  .object({ guestPhotoLimit })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, 'Nothing to update');
+export type UpdateEventInput = z.infer<typeof updateEventSchema>;
+
+/** The host can make a guest the photographer, and back. Nobody can be made host. */
+export const updateMemberSchema = z.object({ role: z.enum(['photographer', 'member']) });
+export type UpdateMemberInput = z.infer<typeof updateMemberSchema>;
 
 /** Join codes are 8 chars from an unambiguous alphabet (no 0/O, 1/I/L). */
 export const JOIN_CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
@@ -80,6 +111,11 @@ export type EventSummary = {
   role: EventRole;
   memberCount: number;
   photoCount: number;
+  /** Every guest's allowance in this event (photographers and the host get more). */
+  guestPhotoLimit: GuestPhotoLimit;
+  /** Your own allowance and how much of it you've used. Discarded shots never count. */
+  photoLimit: number;
+  photosUsed: number;
 };
 
 export type EventDetail = EventSummary & {
@@ -104,6 +140,7 @@ export type Member = {
   avatarUrl: string | null;
   role: EventRole;
   joinedAt: string;
+  photosUsed: number;
 };
 
 // ---------- photos ----------
@@ -158,4 +195,7 @@ export type Page<T> = { items: T[]; nextCursor: string | null };
 
 // ---------- errors ----------
 
-export type ApiError = { statusCode: number; message: string; code?: string };
+export type ApiError = { statusCode: number; message: string; code?: ApiErrorCode };
+
+/** Machine-readable reasons the app reacts to (instead of matching on message text). */
+export type ApiErrorCode = 'PHOTO_LIMIT_REACHED';

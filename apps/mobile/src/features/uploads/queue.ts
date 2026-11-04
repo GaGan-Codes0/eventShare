@@ -31,6 +31,8 @@ export type QueueItem = {
   createdAt: number;
   attempts: number;
   nextAttemptAt: number;
+  /** The server has given this photo one of the uploader's slots (it counts in photosUsed). */
+  reserved?: boolean;
   /** Set when the server rejected the upload for good (e.g. removed from the event). */
   error?: string;
   permanent?: boolean;
@@ -45,6 +47,7 @@ let running = false;
 let timer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<() => void>();
 const uploadedListeners = new Set<(photo: Photo) => void>();
+const reservedListeners = new Set<(eventId: string) => void>();
 
 const EXT: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -80,6 +83,14 @@ export function onPhotoUploaded(listener: (photo: Photo) => void) {
   uploadedListeners.add(listener);
   return () => {
     uploadedListeners.delete(listener);
+  };
+}
+
+/** Fires when the server counts a queued photo against its owner's allowance. */
+export function onSlotReserved(listener: (eventId: string) => void) {
+  reservedListeners.add(listener);
+  return () => {
+    reservedListeners.delete(listener);
   };
 }
 
@@ -189,6 +200,11 @@ async function uploadOne(item: QueueItem) {
       takenAt: item.takenAt,
     },
   });
+  if (!item.reserved) {
+    item.reserved = true;
+    persist();
+    reservedListeners.forEach((l) => l(item.eventId));
+  }
   if (ticket.original && ticket.thumb) {
     await put(new File(dir, item.fileName), ticket.original);
     await put(new File(dir, item.thumbName), ticket.thumb);

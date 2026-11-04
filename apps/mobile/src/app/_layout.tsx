@@ -16,7 +16,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 
 import { colors, radius } from '@/constants/theme';
-import { initUploadQueue, onPhotoUploaded } from '@/features/uploads/queue';
+import { initUploadQueue, onPhotoUploaded, onSlotReserved } from '@/features/uploads/queue';
 import { keys } from '@/services/api/hooks';
 import { getSessionUser, loadSession, subscribeSession } from '@/services/api/session';
 import { loadCurrentEvent } from '@/store/current-event';
@@ -49,6 +49,8 @@ function UploadSync() {
       }),
     [qc],
   );
+  // A queued photo just took one of your slots: refresh how many shots you have left.
+  useEffect(() => onSlotReserved((eventId) => void qc.invalidateQueries({ queryKey: keys.event(eventId) })), [qc]);
   return null;
 }
 

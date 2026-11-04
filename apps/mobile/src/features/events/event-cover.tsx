@@ -19,7 +19,7 @@ export function EventCover({ event, imageUri }: { event: EventSummary; imageUri?
       <View style={styles.badge}>
         <View style={styles.badgeDot} />
         <Text variant="eyebrow" style={styles.light}>
-          {event.role === 'host' ? "You're hosting" : "You're a guest"}
+          {event.role === 'host' ? "You're hosting" : event.role === 'photographer' ? "You're the photographer" : "You're a guest"}
         </Text>
       </View>
       <View style={styles.text}>
