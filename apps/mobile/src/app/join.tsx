@@ -6,6 +6,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { Banner, Button, IconTile, Text, TextField } from '@/components/ui';
 import { radius, screenPadding, space } from '@/constants/theme';
+import { EventLogo } from '@/features/events/event-images';
 import { makeStyles, themeFor, ThemeProvider, useTheme } from '@/theme';
 import { useJoinEvent, useJoinPreview } from '@/services/api/hooks';
 import { setCurrentEvent } from '@/store/current-event';
@@ -75,7 +76,7 @@ function PreviewCard({ preview }: { preview: EventPreview }) {
   const styles = usePreviewStyles();
   return (
     <View style={styles.preview}>
-      <IconTile icon={Users} />
+      {preview.logoUrl ? <EventLogo uri={preview.logoUrl} size={44} /> : <IconTile icon={Users} />}
       <View style={styles.previewText}>
         <Text variant="h3">{preview.name}</Text>
         <Text variant="caption" color="muted">

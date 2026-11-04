@@ -1,4 +1,4 @@
-import { randomInt } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 
 import {
   ForbiddenException,
@@ -12,10 +12,14 @@ import {
   HOST_PHOTO_LIMIT,
   JOIN_CODE_ALPHABET,
   JOIN_CODE_LENGTH,
+  MAX_EVENT_IMAGE_BYTES,
   PHOTOGRAPHER_PHOTO_LIMIT,
   photoLimitFor,
   type ApiError,
+  type CreateEventImageUploadInput,
   type CreateEventInput,
+  type EventImageKind,
+  type EventImageUpload,
   type EventDetail,
   type EventPreview,
   type EventRole,
@@ -25,12 +29,19 @@ import {
   type UpdateMemberInput,
 } from '@eventshare/shared';
 import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
+import sharp from 'sharp';
 
 import { DB, type Db } from '../db/db.module.js';
 import { eventMembers, events, photos, users } from '../db/schema.js';
 import { StorageService } from '../storage/storage.service.js';
 
 type EventRow = typeof events.$inferSelect;
+
+const IMAGE_EXTENSIONS: Record<CreateEventImageUploadInput['contentType'], string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+};
 type MemberRow = typeof eventMembers.$inferSelect;
 /** The db itself or an open transaction. */
 type Conn = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -133,6 +144,7 @@ export class EventsService {
       hostName: host?.name ?? 'Your host',
       memberCount: await this.memberCount(event.id),
       theme: event.theme,
+      ...(await this.imageUrls(event)),
     };
   }
 
@@ -170,8 +182,32 @@ export class EventsService {
 
   async update(eventId: string, hostId: string, input: UpdateEventInput): Promise<EventDetail> {
     await this.requireHost(eventId, hostId);
+    if (input.logoKey) await this.checkImage(eventId, 'logo', input.logoKey);
+    if (input.posterKey) await this.checkImage(eventId, 'poster', input.posterKey);
     await this.db.update(events).set(input).where(eq(events.id, eventId));
     return this.detail(eventId, hostId);
+  }
+
+  /** Step 1 of a logo / poster change: a signed upload. Step 2 is PATCH with the key. */
+  async createImageUpload(eventId: string, hostId: string, input: CreateEventImageUploadInput): Promise<EventImageUpload> {
+    await this.requireHost(eventId, hostId);
+    const key = `events/${eventId}/${input.kind}/${randomUUID()}.${IMAGE_EXTENSIONS[input.contentType]}`;
+    const url = await this.storage.presignUpload(key, input.contentType, input.byteSize);
+    return { key, upload: { url, headers: { 'Content-Type': input.contentType } } };
+  }
+
+  /** A key saved as the logo or poster must be this event's, uploaded, and really an image. */
+  private async checkImage(eventId: string, kind: EventImageKind, key: string) {
+    if (!key.startsWith(`events/${eventId}/${kind}/`) || key.includes('..')) {
+      throw new BadRequestException(`That isn't an uploaded ${kind} for this event`);
+    }
+    const head = await this.storage.head(key);
+    if (!head) throw new BadRequestException(`Upload the ${kind} first`);
+    if (head.size > MAX_EVENT_IMAGE_BYTES) throw new BadRequestException(`The ${kind} is too big`);
+    const meta = await sharp(await this.storage.read(key))
+      .metadata()
+      .catch(() => null);
+    if (!meta?.width || !meta.height) throw new BadRequestException(`The ${kind} isn't an image`);
   }
 
   /** Host makes a guest the photographer, or back. Photos they already took stay theirs. */
@@ -252,10 +288,18 @@ export class EventsService {
     return r?.n ?? 0;
   }
 
+  private async imageUrls(event: EventRow) {
+    const [posterUrl, logoUrl] = await Promise.all(
+      [event.posterKey, event.logoKey].map((key) => (key ? this.storage.presignDownload(key) : null)),
+    );
+    return { posterUrl, logoUrl };
+  }
+
   private async toSummary(event: EventRow, member: MemberRow): Promise<EventSummary> {
     const shown = and(eq(photos.eventId, event.id), eq(photos.status, 'ready'), eq(photos.visibility, 'visible'), isNull(photos.deletedAt));
     const [p] = await this.db.select({ n: count() }).from(photos).where(shown);
-    // Until hosts can upload a poster, the newest photo is the event's cover.
+    const { posterUrl, logoUrl } = await this.imageUrls(event);
+    // Without a poster from the host, the newest photo is the event's cover.
     const [latest] = await this.db
       .select({ thumbKey: photos.thumbKey })
       .from(photos)
@@ -267,7 +311,9 @@ export class EventsService {
       name: event.name,
       location: event.location,
       startsAt: event.startsAt?.toISOString() ?? null,
-      coverUrl: latest ? await this.storage.presignDownload(latest.thumbKey) : null,
+      coverUrl: posterUrl ?? (latest ? await this.storage.presignDownload(latest.thumbKey) : null),
+      posterUrl,
+      logoUrl,
       role: member.role,
       memberCount: await this.memberCount(event.id),
       photoCount: p?.n ?? 0,

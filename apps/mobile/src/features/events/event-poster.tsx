@@ -8,6 +8,7 @@ import { radius, space } from '@/constants/theme';
 import { makeStyles, useTheme } from '@/theme';
 import { plural } from '@/utils/format';
 
+import { EventLogo } from './event-images';
 import { ROLE_LABEL } from './roles';
 
 /**
@@ -43,6 +44,11 @@ export function EventPoster({ event, current, onPress }: { event: EventSummary; 
             </Text>
           </View>
           <View style={styles.text}>
+            {event.logoUrl && (
+              <View style={styles.logo}>
+                <EventLogo uri={event.logoUrl} size={36} />
+              </View>
+            )}
             <Text variant="h3" style={styles.light} numberOfLines={2}>
               {event.name}
             </Text>
@@ -86,6 +92,7 @@ const useStyles = makeStyles(({ colors }) => ({
     backgroundColor: 'rgba(255,255,255,0.12)',
   },
   text: { padding: space.lg, gap: 2 },
+  logo: { marginBottom: space.sm },
   light: { color: colors.viewfinderText },
   dim: { color: colors.viewfinderText, opacity: 0.8 },
 }));

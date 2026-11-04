@@ -58,6 +58,9 @@ export const events = pgTable(
     guestPhotoLimit: integer('guest_photo_limit').$type<GuestPhotoLimit>().notNull().default(20),
     /** The host's theme (validated by eventThemeSchema). Null is eventShare's own look. */
     theme: jsonb('theme').$type<EventTheme>(),
+    /** Storage keys of the host's logo and poster (events/<id>/logo|poster/...). */
+    logoKey: text('logo_key'),
+    posterKey: text('poster_key'),
     ...timestamps,
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },

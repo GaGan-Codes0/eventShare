@@ -1,11 +1,13 @@
-import { FONT_PAIRINGS, POSTER_FRAMES, THEME_PRESETS, type EventDetail, type EventTheme } from '@eventshare/shared';
+import { FONT_PAIRINGS, POSTER_FRAMES, THEME_PRESETS, type EventDetail, type EventImageKind, type EventTheme } from '@eventshare/shared';
+import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { Check } from 'lucide-react-native';
+import { Check, ImagePlus } from 'lucide-react-native';
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, View } from 'react-native';
 
 import { Button, LoadingState, Pill, Segmented, Text, TextField } from '@/components/ui';
 import { icon, radius, screenPadding, space } from '@/constants/theme';
+import { EventLogo, pickEventImage } from '@/features/events/event-images';
 import { EventPoster } from '@/features/events/event-poster';
 import { ROLE_LABEL } from '@/features/events/roles';
 import { useCurrentEvent } from '@/features/events/use-current-event';
@@ -27,6 +29,9 @@ const HEX = /^#[0-9A-Fa-f]{6}$/;
 const DEFAULT = presetTheme('evergreen');
 const same = (a: EventTheme, b: EventTheme) => JSON.stringify(a) === JSON.stringify(b);
 
+/** A logo / poster picked in this sheet and already uploaded; key null means removed. */
+type Picked = { key: string | null; uri: string | null };
+
 /** Host only: pick a ready-made theme or make your own. The whole sheet previews it live. */
 export default function EventThemeScreen() {
   const { event } = useCurrentEvent();
@@ -38,7 +43,27 @@ function Editor({ event }: { event: EventDetail }) {
   const saved = event.theme ?? DEFAULT;
   const [draft, setDraft] = useState<EventTheme>(saved);
   const [hex, setHex] = useState(saved.color ?? '');
+  const [images, setImages] = useState<Partial<Record<EventImageKind, Picked>>>({});
+  const [busy, setBusy] = useState<EventImageKind | null>(null);
   const update = useUpdateEvent(event.id);
+
+  const current = { logo: event.logoUrl, poster: event.posterUrl };
+  const uriOf = (kind: EventImageKind) => (images[kind] ? images[kind].uri : current[kind]);
+  // A removed poster falls back to the newest photo, which only the server knows; show none until saved.
+  const cover = images.poster ? (images.poster.uri ?? (event.posterUrl ? null : event.coverUrl)) : event.coverUrl;
+  const previewEvent = { ...event, coverUrl: cover, logoUrl: uriOf('logo') };
+
+  async function chooseImage(kind: EventImageKind) {
+    setBusy(kind);
+    try {
+      const picked = await pickEventImage(event.id, kind);
+      if (picked) setImages((i) => ({ ...i, [kind]: picked }));
+    } catch (e) {
+      Alert.alert(`Couldn't add the ${kind}`, e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
 
   function pickPreset(preset: EventTheme['preset']) {
     setDraft(presetTheme(preset));
@@ -58,7 +83,11 @@ function Editor({ event }: { event: EventDetail }) {
 
   function save() {
     update.mutate(
-      { theme: same(draft, DEFAULT) ? null : draft },
+      {
+        theme: same(draft, DEFAULT) ? null : draft,
+        ...(images.poster && { posterKey: images.poster.key }),
+        ...(images.logo && { logoKey: images.logo.key }),
+      },
       { onSuccess: () => router.back(), onError: (e) => Alert.alert("Couldn't save the theme", e.message) },
     );
   }
@@ -66,12 +95,17 @@ function Editor({ event }: { event: EventDetail }) {
   return (
     <ThemeProvider theme={themeFor(draft)}>
       <Body
-        event={event}
+        event={previewEvent}
         draft={draft}
+        posterUri={uriOf('poster')}
+        logoUri={uriOf('logo')}
+        busy={busy}
+        onPickImage={chooseImage}
+        onRemoveImage={(kind) => setImages((i) => ({ ...i, [kind]: { key: null, uri: null } }))}
         hex={hex}
         hexError={hex && !HEX.test(hex) ? 'Use 6 digits, like #A2475E' : null}
-        dirty={!same(draft, saved)}
-        saving={update.isPending}
+        dirty={!same(draft, saved) || Object.keys(images).length > 0}
+        saving={update.isPending || busy !== null}
         onPreset={pickPreset}
         onColor={pickColor}
         onHex={typeHex}
@@ -86,6 +120,11 @@ function Editor({ event }: { event: EventDetail }) {
 type BodyProps = {
   event: EventDetail;
   draft: EventTheme;
+  posterUri: string | null;
+  logoUri: string | null;
+  busy: EventImageKind | null;
+  onPickImage: (kind: EventImageKind) => void;
+  onRemoveImage: (kind: EventImageKind) => void;
   hex: string;
   hexError: string | null;
   dirty: boolean;
@@ -98,7 +137,7 @@ type BodyProps = {
   onSave: () => void;
 };
 
-function Body({ event, draft, hex, hexError, dirty, saving, onPreset, onColor, onHex, onChange, onReset, onSave }: BodyProps) {
+function Body({ event, draft, posterUri, logoUri, busy, onPickImage, onRemoveImage, hex, hexError, dirty, saving, onPreset, onColor, onHex, onChange, onReset, onSave }: BodyProps) {
   const { colors } = useTheme();
   const styles = useStyles();
   const deepened = draft.color !== null && colors.primary !== draft.color;
@@ -121,6 +160,17 @@ function Body({ event, draft, hex, hexError, dirty, saving, onPreset, onColor, o
           <Pill label={ROLE_LABEL[event.role]} />
           <Button label="Upload" fullWidth />
         </View>
+      </View>
+
+      <Text variant="eyebrow" style={styles.section}>
+        Poster and logo
+      </Text>
+      <View style={styles.images}>
+        <ImageSlot kind="poster" label="Poster" uri={posterUri} busy={busy === 'poster'} onPick={onPickImage} onRemove={onRemoveImage} />
+        <ImageSlot kind="logo" label="Logo" uri={logoUri} busy={busy === 'logo'} onPick={onPickImage} onRemove={onRemoveImage} />
+        <Text variant="caption" color="muted" style={styles.flex}>
+          The poster is the event’s cover, instead of the newest photo. The logo sits on the poster and the album.
+        </Text>
       </View>
 
       <Text variant="eyebrow" style={styles.section}>
@@ -224,7 +274,56 @@ function Body({ event, draft, hex, hexError, dirty, saving, onPreset, onColor, o
   );
 }
 
+type SlotProps = {
+  kind: EventImageKind;
+  label: string;
+  uri: string | null;
+  busy: boolean;
+  onPick: (kind: EventImageKind) => void;
+  onRemove: (kind: EventImageKind) => void;
+};
+
+/** Tap to add or change the poster / logo; Remove underneath once there is one. */
+function ImageSlot({ kind, label, uri, busy, onPick, onRemove }: SlotProps) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+  return (
+    <View style={styles.slot}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={uri ? `Change ${kind}` : `Add ${kind}`}
+        disabled={busy}
+        onPress={() => onPick(kind)}
+        style={[styles.slotBox, kind === 'poster' && styles.slotPoster, !uri && styles.slotEmpty]}>
+        {busy ? (
+          <ActivityIndicator color={colors.primary} />
+        ) : uri ? (
+          kind === 'logo' ? (
+            <EventLogo uri={uri} size={SLOT} />
+          ) : (
+            <Image source={{ uri }} style={styles.slotImage} contentFit="cover" />
+          )
+        ) : (
+          <ImagePlus size={icon.md} color={colors.accent} />
+        )}
+      </Pressable>
+      {uri && !busy ? (
+        <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${kind}`} hitSlop={8} onPress={() => onRemove(kind)}>
+          <Text variant="caption" color="danger">
+            Remove
+          </Text>
+        </Pressable>
+      ) : (
+        <Text variant="caption" color="muted">
+          {label}
+        </Text>
+      )}
+    </View>
+  );
+}
+
 const DOT = 48;
+const SLOT = 72;
 
 const useStyles = makeStyles(({ colors, fonts }) => ({
   screen: { flex: 1, backgroundColor: colors.paper },
@@ -232,6 +331,20 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
   preview: { flexDirection: 'row', gap: space.lg, marginTop: space.md },
   sample: { flex: 1, gap: space.sm, justifyContent: 'center', alignItems: 'flex-start' },
   section: { marginTop: space.xl },
+  images: { flexDirection: 'row', alignItems: 'flex-start', gap: space.md },
+  flex: { flex: 1, paddingTop: space.xs },
+  slot: { alignItems: 'center', gap: space.xs },
+  slotBox: {
+    width: SLOT,
+    height: SLOT,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  slotPoster: { height: SLOT / 0.9 },
+  slotEmpty: { borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.lineStrong, backgroundColor: colors.field },
+  slotImage: { width: '100%', height: '100%' },
   presets: { gap: space.md, paddingVertical: space.xs },
   preset: { alignItems: 'center', gap: space.xs },
   ring: { padding: 3, borderRadius: radius.full, borderWidth: 2, borderColor: 'transparent' },

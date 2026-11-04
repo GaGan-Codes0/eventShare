@@ -7,6 +7,7 @@ import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View } from 'r
 
 import { Button, EmptyState, Header, LoadingState, PhotoTile, Text } from '@/components/ui';
 import { screenPadding, space } from '@/constants/theme';
+import { EventLogo } from '@/features/events/event-images';
 import { NoEventYet } from '@/features/events/no-event';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { retryNow, type QueueItem } from '@/features/uploads/queue';
@@ -57,7 +58,10 @@ export default function Album() {
         }
         ListHeaderComponent={
           <View style={styles.intro}>
-            <Text variant="eyebrow">{event.name}</Text>
+            <View style={styles.eventName}>
+              {event.logoUrl && <EventLogo uri={event.logoUrl} size={28} />}
+              <Text variant="eyebrow">{event.name}</Text>
+            </View>
             <Text variant="h1">
               Every moment, <Text variant="h1" emphasis>every way.</Text>
             </Text>
@@ -111,5 +115,6 @@ const styles = StyleSheet.create({
   columns: { gap: space.sm + 2 },
   cell: { flex: 1 / 2 },
   intro: { gap: space.sm, paddingTop: space['2xl'], paddingBottom: space.sm },
+  eventName: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   hiddenIcon: { position: 'absolute', top: space.sm, right: space.sm },
 });

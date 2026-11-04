@@ -1,9 +1,11 @@
 import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, UseGuards } from '@nestjs/common';
 import {
+  createEventImageUploadSchema,
   createEventSchema,
   joinEventSchema,
   updateEventSchema,
   updateMemberSchema,
+  type CreateEventImageUploadInput,
   type CreateEventInput,
   type JoinEventInput,
   type UpdateEventInput,
@@ -41,6 +43,15 @@ export class EventsController {
     @Body(new ZodPipe(updateEventSchema)) body: UpdateEventInput,
   ) {
     return this.events.update(id, user.id, body);
+  }
+
+  @Post('events/:id/images')
+  createImageUpload(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(createEventImageUploadSchema)) body: CreateEventImageUploadInput,
+  ) {
+    return this.events.createImageUpload(id, user.id, body);
   }
 
   @Get('events/:id/members')

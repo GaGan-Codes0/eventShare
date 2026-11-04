@@ -21,7 +21,7 @@ Reference mock: `Everroll_Mobile_UI.html` (shared 2026-11-02). We take its **vis
 
 ## 2. Color tokens
 
-Tokens live in `src/constants/theme.ts`. **Never hard-code hex values in components.** Colors and fonts can change per event (host themes), so components read them through `useTheme()` or `makeStyles()` from `src/theme`; lint blocks importing `colors`/`fonts` directly. Spacing, radii and icon sizes are fixed: import those from `theme.ts`. Host themes (presets, a brand colour turned into a full palette, font pairing, poster frame) are built in `src/theme/event-theme.ts`; the event tabs, invite sheet, photo viewer and join preview wear the event's theme, Home keeps eventShare's own.
+Tokens live in `src/constants/theme.ts`. **Never hard-code hex values in components.** Colors and fonts can change per event (host themes), so components read them through `useTheme()` or `makeStyles()` from `src/theme`; lint blocks importing `colors`/`fonts` directly. Spacing, radii and icon sizes are fixed: import those from `theme.ts`. Host themes (presets, a brand colour turned into a full palette, font pairing, poster frame, plus the host's own logo and poster image) are built in `src/theme/event-theme.ts`; the event tabs, invite sheet, photo viewer and join preview wear the event's theme, Home keeps eventShare's own.
 
 | Token | Hex | Use |
 |---|---|---|

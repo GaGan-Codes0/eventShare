@@ -185,6 +185,29 @@ describe('core flow (e2e)', () => {
     expect((await http().get(`/join/${created.body.joinCode}`).set(as(`late${run}`))).body.theme).toEqual(themed.body.theme);
     const reset = await http().patch(`/events/${eventId}`).set(as(host2)).send({ theme: null }).expect(200);
     expect(reset.body.theme).toBeNull();
+
+    // The host's poster replaces the newest photo as the cover; only real, uploaded images of this event count.
+    const png = await sharp({ create: { width: 400, height: 400, channels: 4, background: '#A2475E' } }).png().toBuffer();
+    const image = { kind: 'poster', contentType: 'image/png', byteSize: png.length };
+    await http().post(`/events/${eventId}/images`).set(as(shooter)).send(image).expect(403);
+    await http().post(`/events/${eventId}/images`).set(as(host2)).send({ ...image, byteSize: 16 * 1024 * 1024 }).expect(400);
+    const poster = await http().post(`/events/${eventId}/images`).set(as(host2)).send(image).expect(201);
+    expect(poster.body.key).toMatch(new RegExp(`^events/${eventId}/poster/.+\\.png$`));
+    await http().patch(`/events/${eventId}`).set(as(host2)).send({ posterKey: poster.body.key }).expect(400); // not uploaded yet
+    const put = await fetch(poster.body.upload.url, { method: 'PUT', headers: poster.body.upload.headers, body: new Uint8Array(png) });
+    expect(put.status).toBe(200);
+    await http().patch(`/events/${eventId}`).set(as(host2)).send({ logoKey: poster.body.key }).expect(400); // a poster isn't a logo
+    await http().patch(`/events/${eventId}`).set(as(host2)).send({ posterKey: `events/${randomUUID()}/poster/x.png` }).expect(400);
+    const withPoster = await http().patch(`/events/${eventId}`).set(as(host2)).send({ posterKey: poster.body.key }).expect(200);
+    expect(withPoster.body.posterUrl).toContain('/poster/');
+    expect(withPoster.body.coverUrl).toContain('/poster/');
+    expect((await http().get(`/join/${created.body.joinCode}`).set(as(`late${run}`))).body.posterUrl).toContain('/poster/');
+    const fake = await http().post(`/events/${eventId}/images`).set(as(host2)).send({ ...image, kind: 'logo', byteSize: 5 }).expect(201);
+    await fetch(fake.body.upload.url, { method: 'PUT', headers: fake.body.upload.headers, body: new TextEncoder().encode('hello') });
+    await http().patch(`/events/${eventId}`).set(as(host2)).send({ logoKey: fake.body.key }).expect(400); // not an image
+    const cleared = await http().patch(`/events/${eventId}`).set(as(host2)).send({ posterKey: null }).expect(200);
+    expect(cleared.body).toMatchObject({ posterUrl: null, logoUrl: null });
+    expect(cleared.body.coverUrl).toBeNull(); // no finished photos in this event to fall back on
   });
 
   it('signs up and logs in with email + password', async () => {

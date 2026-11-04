@@ -100,6 +100,26 @@ export const eventThemeSchema = z.object({
 });
 export type EventTheme = z.infer<typeof eventThemeSchema>;
 
+/** The host's own pictures: a logo, and a poster that replaces the newest photo as the cover. */
+export const EVENT_IMAGE_KINDS = ['logo', 'poster'] as const;
+export type EventImageKind = (typeof EVENT_IMAGE_KINDS)[number];
+export const EVENT_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+export const MAX_EVENT_IMAGE_BYTES = 15 * 1024 * 1024;
+/** The phone shrinks them before upload: long edge in pixels. */
+export const EVENT_IMAGE_MAX_EDGE: Record<EventImageKind, number> = { logo: 512, poster: 1600 };
+
+export const createEventImageUploadSchema = z.object({
+  kind: z.enum(EVENT_IMAGE_KINDS),
+  contentType: z.enum(EVENT_IMAGE_TYPES),
+  byteSize: z.number().int().positive().max(MAX_EVENT_IMAGE_BYTES, 'Pick an image under 15 MB'),
+});
+export type CreateEventImageUploadInput = z.infer<typeof createEventImageUploadSchema>;
+
+/** Upload to `upload`, then save `key` as the event's logoKey / posterKey. */
+export type EventImageUpload = { key: string; upload: UploadTarget };
+
+const imageKey = z.string().max(200).nullable();
+
 export const createEventSchema = z.object({
   name: z.string().trim().min(2, 'Give your event a name').max(80),
   location: z.string().trim().max(120).optional(),
@@ -109,7 +129,7 @@ export const createEventSchema = z.object({
 export type CreateEventInput = z.infer<typeof createEventSchema>;
 
 export const updateEventSchema = z
-  .object({ guestPhotoLimit, theme: eventThemeSchema.nullable() })
+  .object({ guestPhotoLimit, theme: eventThemeSchema.nullable(), logoKey: imageKey, posterKey: imageKey })
   .partial()
   .refine((v) => Object.keys(v).length > 0, 'Nothing to update');
 export type UpdateEventInput = z.infer<typeof updateEventSchema>;
@@ -137,7 +157,10 @@ export type EventSummary = {
   name: string;
   location: string | null;
   startsAt: string | null;
+  /** The host's poster if there is one, else the newest photo. */
   coverUrl: string | null;
+  posterUrl: string | null;
+  logoUrl: string | null;
   role: EventRole;
   memberCount: number;
   photoCount: number;
@@ -165,6 +188,8 @@ export type EventPreview = {
   hostName: string;
   memberCount: number;
   theme: EventTheme | null;
+  posterUrl: string | null;
+  logoUrl: string | null;
 };
 
 export type Member = {
