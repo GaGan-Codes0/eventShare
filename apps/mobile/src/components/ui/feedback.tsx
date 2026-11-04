@@ -1,12 +1,14 @@
 import type { LucideIcon } from 'lucide-react-native';
 import type { ReactNode } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 
-import { colors, icon, radius, space } from '@/constants/theme';
+import { icon, radius, space } from '@/constants/theme';
+import { makeStyles, useTheme } from '@/theme';
 
 import { Text } from './text';
 
 export function Pill({ label }: { label: string }) {
+  const styles = useStyles();
   return (
     <View style={styles.pill}>
       <Text variant="caption" color="accent" style={styles.pillText}>
@@ -17,6 +19,8 @@ export function Pill({ label }: { label: string }) {
 }
 
 export function IconTile({ icon: Icon, tone = 'sage' }: { icon: LucideIcon; tone?: 'sage' | 'warm' }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <View style={[styles.tile, { backgroundColor: colors[tone === 'warm' ? 'warmDeep' : 'sage'] }]}>
       <Icon size={icon.md} color={colors.ink} strokeWidth={icon.stroke} />
@@ -30,6 +34,8 @@ export function Banner({ tone = 'notice', icon: Icon, children, action }: {
   children: string;
   action?: ReactNode;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const fg = colors[tone];
   return (
     <View accessibilityRole="alert" style={[styles.banner, { backgroundColor: colors[tone === 'notice' ? 'noticeBg' : 'dangerBg'] }]}>
@@ -48,6 +54,7 @@ export function EmptyState({ icon, title, message, action }: {
   message: string;
   action?: ReactNode;
 }) {
+  const styles = useStyles();
   return (
     <View style={styles.empty}>
       <IconTile icon={icon} />
@@ -63,6 +70,8 @@ export function EmptyState({ icon, title, message, action }: {
 }
 
 export function LoadingState() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <View style={styles.empty}>
       <ActivityIndicator color={colors.primary} />
@@ -70,7 +79,7 @@ export function LoadingState() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(({ colors }) => ({
   pill: { backgroundColor: colors.sage, borderRadius: radius.sm, paddingHorizontal: space.sm, paddingVertical: 3 },
   pillText: { fontSize: 11, lineHeight: 14 },
   tile: { width: 40, height: 40, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
@@ -78,4 +87,4 @@ const styles = StyleSheet.create({
   bannerText: { flex: 1 },
   empty: { alignItems: 'center', gap: space.md, paddingVertical: space['4xl'], paddingHorizontal: space.lg },
   emptyMessage: { maxWidth: 280, marginBottom: space.sm },
-});
+}));

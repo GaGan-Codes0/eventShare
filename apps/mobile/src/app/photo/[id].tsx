@@ -11,11 +11,14 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, View } from 'react-nat
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Text } from '@/components/ui';
-import { colors, icon, radius, screenPadding, space } from '@/constants/theme';
+import { icon, radius, screenPadding, space } from '@/constants/theme';
+import { makeStyles, ThemeProvider, useCurrentEventTheme, useTheme } from '@/theme';
 import { getDownloadUrl, keys, useDeletePhoto, useEvent, useMe, useSetPhotoVisibility } from '@/services/api/hooks';
 import { timeAgo } from '@/utils/format';
 
 function ActionButton({ icon: Icon, label, onPress, busy }: { icon: typeof X; label: string; onPress: () => void; busy?: boolean }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} disabled={busy} style={({ pressed }) => [styles.action, pressed && { opacity: 0.7 }]}>
       {busy ? <ActivityIndicator color={colors.viewfinderText} /> : <Icon size={icon.md} color={colors.viewfinderText} strokeWidth={icon.stroke} />}
@@ -26,7 +29,9 @@ function ActionButton({ icon: Icon, label, onPress, busy }: { icon: typeof X; la
   );
 }
 
-export default function PhotoViewer() {
+function PhotoViewer() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const { id, eventId } = useLocalSearchParams<{ id: string; eventId: string }>();
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
@@ -140,7 +145,7 @@ export default function PhotoViewer() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(({ colors }) => ({
   screen: { flex: 1, backgroundColor: colors.inkDeep },
   close: {
     position: 'absolute',
@@ -167,4 +172,13 @@ const styles = StyleSheet.create({
   action: { flex: 1, alignItems: 'center', gap: space.xs, paddingVertical: space.sm, borderRadius: radius.md, backgroundColor: 'rgba(255,255,255,0.08)' },
   light: { color: colors.viewfinderText },
   dim: { color: colors.viewfinderText, opacity: 0.7 },
-});
+}));
+
+/** Drawn in the open event's theme. */
+export default function PhotoViewerScreen() {
+  return (
+    <ThemeProvider theme={useCurrentEventTheme()}>
+      <PhotoViewer />
+    </ThemeProvider>
+  );
+}

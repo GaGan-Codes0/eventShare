@@ -1,10 +1,11 @@
 import { router } from 'expo-router';
 import { Plus, ScanLine } from 'lucide-react-native';
 import { useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
 
 import { Avatar, Button, Header, Text } from '@/components/ui';
-import { colors, radius, screenPadding, space } from '@/constants/theme';
+import { radius, screenPadding, space } from '@/constants/theme';
+import { defaultTheme, makeStyles, themeFor, ThemeProvider, useTheme } from '@/theme';
 import { EventPoster } from '@/features/events/event-poster';
 import { useEvents, useMe } from '@/services/api/hooks';
 import { setCurrentEvent, useCurrentEventId } from '@/store/current-event';
@@ -20,6 +21,16 @@ function pairs<T>(items: T[]) {
 
 /** Home: the events you're part of, then join or create one. Picking one opens its album. */
 export default function Home() {
+  return (
+    <ThemeProvider theme={defaultTheme}>
+      <Events />
+    </ThemeProvider>
+  );
+}
+
+function Events() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const events = useEvents();
   const me = useMe();
   const currentId = useCurrentEventId();
@@ -71,7 +82,9 @@ export default function Home() {
               {pairs(shown).map((row) => (
                 <View key={row[0].id} style={styles.row}>
                   {row.map((e) => (
-                    <EventPoster key={e.id} event={e} current={e.id === currentId} onPress={() => open(e.id)} />
+                    <ThemeProvider key={e.id} theme={themeFor(e.theme)}>
+                      <EventPoster event={e} current={e.id === currentId} onPress={() => open(e.id)} />
+                    </ThemeProvider>
                   ))}
                   {row.length === 1 && <View style={styles.flex} />}
                 </View>
@@ -100,8 +113,8 @@ export default function Home() {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: { flex: 1 },
+const useStyles = makeStyles(({ colors }) => ({
+  screen: { flex: 1, backgroundColor: colors.paper },
   body: { padding: screenPadding, paddingBottom: space['4xl'], gap: space.lg },
   intro: { gap: space.sm, paddingTop: space.sm },
   posters: { gap: space.md },
@@ -116,4 +129,4 @@ const styles = StyleSheet.create({
     backgroundColor: colors.viewfinder,
   },
   actions: { gap: space.md, marginTop: space.sm },
-});
+}));

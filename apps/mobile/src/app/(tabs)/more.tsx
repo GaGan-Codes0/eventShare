@@ -1,11 +1,12 @@
 // import { useClerk } from '@clerk/expo'; // Clerk is switched off for now.
 import { router } from 'expo-router';
-import { Check, LogOut, Plus, QrCode, ScanLine } from 'lucide-react-native';
-import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { Check, LogOut, Palette, Plus, QrCode, ScanLine } from 'lucide-react-native';
+import { Alert, ScrollView, View } from 'react-native';
 import { GUEST_PHOTO_LIMITS, PHOTOGRAPHER_PHOTO_LIMIT } from '@eventshare/shared';
 
 import { Avatar, Header, MenuGroup, MenuLabel, MenuRow, Pill, Segmented, Text } from '@/components/ui';
-import { colors, icon, radius, screenPadding, space } from '@/constants/theme';
+import { icon, radius, screenPadding, space } from '@/constants/theme';
+import { makeStyles, PRESETS, useTheme } from '@/theme';
 import { ROLE_LABEL } from '@/features/events/roles';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { useEvents, useMe, useUpdateEvent } from '@/services/api/hooks';
@@ -14,6 +15,8 @@ import { setCurrentEvent } from '@/store/current-event';
 import { formatEventDate, plural } from '@/utils/format';
 
 export default function More() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const { id: currentId, event, isHost } = useCurrentEvent();
   const update = useUpdateEvent(currentId ?? '');
   const events = useEvents();
@@ -62,6 +65,14 @@ export default function More() {
             <MenuLabel>This event</MenuLabel>
             <MenuGroup>
               <MenuRow icon={QrCode} title="Invite people" caption="QR code, link and code" onPress={() => router.push('/invite')} />
+              {isHost && (
+                <MenuRow
+                  icon={Palette}
+                  title="Event theme"
+                  caption={event.theme ? (event.theme.color ? 'Your colour' : PRESETS[event.theme.preset].name) : 'eventShare’s look'}
+                  onPress={() => router.push('/event-theme')}
+                />
+              )}
             </MenuGroup>
           </>
         )}
@@ -97,7 +108,7 @@ export default function More() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(({ colors }) => ({
   screen: { flex: 1 },
   body: { padding: screenPadding, paddingBottom: space['4xl'] },
   profile: {
@@ -110,4 +121,4 @@ const styles = StyleSheet.create({
   },
   flex: { flex: 1, gap: 2 },
   setting: { gap: space.sm, padding: space.lg, marginTop: space.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
-});
+}));

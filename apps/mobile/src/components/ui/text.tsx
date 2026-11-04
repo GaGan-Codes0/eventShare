@@ -1,6 +1,7 @@
 import { Text as RNText, type TextProps as RNTextProps } from 'react-native';
 
-import { colors, fonts, type as typeScale, type ColorToken, type TypeVariant } from '@/constants/theme';
+import type { ColorToken, TypeVariant } from '@/constants/theme';
+import { useTheme } from '@/theme';
 
 export type TextProps = RNTextProps & {
   variant?: TypeVariant;
@@ -11,6 +12,7 @@ export type TextProps = RNTextProps & {
 };
 
 export function Text({ variant = 'body', color, emphasis, align, style, ...rest }: TextProps) {
+  const { colors, fonts, type: typeScale } = useTheme();
   const emphasisStyle = emphasis
     ? { fontFamily: fonts.serifItalic, color: colors[color ?? 'accent'] }
     : null;

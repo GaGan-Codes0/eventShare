@@ -1,7 +1,8 @@
 import { Image } from 'expo-image';
 import { StyleSheet, View } from 'react-native';
 
-import { colors, fonts, radius } from '@/constants/theme';
+import { radius } from '@/constants/theme';
+import { makeStyles, useTheme } from '@/theme';
 
 import { Text } from './text';
 
@@ -13,6 +14,8 @@ export function initialsOf(name: string) {
 }
 
 export function Avatar({ name, uri, size = 34 }: { name: string; uri?: string | null; size?: 28 | 34 | 40 }) {
+  const { fonts } = useTheme();
+  const styles = useStyles();
   return (
     <View
       accessibilityLabel={name}
@@ -26,7 +29,7 @@ export function Avatar({ name, uri, size = 34 }: { name: string; uri?: string | 
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(({ colors }) => ({
   base: {
     borderRadius: radius.full,
     backgroundColor: colors.sage,
@@ -36,4 +39,4 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
-});
+}));

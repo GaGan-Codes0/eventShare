@@ -172,6 +172,19 @@ describe('core flow (e2e)', () => {
     // Back to guest: already over the guest allowance, so no more photos.
     await http().patch(`/events/${eventId}/members/${shooterId}`).set(as(host2)).send({ role: 'member' }).expect(200);
     await startUpload(shooter).expect(403);
+
+    // The host's theme reaches guests and the join preview; guests can't change it.
+    expect(created.body.theme).toBeNull();
+    const theme = { preset: 'rose', color: '#a2475e', fonts: 'elegant', frame: 'polaroid' };
+    await http().patch(`/events/${eventId}`).set(as(shooter)).send({ theme }).expect(403);
+    await http().patch(`/events/${eventId}`).set(as(host2)).send({ theme: { ...theme, color: 'pink' } }).expect(400);
+    await http().patch(`/events/${eventId}`).set(as(host2)).send({ theme: { ...theme, frame: 'neon' } }).expect(400);
+    const themed = await http().patch(`/events/${eventId}`).set(as(host2)).send({ theme }).expect(200);
+    expect(themed.body.theme).toEqual({ ...theme, color: '#A2475E' });
+    expect((await http().get(`/events/${eventId}`).set(as(shooter))).body.theme).toEqual(themed.body.theme);
+    expect((await http().get(`/join/${created.body.joinCode}`).set(as(`late${run}`))).body.theme).toEqual(themed.body.theme);
+    const reset = await http().patch(`/events/${eventId}`).set(as(host2)).send({ theme: null }).expect(200);
+    expect(reset.body.theme).toBeNull();
   });
 
   it('signs up and logs in with email + password', async () => {

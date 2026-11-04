@@ -42,4 +42,4 @@ Docs: https://docs.expo.dev/eas/index.md
 
 ## Design system
 
-All UI must follow `../../docs/DESIGN.md` (colors, typography, spacing, components, copy voice). Use tokens from `src/constants/theme.ts` and components from `src/components/ui/`; never hard-code colors or font sizes in screens.
+All UI must follow `../../docs/DESIGN.md` (colors, typography, spacing, components, copy voice). Use tokens from `src/constants/theme.ts` and components from `src/components/ui/`; never hard-code colors or font sizes in screens. Colors and fonts follow the event's theme: read them with `useTheme()` / `makeStyles()` from `@/theme` (lint enforces this).

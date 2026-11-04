@@ -1,15 +1,18 @@
 import { RefreshCw, Share2 } from 'lucide-react-native';
-import { Alert, ScrollView, Share, StyleSheet, View } from 'react-native';
+import { Alert, ScrollView, Share, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
 import { Button, LoadingState, Text } from '@/components/ui';
-import { colors, fonts, radius, screenPadding, space } from '@/constants/theme';
+import { radius, screenPadding, space } from '@/constants/theme';
+import { makeStyles, ThemeProvider, useCurrentEventTheme, useTheme } from '@/theme';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { useRotateCode } from '@/services/api/hooks';
 import { formatCode, joinLink } from '@/utils/format';
 
 /** One link + one QR per event. Anyone in the event can share it; only the host can reset it. */
-export default function Invite() {
+function Invite() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const { id, event, isHost } = useCurrentEvent();
   const rotate = useRotateCode(id ?? '');
   if (!event) return <LoadingState />;
@@ -35,7 +38,7 @@ export default function Invite() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.body}>
+    <ScrollView style={styles.screen} contentContainerStyle={styles.body}>
       <Text variant="eyebrow">Invite</Text>
       <Text variant="h1">
         Bring your <Text variant="h1" emphasis>people.</Text>
@@ -65,7 +68,8 @@ export default function Invite() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(({ colors, fonts }) => ({
+  screen: { flex: 1, backgroundColor: colors.paper },
   body: { padding: screenPadding, paddingTop: space['3xl'], gap: space.md },
   card: {
     alignItems: 'center',
@@ -79,4 +83,13 @@ const styles = StyleSheet.create({
   },
   qr: { padding: space.sm },
   code: { fontFamily: fonts.mono, fontSize: 26, letterSpacing: 3, color: colors.ink },
-});
+}));
+
+/** Drawn in the open event's theme. */
+export default function InviteScreen() {
+  return (
+    <ThemeProvider theme={useCurrentEventTheme()}>
+      <Invite />
+    </ThemeProvider>
+  );
+}

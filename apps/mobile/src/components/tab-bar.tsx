@@ -5,7 +5,8 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Text } from '@/components/ui';
-import { colors, icon, space } from '@/constants/theme';
+import { icon, space } from '@/constants/theme';
+import { makeStyles, useTheme } from '@/theme';
 
 const TABS: Record<string, { label: string; icon: LucideIcon }> = {
   index: { label: 'Home', icon: House },
@@ -18,6 +19,8 @@ const TABS: Record<string, { label: string; icon: LucideIcon }> = {
 /** Design §7: five tabs, the camera raised in the middle and always one tap away. */
 export function TabBar({ state, emitter, navigateToTab }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, space.sm) }]}>
       {state.routes.map((route, index) => {
@@ -63,7 +66,7 @@ export function TabBar({ state, emitter, navigateToTab }: BottomTabBarProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(({ colors }) => ({
   bar: {
     flexDirection: 'row',
     backgroundColor: colors.surfaceBar,
@@ -87,4 +90,4 @@ const styles = StyleSheet.create({
     borderColor: colors.surfaceBar,
     boxSizing: 'content-box',
   },
-});
+}));

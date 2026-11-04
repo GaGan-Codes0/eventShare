@@ -3,11 +3,14 @@ import type { ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, fonts, icon, radius, screenPadding, space } from '@/constants/theme';
+import { icon, radius, screenPadding, space } from '@/constants/theme';
+import { makeStyles, useTheme } from '@/theme';
 
 import { Text } from './text';
 
 export function Wordmark() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <View style={styles.wordmark} accessibilityRole="header" accessibilityLabel="eventShare">
       <View style={styles.symbol}>
@@ -21,6 +24,7 @@ export function Wordmark() {
 /** Top bar: wordmark (default) or a screen title on the left, actions on the right. */
 export function Header({ title, right }: { title?: string; right?: ReactNode }) {
   const insets = useSafeAreaInsets();
+  const styles = useStyles();
   return (
     <View style={[styles.bar, { paddingTop: insets.top }]}>
       <View style={styles.inner}>
@@ -37,7 +41,7 @@ export function Header({ title, right }: { title?: string; right?: ReactNode }) 
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(({ colors, fonts }) => ({
   bar: {
     backgroundColor: colors.paper,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -63,4 +67,4 @@ const styles = StyleSheet.create({
     transform: [{ rotate: '-7deg' }],
   },
   wordmarkText: { fontFamily: fonts.serif, fontSize: 26, lineHeight: 30, letterSpacing: -1.2 },
-});
+}));

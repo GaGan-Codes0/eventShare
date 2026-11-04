@@ -2,11 +2,13 @@ import { ChevronRight, type LucideIcon } from 'lucide-react-native';
 import { Children, Fragment, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { colors, icon, radius, space, type ColorToken } from '@/constants/theme';
+import { icon, radius, space, type ColorToken } from '@/constants/theme';
+import { makeStyles, useTheme } from '@/theme';
 
 import { Text } from './text';
 
 export function MenuLabel({ children }: { children: string }) {
+  const styles = useStyles();
   return (
     <Text variant="eyebrow" style={styles.label}>
       {children}
@@ -16,6 +18,7 @@ export function MenuLabel({ children }: { children: string }) {
 
 /** Rounded card holding MenuRows, with hairlines between rows. */
 export function MenuGroup({ children }: { children: ReactNode }) {
+  const styles = useStyles();
   const rows = Children.toArray(children);
   return (
     <View style={styles.group}>
@@ -44,6 +47,8 @@ export function MenuRow({
   trailing?: ReactNode;
   tone?: ColorToken;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <Pressable
       accessibilityRole={onPress ? 'button' : undefined}
@@ -67,7 +72,7 @@ export function MenuRow({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(({ colors }) => ({
   label: { marginTop: space.lg, marginBottom: space.md },
   group: {
     backgroundColor: colors.surface,
@@ -80,4 +85,4 @@ const styles = StyleSheet.create({
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.lineStrong },
   row: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md + 1 },
   text: { flex: 1, gap: 2 },
-});
+}));

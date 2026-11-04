@@ -1,10 +1,11 @@
-import type { GuestPhotoLimit } from '@eventshare/shared';
+import type { EventTheme, GuestPhotoLimit } from '@eventshare/shared';
 import { sql } from 'drizzle-orm';
 import {
   bigint,
   check,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   primaryKey,
@@ -55,6 +56,8 @@ export const events = pgTable(
     coverPhotoId: uuid('cover_photo_id'),
     /** How many photos each guest may upload. The host picks 20, 40 or 60. */
     guestPhotoLimit: integer('guest_photo_limit').$type<GuestPhotoLimit>().notNull().default(20),
+    /** The host's theme (validated by eventThemeSchema). Null is eventShare's own look. */
+    theme: jsonb('theme').$type<EventTheme>(),
     ...timestamps,
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },

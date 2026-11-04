@@ -7,15 +7,17 @@ import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, Text, TextField, Wordmark } from '@/components/ui';
-import { colors, screenPadding, space } from '@/constants/theme';
+import { screenPadding, space } from '@/constants/theme';
 import { api } from '@/services/api/client';
 import { setSession } from '@/services/api/session';
 import { setCurrentEvent } from '@/store/current-event';
+import { useTheme } from '@/theme';
 
 type Mode = 'login' | 'signup';
 
 /** Log in, or create an account with name + email + password. */
 export default function SignIn() {
+  const { colors } = useTheme();
   const qc = useQueryClient();
   const [mode, setMode] = useState<Mode>('login');
   const [name, setName] = useState('');

@@ -1,6 +1,10 @@
 /**
  * Design tokens — the only place colors, type, spacing and radii are defined.
- * Spec: docs/DESIGN.md. Screens and components must import from here, never hard-code values.
+ * Spec: docs/DESIGN.md. Never hard-code values in screens.
+ *
+ * Colors and fonts are eventShare's defaults; an event can swap them for its own theme, so
+ * screens read them through `useTheme()` / `makeStyles()` from `@/theme`, never from here.
+ * Spacing, radii and icon sizes never change per event: import those directly.
  */
 import { Platform, type TextStyle } from 'react-native';
 
@@ -37,6 +41,8 @@ export const colors = {
 } as const;
 
 export type ColorToken = keyof typeof colors;
+/** A full set of colors for one theme (eventShare's own, or an event's). */
+export type Palette = Record<ColorToken, string>;
 
 /** Keys must match the useFonts() map in src/app/_layout.tsx. */
 export const fonts = {
@@ -49,7 +55,12 @@ export const fonts = {
   mono: Platform.select({ ios: 'Menlo', default: 'monospace' }),
 } as const;
 
-export const type = {
+export type FontToken = keyof typeof fonts;
+/** The font families for one theme. */
+export type Fonts = Record<FontToken, string>;
+
+/** The type scale, set in a theme's fonts. */
+export const typeScale = (fonts: Fonts) => ({
   display: { fontFamily: fonts.serif, fontSize: 40, lineHeight: 42, letterSpacing: -1 },
   h1: { fontFamily: fonts.serif, fontSize: 32, lineHeight: 36, letterSpacing: -1 },
   h2: { fontFamily: fonts.serif, fontSize: 24, lineHeight: 28, letterSpacing: -0.6 },
@@ -67,9 +78,10 @@ export const type = {
     textTransform: 'uppercase',
   },
   mono: { fontFamily: fonts.mono, fontSize: 12, lineHeight: 16 },
-} satisfies Record<string, TextStyle>;
+}) satisfies Record<string, TextStyle>;
 
-export type TypeVariant = keyof typeof type;
+export type TypeScale = ReturnType<typeof typeScale>;
+export type TypeVariant = keyof TypeScale;
 
 export const space = {
   xs: 4,

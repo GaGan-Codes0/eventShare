@@ -70,6 +70,36 @@ const guestPhotoLimit = z.literal(GUEST_PHOTO_LIMITS, {
   error: `Choose ${GUEST_PHOTO_LIMITS.join(', ')} photos`,
 });
 
+// ---------- event themes ----------
+
+/** Ready-made looks the host can pick. `evergreen` is eventShare's own. */
+export const THEME_PRESETS = ['evergreen', 'rose', 'marigold', 'ocean', 'plum', 'terracotta', 'charcoal'] as const;
+export type ThemePreset = (typeof THEME_PRESETS)[number];
+
+/** Heading + body font pairs. */
+export const FONT_PAIRINGS = ['classic', 'modern', 'elegant', 'romantic'] as const;
+export type FontPairing = (typeof FONT_PAIRINGS)[number];
+
+/** What goes around the event poster. */
+export const POSTER_FRAMES = ['none', 'line', 'double', 'polaroid'] as const;
+export type PosterFrame = (typeof POSTER_FRAMES)[number];
+
+/**
+ * An event's look, chosen by the host. Start from a preset; `color` (the host's own brand
+ * colour) replaces the preset's colours when set. The app builds the full palette from it.
+ */
+export const eventThemeSchema = z.object({
+  preset: z.enum(THEME_PRESETS),
+  color: z
+    .string()
+    .regex(/^#[0-9A-Fa-f]{6}$/, 'Use a colour like #385447')
+    .transform((c) => c.toUpperCase())
+    .nullable(),
+  fonts: z.enum(FONT_PAIRINGS),
+  frame: z.enum(POSTER_FRAMES),
+});
+export type EventTheme = z.infer<typeof eventThemeSchema>;
+
 export const createEventSchema = z.object({
   name: z.string().trim().min(2, 'Give your event a name').max(80),
   location: z.string().trim().max(120).optional(),
@@ -79,7 +109,7 @@ export const createEventSchema = z.object({
 export type CreateEventInput = z.infer<typeof createEventSchema>;
 
 export const updateEventSchema = z
-  .object({ guestPhotoLimit })
+  .object({ guestPhotoLimit, theme: eventThemeSchema.nullable() })
   .partial()
   .refine((v) => Object.keys(v).length > 0, 'Nothing to update');
 export type UpdateEventInput = z.infer<typeof updateEventSchema>;
@@ -116,6 +146,8 @@ export type EventSummary = {
   /** Your own allowance and how much of it you've used. Discarded shots never count. */
   photoLimit: number;
   photosUsed: number;
+  /** The host's theme, or null for eventShare's own look. */
+  theme: EventTheme | null;
 };
 
 export type EventDetail = EventSummary & {
@@ -132,6 +164,7 @@ export type EventPreview = {
   startsAt: string | null;
   hostName: string;
   memberCount: number;
+  theme: EventTheme | null;
 };
 
 export type Member = {

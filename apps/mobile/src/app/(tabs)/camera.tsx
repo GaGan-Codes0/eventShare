@@ -13,7 +13,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
 
 import { Button, Header, IconButton, Text } from '@/components/ui';
-import { colors, fonts, icon, radius, screenPadding, space } from '@/constants/theme';
+import { icon, radius, screenPadding, space } from '@/constants/theme';
+import { makeStyles, useTheme } from '@/theme';
 import { NoEventYet } from '@/features/events/no-event';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { enqueuePhoto } from '@/features/uploads/queue';
@@ -53,6 +54,8 @@ function discardFile(uri: string) {
 }
 
 export default function CameraScreen() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const { id, event } = useCurrentEvent();
   const focused = useIsFocused();
   const [permission, requestPermission] = useCameraPermissions();
@@ -260,7 +263,7 @@ export default function CameraScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(({ colors, fonts }) => ({
   screen: { flex: 1, backgroundColor: colors.sage },
   body: { padding: screenPadding, paddingBottom: space['3xl'] },
   caption: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: space.lg, gap: space.md },
@@ -315,4 +318,4 @@ const styles = StyleSheet.create({
   previewImage: { flex: 1, borderRadius: radius.lg },
   previewHint: { color: colors.viewfinderText, opacity: 0.75 },
   previewActions: { flexDirection: 'row', gap: space.md },
-});
+}));

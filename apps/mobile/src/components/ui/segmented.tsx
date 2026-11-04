@@ -1,6 +1,7 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
-import { colors, radius, space } from '@/constants/theme';
+import { radius, space } from '@/constants/theme';
+import { makeStyles, useTheme } from '@/theme';
 
 import { Text } from './text';
 
@@ -14,6 +15,8 @@ type Props<T extends string | number> = {
 
 /** A row of mutually exclusive choices, e.g. 20 / 40 / 60 photos. */
 export function Segmented<T extends string | number>({ options, value, onChange, accessibilityLabel, disabled }: Props<T>) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <View style={styles.track} accessibilityRole="radiogroup" accessibilityLabel={accessibilityLabel}>
       {options.map((o) => {
@@ -36,7 +39,7 @@ export function Segmented<T extends string | number>({ options, value, onChange,
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(({ colors }) => ({
   track: {
     flexDirection: 'row',
     padding: space.xs,
@@ -48,4 +51,4 @@ const styles = StyleSheet.create({
   },
   option: { flex: 1, minHeight: 40, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm },
   selected: { backgroundColor: colors.primary },
-});
+}));

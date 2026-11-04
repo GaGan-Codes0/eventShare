@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { colors, space } from '@/constants/theme';
+import { space } from '@/constants/theme';
+import { makeStyles } from '@/theme';
 
 import { Text } from './text';
 
@@ -18,6 +19,7 @@ export function ListRow({
   trailing?: ReactNode;
   onPress?: () => void;
 }) {
+  const styles = useStyles();
   return (
     <Pressable
       accessibilityRole={onPress ? 'button' : undefined}
@@ -40,7 +42,7 @@ export function ListRow({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(({ colors }) => ({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -50,4 +52,4 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.lineStrong,
   },
   text: { flex: 1, gap: 2 },
-});
+}));

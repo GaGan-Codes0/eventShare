@@ -132,6 +132,7 @@ export class EventsService {
       startsAt: event.startsAt?.toISOString() ?? null,
       hostName: host?.name ?? 'Your host',
       memberCount: await this.memberCount(event.id),
+      theme: event.theme,
     };
   }
 
@@ -273,6 +274,7 @@ export class EventsService {
       guestPhotoLimit: event.guestPhotoLimit,
       photoLimit: photoLimitFor(member.role, event.guestPhotoLimit),
       photosUsed: member.photosUsed,
+      theme: event.theme,
     };
   }
 }

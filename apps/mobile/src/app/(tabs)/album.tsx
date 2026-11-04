@@ -6,17 +6,19 @@ import { useMemo } from 'react';
 import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View } from 'react-native';
 
 import { Button, EmptyState, Header, LoadingState, PhotoTile, Text } from '@/components/ui';
-import { colors, screenPadding, space } from '@/constants/theme';
+import { screenPadding, space } from '@/constants/theme';
 import { NoEventYet } from '@/features/events/no-event';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { retryNow, type QueueItem } from '@/features/uploads/queue';
 import { useUploadQueue } from '@/features/uploads/use-upload-queue';
 import { usePhotos } from '@/services/api/hooks';
 import { plural, timeAgo } from '@/utils/format';
+import { useTheme } from '@/theme';
 
 type Tile = { kind: 'local'; item: QueueItem } | { kind: 'remote'; photo: Photo; frame: number };
 
 export default function Album() {
+  const { colors } = useTheme();
   const { id, event } = useCurrentEvent();
   const photos = usePhotos(id);
   const queue = useUploadQueue(id);

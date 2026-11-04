@@ -1,7 +1,8 @@
 import type { LucideIcon } from 'lucide-react-native';
 import { ActivityIndicator, Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
 
-import { colors, icon, radius, space, type ColorToken } from '@/constants/theme';
+import { icon, radius, space, type ColorToken } from '@/constants/theme';
+import { useTheme } from '@/theme';
 
 import { Text } from './text';
 
@@ -37,6 +38,7 @@ export function Button({
   loading,
   style,
 }: ButtonProps) {
+  const { colors } = useTheme();
   const p = palette[variant];
   const fg = colors[p.fg];
   const spread = Boolean(Leading && Trailing);
