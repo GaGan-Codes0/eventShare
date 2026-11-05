@@ -76,7 +76,7 @@ function RulesBody({ event }: { event: EventDetail }) {
     },
     {
       title: 'Date stamp on photos',
-      caption: 'A small monogram and date, like a disposable camera. Originals stay clean.',
+      caption: 'A small monogram and date, like a disposable camera. Guests can hide it on their phone; originals stay clean.',
       icon: CalendarClock,
       on: event.dateStamp,
       change: (on) => ({ dateStamp: on }),

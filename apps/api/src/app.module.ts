@@ -10,6 +10,7 @@ import { EventsController } from './events/events.controller.js';
 import { EventsService } from './events/events.service.js';
 import { HealthController } from './health.controller.js';
 import { PhotosController } from './photos/photos.controller.js';
+import { ArchiveService } from './photos/archive.service.js';
 import { PhotosService } from './photos/photos.service.js';
 import { StorageService } from './storage/storage.service.js';
 import { UsersController } from './users/users.controller.js';
@@ -23,6 +24,6 @@ import { UsersService } from './users/users.service.js';
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 10 }]),
   ],
   controllers: [HealthController, AuthController, UsersController, EventsController, PhotosController],
-  providers: [AuthService, AuthGuard, UsersService, EventsService, PhotosService, StorageService],
+  providers: [AuthService, AuthGuard, UsersService, EventsService, PhotosService, ArchiveService, StorageService],
 })
 export class AppModule {}

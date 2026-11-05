@@ -5,7 +5,7 @@ import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Check, Download, Eye, EyeOff, Heart, Lock, Trash2, X } from 'lucide-react-native';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -14,7 +14,9 @@ import { initialsOf, Text } from '@/components/ui';
 import { icon, radius, space } from '@/constants/theme';
 import { stampText } from '@/features/events/identity';
 import { ROLE_LABEL } from '@/features/events/roles';
+import { FilteredImage } from '@/features/gallery/photo-filters';
 import { SaveSheet } from '@/features/gallery/save-sheet';
+import { usePreferences } from '@/store/preferences';
 import { keys, useApprovePhoto, useDeletePhoto, useEvent, useLikePhoto, useMe, useSetPhotoVisibility } from '@/services/api/hooks';
 import { makeStyles, ThemeProvider, useCurrentEventTheme } from '@/theme';
 import { timeAgo } from '@/utils/format';
@@ -55,9 +57,11 @@ function PhotoViewer() {
   const approve = useApprovePhoto(eventId);
   const like = useLikePhoto(eventId);
   const [saving, setSaving] = useState(false);
+  const prefs = usePreferences();
   const [area, setArea] = useState({ width: 0, height: 0 });
   // The picture's real shape, once it loads (older photos have no stored size).
   const [loadedRatio, setLoadedRatio] = useState<number | null>(null);
+  const onPhotoLoad = useCallback((w: number, h: number) => w && h && setLoadedRatio(w / h), []);
   const photo = useCachedPhoto(eventId, id);
 
   if (!photo) {
@@ -164,16 +168,20 @@ function PhotoViewer() {
       </View>
 
       <View style={styles.photoArea} onLayout={(e) => setArea(e.nativeEvent.layout)}>
-        <Image
-          source={{ uri: photo.url ?? undefined }}
-          placeholder={{ uri: photo.thumbUrl ?? undefined }}
-          style={StyleSheet.absoluteFill}
-          contentFit="contain"
-          transition={200}
-          onLoad={(e) => e.source.width && e.source.height && setLoadedRatio(e.source.width / e.source.height)}
-          accessibilityLabel={`Photo by ${photo.uploader.name}`}
-        />
-        {ev?.dateStamp && area.width > 0 && (
+        {ev && ev.filter !== 'natural' ? (
+          <FilteredImage uri={photo.url} filter={ev.filter} fit="contain" style={StyleSheet.absoluteFill} onLoad={onPhotoLoad} />
+        ) : (
+          <Image
+            source={{ uri: photo.url ?? undefined }}
+            placeholder={{ uri: photo.thumbUrl ?? undefined }}
+            style={StyleSheet.absoluteFill}
+            contentFit="contain"
+            transition={200}
+            onLoad={(e) => onPhotoLoad(e.source.width, e.source.height)}
+            accessibilityLabel={`Photo by ${photo.uploader.name}`}
+          />
+        )}
+        {ev?.dateStamp && prefs.dateStamp && area.width > 0 && (
           <Text style={[styles.stamp, stampSpot(area, loadedRatio ?? (photo.width && photo.height ? photo.width / photo.height : 4 / 5))]}>{stampText(ev, photo.takenAt ?? photo.createdAt)}</Text>
         )}
       </View>

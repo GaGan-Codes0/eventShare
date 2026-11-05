@@ -10,6 +10,7 @@ import { captureRef } from 'react-native-view-shot';
 import { Banner, Button, Text } from '@/components/ui';
 import { icon, radius, screenPadding, space } from '@/constants/theme';
 import { FRAMED_COPY_WIDTH, FramedCopy } from '@/features/events/event-frame';
+import { exportFiltered, FILTER_LABEL } from '@/features/gallery/photo-filters';
 import { getDownloadUrl } from '@/services/api/hooks';
 import { setPreference, usePreferences } from '@/store/preferences';
 import { makeStyles, useTheme } from '@/theme';
@@ -18,8 +19,8 @@ import { formatEventDate } from '@/utils/format';
 type Props = { photo: Photo; event: EventDetail | undefined; onClose: () => void };
 
 /**
- * Save to the phone: the untouched original, a framed copy in the event's theme, or both.
- * Each person picks; the choice is remembered on their phone.
+ * Save to the phone: the untouched original, a copy with the event's photo look, a framed copy
+ * in the event's theme, or any mix. Each person picks; the choice is remembered on their phone.
  */
 export function SaveSheet({ photo, event, onClose }: Props) {
   const { colors } = useTheme();
@@ -32,7 +33,11 @@ export function SaveSheet({ photo, event, onClose }: Props) {
   const [copyHeight, setCopyHeight] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
+  // The look baked into a full-quality copy, made once from the original (null: couldn't).
+  const [looked, setLooked] = useState<string | null | undefined>(undefined);
   const copy = useRef<ComponentRef<typeof View>>(null);
+  const look = event?.filter ?? 'natural';
+  const hasLook = look !== 'natural';
 
   // Both choices start from the original at full quality, downloaded once.
   useEffect(() => {
@@ -44,7 +49,12 @@ export function SaveSheet({ photo, event, onClose }: Props) {
         const dir = new Directory(Paths.cache, 'downloads');
         dir.create({ intermediates: true, idempotent: true });
         file = await File.downloadFileAsync(url, dir, { idempotent: true });
-        if (!cancelled) setLocal(file);
+        if (cancelled) return;
+        setLocal(file);
+        if (look !== 'natural') {
+          const uri = await exportFiltered(file.uri, look).catch(() => null);
+          if (!cancelled) setLooked(uri);
+        }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't download the photo");
       }
@@ -53,10 +63,13 @@ export function SaveSheet({ photo, event, onClose }: Props) {
       cancelled = true;
       if (file?.exists) file.delete();
     };
-  }, [photo.id]);
+  }, [photo.id, look]);
 
-  const nothing = !prefs.saveOriginal && !prefs.saveFramed;
-  const ready = Boolean(local) && (!prefs.saveFramed || loaded);
+  const wantLook = hasLook && prefs.saveFiltered;
+  const nothing = !prefs.saveOriginal && !prefs.saveFramed && !wantLook;
+  // The framed copy shows the look too, so it waits for the looked copy.
+  const ready = Boolean(local) && (!prefs.saveFramed || loaded) && (!hasLook || looked !== undefined);
+  const framedSource = (hasLook && looked) || local?.uri;
   const scale = (width - screenPadding * 2) / FRAMED_COPY_WIDTH;
 
   async function save() {
@@ -66,14 +79,19 @@ export function SaveSheet({ photo, event, onClose }: Props) {
       const perm = await requestPermissionsAsync(true);
       if (!perm.granted) throw new Error('Allow eventShare to add photos in Settings.');
       if (prefs.saveOriginal) await Asset.create(local.uri);
+      if (wantLook) {
+        if (!looked) throw new Error('This phone couldn’t apply the look to this photo. The original saves fine.');
+        await Asset.create(looked);
+      }
       if (prefs.saveFramed) {
         const uri = await captureRef(copy, { format: 'jpg', quality: 0.92, result: 'tmpfile' });
         await Asset.create(uri);
         new File(uri).delete();
       }
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      const saved = prefs.saveOriginal && prefs.saveFramed ? 'The original and the framed copy are' : prefs.saveOriginal ? 'The original photo is' : 'The framed copy is';
-      Alert.alert('Saved', `${saved} in your library.`);
+      const kept = [prefs.saveOriginal && 'the original', wantLook && `the ${FILTER_LABEL[look]} copy`, prefs.saveFramed && 'the framed copy'].filter(Boolean);
+      const list = kept.length > 1 ? `${kept.slice(0, -1).join(', ')} and ${kept.at(-1)}` : String(kept[0]);
+      Alert.alert('Saved', `${list.replace(/^./, (c) => c.toUpperCase())} ${kept.length > 1 ? 'are' : 'is'} in your library.`);
       onClose();
     } catch (err) {
       Alert.alert("Couldn't save", err instanceof Error ? err.message : 'Please try again.');
@@ -94,6 +112,14 @@ export function SaveSheet({ photo, event, onClose }: Props) {
           checked={prefs.saveOriginal}
           onPress={() => setPreference('saveOriginal', !prefs.saveOriginal)}
         />
+        {hasLook && (
+          <Option
+            title={`With the ${FILTER_LABEL[look]} look`}
+            caption="Full quality, with the event’s photo look. The original stays as it is."
+            checked={prefs.saveFiltered}
+            onPress={() => setPreference('saveFiltered', !prefs.saveFiltered)}
+          />
+        )}
         <Option
           title="Framed copy"
           caption={`With ${event?.name ?? 'the event'}’s frame${event?.logoUrl ? ', logo' : ''} and name. The original stays as it is.`}
@@ -102,11 +128,11 @@ export function SaveSheet({ photo, event, onClose }: Props) {
         />
 
         <View style={[styles.preview, { height: copyHeight * scale }, !prefs.saveFramed && styles.off]}>
-          {local ? (
+          {framedSource && (!hasLook || looked !== undefined) ? (
             <View style={[styles.scaled, { transform: [{ scale }] }]}>
               <FramedCopy
                 ref={copy}
-                uri={local.uri}
+                uri={framedSource}
                 ratio={ratio}
                 eventName={event?.name ?? ''}
                 date={formatEventDate(event?.startsAt ?? photo.takenAt ?? photo.createdAt)}

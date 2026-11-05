@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { Aperture, LogOut, QrCode, UserRound } from 'lucide-react-native';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Aperture, CalendarClock, LogOut, QrCode, UserRound } from 'lucide-react-native';
+import { Pressable, ScrollView, Switch, View } from 'react-native';
 
 import { Avatar, Button, Text } from '@/components/ui';
 import { icon, radius, screenPadding, space } from '@/constants/theme';
@@ -9,6 +9,7 @@ import { useCurrentEvent } from '@/features/events/use-current-event';
 import { useMe } from '@/services/api/hooks';
 import { setSession } from '@/services/api/session';
 import { setCurrentEvent } from '@/store/current-event';
+import { setPreference, usePreferences } from '@/store/preferences';
 import { defaultTheme, makeStyles, ThemeProvider, useCurrentEventTheme, useTheme } from '@/theme';
 
 /** You: your role and photos in the open event, back to your events, invite, sign out. */
@@ -16,6 +17,7 @@ function Profile() {
   const { colors } = useTheme();
   const styles = useStyles();
   const me = useMe();
+  const prefs = usePreferences();
   const { event } = useCurrentEvent();
   // Opened from inside an event (?from=event), or from Your events.
   const fromEvent = useLocalSearchParams<{ from?: string }>().from === 'event';
@@ -55,6 +57,27 @@ function Profile() {
               </Text>
             </View>
           </View>
+          {event.dateStamp && (
+            <View style={styles.card}>
+              <View style={styles.cardIcon}>
+                <CalendarClock size={18} color={colors.primaryText} />
+              </View>
+              <View style={styles.flex}>
+                <Text variant="bodyStrong">Date stamp on photos</Text>
+                <Text variant="caption" color="muted">
+                  The small date in the corner. Only on your phone; originals never have it.
+                </Text>
+              </View>
+              <Switch
+                accessibilityLabel="Date stamp on photos"
+                value={prefs.dateStamp}
+                onValueChange={(on) => setPreference('dateStamp', on)}
+                trackColor={{ true: colors.primary, false: colors.lineStrong }}
+                thumbColor={colors.surface}
+                ios_backgroundColor={colors.lineStrong}
+              />
+            </View>
+          )}
           <Button label="Invite people" leadingIcon={QrCode} variant="secondary" fullWidth onPress={() => router.replace('/invite')} />
           <Button
             label="Your events"

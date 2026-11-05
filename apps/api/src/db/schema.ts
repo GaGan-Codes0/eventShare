@@ -1,4 +1,4 @@
-import { EVENT_TYPES, NAME_JOINERS, PHOTO_FILTERS, REVEAL_MODES, type EventTheme } from '@eventshare/shared';
+import { ARCHIVE_SCOPES, EVENT_TYPES, NAME_JOINERS, PHOTO_FILTERS, REVEAL_MODES, type EventTheme } from '@eventshare/shared';
 import { sql } from 'drizzle-orm';
 import {
   bigint,
@@ -27,6 +27,8 @@ export const photoVisibility = pgEnum('photo_visibility', ['visible', 'hidden'])
 export const eventType = pgEnum('event_type', EVENT_TYPES);
 export const revealMode = pgEnum('reveal_mode', REVEAL_MODES);
 export const photoFilter = pgEnum('photo_filter', PHOTO_FILTERS);
+export const archiveScope = pgEnum('archive_scope', ARCHIVE_SCOPES);
+export const archiveStatus = pgEnum('archive_status', ['building', 'ready', 'failed']);
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -166,4 +168,28 @@ export const photoLikes = pgTable(
     ...timestamps,
   },
   (t) => [primaryKey({ columns: [t.photoId, t.userId] })],
+);
+
+/**
+ * "Download all" ZIPs. One per event and choice is reused while its photos haven't changed
+ * (same fingerprint); each is deleted after a few days.
+ */
+export const eventArchives = pgTable(
+  'event_archives',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => events.id),
+    scope: archiveScope('scope').notNull(),
+    status: archiveStatus('status').notNull().default('building'),
+    /** Storage key of the ZIP (archives/<eventId>/<id>.zip). */
+    key: text('key').notNull(),
+    /** Which photos went in: their count, total size and newest upload. Any change means a new ZIP. */
+    fingerprint: text('fingerprint').notNull(),
+    photoCount: integer('photo_count').notNull(),
+    byteSize: bigint('byte_size', { mode: 'number' }).notNull(),
+    ...timestamps,
+  },
+  (t) => [index('event_archives_event_scope_idx').on(t.eventId, t.scope)],
 );

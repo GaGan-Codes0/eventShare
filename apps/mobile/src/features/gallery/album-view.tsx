@@ -1,8 +1,8 @@
 import type { EventDetail, Photo, PhotoListFilter } from '@eventshare/shared';
 import { router } from 'expo-router';
-import { Camera, Images, Lock } from 'lucide-react-native';
+import { Camera, Download, Images, Lock } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, RefreshControl, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Chips, LoadingState, Text } from '@/components/ui';
@@ -91,9 +91,15 @@ export function AlbumView({ event, host }: { event: EventDetail; host: boolean }
           <Chips accessibilityLabel="Show" options={GUEST_FILTERS} value={filter as (typeof GUEST_FILTERS)[number]['value']} onChange={setFilter} />
         )}
         {host && (
-          <Text variant="caption" color="muted">
-            {filter === 'all' ? `Latest of ${plural(event.photoCount, 'photo')}` : plural(tiles.length, 'photo')}
-          </Text>
+          <View style={styles.captionRow}>
+            <Text variant="caption" color="muted">
+              {filter === 'all' ? `Latest of ${plural(event.photoCount, 'photo')}` : plural(tiles.length, 'photo')}
+            </Text>
+            <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push('/download')} style={styles.downloadLink}>
+              <Download size={15} color={colors.ink} />
+              <Text variant="label">Download</Text>
+            </Pressable>
+          </View>
         )}
       </View>
       {photos.isPending ? (
@@ -142,7 +148,7 @@ export function AlbumView({ event, host }: { event: EventDetail; host: boolean }
           renderItem={({ item: row }) => (
             <View style={styles.row}>
               {row.map((t) => (
-                <PhotoCell key={tileKey(t)} tile={t} meId={host ? undefined : me.data?.id} onOpen={openPhoto} />
+                <PhotoCell key={tileKey(t)} tile={t} meId={host ? undefined : me.data?.id} onOpen={openPhoto} filter={event.filter} />
               ))}
               {Array.from({ length: 3 - row.length }, (_, i) => (
                 <View key={i} style={styles.flex} />
@@ -158,6 +164,8 @@ export function AlbumView({ event, host }: { event: EventDetail; host: boolean }
 const useStyles = makeStyles(({ colors }) => ({
   screen: { flex: 1, backgroundColor: colors.paper },
   guestTop: { paddingHorizontal: screenPadding, paddingBottom: space.md, gap: space.xs },
+  captionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  downloadLink: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   chips: { paddingHorizontal: screenPadding - 4, paddingTop: space.md, paddingBottom: space.sm, gap: space.sm },
   body: { paddingHorizontal: screenPadding - 4, paddingTop: space.xs, paddingBottom: space['4xl'], gap: space.xs },
   row: { flexDirection: 'row', gap: space.xs },

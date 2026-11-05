@@ -141,6 +141,7 @@ function AppStack() {
       <Stack.Screen name="join-preview" options={{ animation: 'fade' }} />
       <Stack.Screen name="invite" options={sheet} />
       <Stack.Screen name="profile" options={sheet} />
+      <Stack.Screen name="download" options={sheet} />
       <Stack.Screen
         name="photo/[id]"
         options={{ presentation: 'fullScreenModal', animation: 'fade', contentStyle: { backgroundColor: colors.inkDeep } }}

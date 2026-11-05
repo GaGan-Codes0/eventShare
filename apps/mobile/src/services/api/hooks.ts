@@ -1,4 +1,7 @@
 import type {
+  ArchiveStatus,
+  ArchiveScope,
+  ArchiveSummary,
   CreateEventInput,
   EventDetail,
   EventPreview,
@@ -183,6 +186,23 @@ export function useLikePhoto(eventId: string) {
       );
     },
   });
+}
+
+/** Host: counts and sizes for "Download all". */
+export function useArchiveSummary(eventId: string | null) {
+  return useQuery({
+    queryKey: ['events', eventId ?? '', 'archive'],
+    queryFn: () => api<ArchiveSummary>(`/events/${eventId}/archive`),
+    enabled: Boolean(eventId),
+  });
+}
+
+/**
+ * Host: asks for the ZIP of originals. The server reuses one if the photos haven't changed, else
+ * builds it in the background; ask again until it says ready.
+ */
+export function requestArchive(eventId: string, scope: ArchiveScope) {
+  return api<ArchiveStatus>(`/events/${eventId}/archive`, { body: { scope } });
 }
 
 export function getDownloadUrl(photoId: string) {

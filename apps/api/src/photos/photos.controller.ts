@@ -13,9 +13,11 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  createArchiveSchema,
   createUploadSchema,
   PHOTO_LIST_FILTERS,
   updatePhotoSchema,
+  type CreateArchiveInput,
   type PhotoListFilter,
   type UpdatePhotoInput,
 } from '@eventshare/shared';
@@ -23,12 +25,32 @@ import { z } from 'zod';
 
 import { AuthGuard, CurrentUser, type AuthUser } from '../auth/auth.guard.js';
 import { ZodPipe } from '../common/zod.pipe.js';
+import { ArchiveService } from './archive.service.js';
 import { PhotosService } from './photos.service.js';
 
 @UseGuards(AuthGuard)
 @Controller()
 export class PhotosController {
-  constructor(private readonly photos: PhotosService) {}
+  constructor(
+    private readonly photos: PhotosService,
+    private readonly archives: ArchiveService,
+  ) {}
+
+  /** Host: what "Download all" would hold, per choice. */
+  @Get('events/:id/archive')
+  archiveSummary(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.archives.summary(id, user.id);
+  }
+
+  /** Host: the ZIP of originals — reused if unchanged, else built in the background. Ask again until ready. */
+  @Post('events/:id/archive')
+  createArchive(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(createArchiveSchema)) body: CreateArchiveInput,
+  ) {
+    return this.archives.request(id, user.id, body.scope);
+  }
 
   @Get('events/:id/photos')
   list(

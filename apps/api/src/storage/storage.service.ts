@@ -1,11 +1,14 @@
 import {
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
   NotFound,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import type { Readable } from 'node:stream';
 import { Inject, Injectable } from '@nestjs/common';
 
 import { ENV, type Env } from '../config/env.js';
@@ -72,5 +75,21 @@ export class StorageService {
   async read(key: string): Promise<Buffer> {
     const res = await this.s3.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
     return Buffer.from(await res.Body!.transformToByteArray());
+  }
+
+  /** An object's bytes as a stream, for passing straight on (e.g. into a ZIP). */
+  async stream(key: string): Promise<Readable> {
+    const res = await this.s3.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+    return res.Body as Readable;
+  }
+
+  /** Uploads a stream of unknown length in parts, so large files never sit in memory. */
+  async uploadStream(key: string, body: Readable, contentType: string) {
+    await new Upload({ client: this.s3, params: { Bucket: this.bucket, Key: key, Body: body, ContentType: contentType } }).done();
+  }
+
+  /** Removes an object; already gone is fine. */
+  async delete(key: string) {
+    await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
   }
 }

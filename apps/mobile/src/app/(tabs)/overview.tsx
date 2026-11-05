@@ -1,7 +1,6 @@
-import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { Calendar, Camera, ChevronRight, MapPin, QrCode, ShieldCheck } from 'lucide-react-native';
+import { Calendar, Camera, ChevronRight, Download, MapPin, QrCode, ShieldCheck } from 'lucide-react-native';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Button, LoadingState, Text } from '@/components/ui';
@@ -13,6 +12,7 @@ import { longDate } from '@/features/events/identity';
 import { NoEventYet } from '@/features/events/no-event';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { openPhoto } from '@/features/gallery/album-view';
+import { FilteredImage } from '@/features/gallery/photo-filters';
 import { PhotoCell } from '@/features/gallery/photo-grid';
 import { usePhotos } from '@/services/api/hooks';
 import { makeStyles, useTheme } from '@/theme';
@@ -45,7 +45,7 @@ export default function Overview() {
         }>
         <View style={styles.card}>
           <View style={styles.cover}>
-            {event.coverUrl && <Image source={{ uri: event.coverUrl }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />}
+            <FilteredImage uri={event.coverUrl} filter={event.posterUrl ? 'natural' : event.filter} style={StyleSheet.absoluteFill} />
             <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.5)']} locations={[0.35, 1]} style={StyleSheet.absoluteFill} />
             <View style={styles.status}>
               <View style={[styles.statusDot, !live && { backgroundColor: colors.subtle }]} />
@@ -87,9 +87,10 @@ export default function Overview() {
             <Button label="Invite guests" leadingIcon={QrCode} fullWidth onPress={() => router.push('/invite')} />
           </View>
           <View style={styles.flex}>
-            <Button label="Open camera" leadingIcon={Camera} variant="secondary" fullWidth onPress={() => router.navigate('/(tabs)/camera')} />
+            <Button label="Download all" leadingIcon={Download} variant="secondary" fullWidth onPress={() => router.push('/download')} />
           </View>
         </View>
+        <Button label="Open camera" leadingIcon={Camera} variant="ghost" fullWidth onPress={() => router.navigate('/(tabs)/camera')} />
 
         {event.pendingReviewCount > 0 && (
           <Pressable accessibilityRole="button" onPress={() => router.navigate('/(tabs)/gallery')} style={styles.review}>
@@ -116,7 +117,7 @@ export default function Overview() {
             {[latest.slice(0, 3), latest.slice(3, 6)].filter((r) => r.length).map((r, i) => (
               <View key={i} style={styles.feedRow}>
                 {r.map((p) => (
-                  <PhotoCell key={p.id} tile={{ kind: 'remote', photo: p }} onOpen={openPhoto} />
+                  <PhotoCell key={p.id} tile={{ kind: 'remote', photo: p }} onOpen={openPhoto} filter={event.filter} />
                 ))}
                 {Array.from({ length: 3 - r.length }, (_, j) => (
                   <View key={j} style={styles.flex} />

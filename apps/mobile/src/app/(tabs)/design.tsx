@@ -6,7 +6,6 @@ import {
   type EventDetail,
   type EventImageKind,
   type EventTheme,
-  type PhotoFilter,
   type UpdateEventInput,
 } from '@eventshare/shared';
 import { Image } from 'expo-image';
@@ -24,12 +23,12 @@ import { FontGrid, ThemeGrid } from '@/features/events/look-pickers';
 import { pickEventImage } from '@/features/events/event-images';
 import { longDate, stampText } from '@/features/events/identity';
 import { useCurrentEvent } from '@/features/events/use-current-event';
+import { FILTER_LABEL, FilteredImage } from '@/features/gallery/photo-filters';
 import { usePhotos, useUpdateEvent } from '@/services/api/hooks';
 import { DEFAULT_EVENT_THEME, makeStyles, POSTER_FRAME_LABEL, useTheme } from '@/theme';
 
 const HEX = /^#[0-9A-Fa-f]{6}$/;
 
-const FILTER_LABEL: Record<PhotoFilter, string> = { natural: 'Natural', golden: 'Golden hour', mono: 'Mono', faded: 'Faded film' };
 
 /** Host: how the event looks to every guest. Changes go out as you make them. */
 export default function DesignStudio() {
@@ -117,7 +116,7 @@ function Studio({ event }: { event: EventDetail }) {
             </View>
           </View>
           <View style={styles.previewCover}>
-            {event.coverUrl && <Image source={{ uri: event.coverUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />}
+            <FilteredImage uri={event.coverUrl} filter={event.posterUrl ? 'natural' : event.filter} style={StyleSheet.absoluteFill} />
             <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.6)']} locations={[0.3, 1]} style={StyleSheet.absoluteFill} />
             <View style={styles.previewBadge}>
               <EventBadge event={event} size={40} />
@@ -296,7 +295,7 @@ function Studio({ event }: { event: EventDetail }) {
                   onPress={() => save({ filter: f })}
                   style={styles.quarter}>
                   <View style={[styles.filterTile, selected && styles.filterOn]}>
-                    {sample && <Image source={{ uri: sample }} style={StyleSheet.absoluteFill} contentFit="cover" />}
+                    <FilteredImage uri={sample} filter={f} style={StyleSheet.absoluteFill} />
                   </View>
                   <Text variant="caption" align="center" style={selected && { fontFamily: fonts.sansSemiBold }}>
                     {FILTER_LABEL[f]}

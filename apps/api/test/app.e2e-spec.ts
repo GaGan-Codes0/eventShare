@@ -11,6 +11,7 @@ import request from 'supertest';
 import type { App } from 'supertest/types.js';
 
 import { AppModule } from './../src/app.module.js';
+import { StorageService } from './../src/storage/storage.service.js';
 
 describe('core flow (e2e)', () => {
   let app: INestApplication<App>;
@@ -199,6 +200,14 @@ describe('core flow (e2e)', () => {
     await http().patch(`/events/${eventId}`).set(as(host2)).send({ logoKey: poster.body.key }).expect(400); // a poster isn't a logo
     await http().patch(`/events/${eventId}`).set(as(host2)).send({ posterKey: `events/${randomUUID()}/poster/x.png` }).expect(400);
     const withPoster = await http().patch(`/events/${eventId}`).set(as(host2)).send({ posterKey: poster.body.key }).expect(200);
+    // Replacing the poster deletes the old picture from storage (in the background).
+    const second = await http().post(`/events/${eventId}/images`).set(as(host2)).send(image).expect(201);
+    await fetch(second.body.upload.url, { method: 'PUT', headers: second.body.upload.headers, body: new Uint8Array(png) });
+    await http().patch(`/events/${eventId}`).set(as(host2)).send({ posterKey: second.body.key }).expect(200);
+    const storage = app.get(StorageService);
+    for (let i = 0; i < 20 && (await storage.head(poster.body.key)); i++) await new Promise((done) => setTimeout(done, 100));
+    expect(await storage.head(poster.body.key)).toBeNull();
+    expect(await storage.head(second.body.key)).not.toBeNull();
     expect(withPoster.body.posterUrl).toContain('/poster/');
     expect(withPoster.body.coverUrl).toContain('/poster/');
     expect((await http().get(`/join/${created.body.joinCode}`).set(as(`late${run}`))).body.posterUrl).toContain('/poster/');
@@ -329,6 +338,43 @@ describe('core flow (e2e)', () => {
     expect(await album(g2, 'photographers')).toEqual([]);
     expect(await album(g2, 'guests')).toEqual(expect.arrayContaining([waiting, own]));
     expect(await album(g2, 'mine')).toEqual([own]);
+
+    // Download all: host only; originals in a ZIP with a folder per person.
+    await http().get(`/events/${eventId}/archive`).set(as(g2)).expect(403);
+    const summary = await http().get(`/events/${eventId}/archive`).set(as(h)).expect(200);
+    expect(summary.body.all.count).toBe(2);
+    expect(summary.body.all.bytes).toBe(2 * original.length);
+    expect(summary.body.photographers.count).toBe(0);
+    await http().post(`/events/${eventId}/archive`).set(as(h)).send({ scope: 'photographers' }).expect(404);
+    // Built in the background: ask until it's ready.
+    const ready = async () => {
+      for (let i = 0; i < 50; i++) {
+        const res = await http().post(`/events/${eventId}/archive`).set(as(h)).send({ scope: 'all' }).expect(201);
+        if (res.body.status === 'ready') return res.body as { url: string; count: number; bytes: number };
+        expect(res.body.status).toBe('building');
+        await new Promise((done) => setTimeout(done, 200));
+      }
+      throw new Error('ZIP never got ready');
+    };
+    const zipKey = (url: string) => new URL(url).pathname;
+    const archive = await ready();
+    expect(archive).toMatchObject({ count: 2, bytes: 2 * original.length });
+    const zip = Buffer.from(await (await fetch(archive.url)).arrayBuffer());
+    expect(zip.subarray(0, 2).toString()).toBe('PK');
+    expect(zip.length).toBeGreaterThan(2 * original.length); // stored, not recompressed
+    expect(zip.includes(Buffer.from(`Wedg1${run}/001 `))).toBe(true); // dev users are named after their handle
+    expect(zip.includes(original)).toBe(true); // the original's bytes, untouched
+
+    // Photos unchanged: the same ZIP again. A new photo: a new ZIP, and the old one is deleted.
+    expect(zipKey((await ready()).url)).toBe(zipKey(archive.url));
+    await upload(g1);
+    const after = await ready();
+    expect(after.count).toBe(3);
+    expect(zipKey(after.url)).not.toBe(zipKey(archive.url));
+    const storage = app.get(StorageService);
+    const oldKey = decodeURIComponent(zipKey(archive.url)).replace(/^\/[^/]+\//, ''); // drop the bucket
+    for (let i = 0; i < 20 && (await storage.head(oldKey)); i++) await new Promise((done) => setTimeout(done, 100));
+    expect(await storage.head(oldKey)).toBeNull();
   });
 
   it('signs up and logs in with email + password', async () => {

@@ -365,6 +365,23 @@ export type PhotoListFilter = (typeof PHOTO_LIST_FILTERS)[number];
 
 export type PhotoLikes = { likeCount: number; likedByMe: boolean };
 
+/** Host's "Download all": originals in a ZIP, in folders by who took them. */
+export const ARCHIVE_SCOPES = ['all', 'photographers', 'guests'] as const;
+export type ArchiveScope = (typeof ARCHIVE_SCOPES)[number];
+export type ArchiveSummary = Record<ArchiveScope, { count: number; bytes: number }>;
+export const createArchiveSchema = z.object({ scope: z.enum(ARCHIVE_SCOPES) });
+export type CreateArchiveInput = z.infer<typeof createArchiveSchema>;
+/**
+ * Where a ZIP stands. Building happens on the server in the background, so the phone can close
+ * the sheet and come back; a ready ZIP comes with a short-lived link and is kept for a few days.
+ */
+export type ArchiveStatus =
+  | { status: 'building'; count: number; bytes: number }
+  | { status: 'ready'; url: string; count: number; bytes: number }
+  | { status: 'failed'; count: number; bytes: number };
+/** How long a finished ZIP is kept and reused before it's deleted. */
+export const ARCHIVE_KEEP_DAYS = 3;
+
 export type Photo = {
   id: string;
   eventId: string;

@@ -43,6 +43,13 @@
       "when": 1793788432378,
       "tag": "0005_prototype_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793856924269,
+      "tag": "0006_event_archives",
+      "breakpoints": true
     }
   ]
 }

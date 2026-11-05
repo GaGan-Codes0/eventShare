@@ -1,4 +1,4 @@
-import type { Photo } from '@eventshare/shared';
+import type { Photo, PhotoFilter } from '@eventshare/shared';
 import { File, Paths } from 'expo-file-system';
 import { Image } from 'expo-image';
 import { Aperture, CloudUpload, EyeOff, TriangleAlert } from 'lucide-react-native';
@@ -7,6 +7,8 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { Text } from '@/components/ui';
 import { space } from '@/constants/theme';
 import type { QueueItem } from '@/features/uploads/queue';
+
+import { FilteredImage } from './photo-filters';
 import { makeStyles, useTheme } from '@/theme';
 
 /** A photo still on this phone (uploading) or one in the album. */
@@ -15,7 +17,7 @@ export type Tile = { kind: 'local'; item: QueueItem } | { kind: 'remote'; photo:
 export const tileKey = (t: Tile) => (t.kind === 'local' ? `local-${t.item.id}` : t.photo.id);
 
 /** One 4:5 tile: photographer badge, "In review" on your own waiting photos, hidden mark for the host. */
-export function PhotoCell({ tile, meId, onOpen }: { tile: Tile; meId?: string; onOpen?: (photo: Photo) => void }) {
+export function PhotoCell({ tile, meId, onOpen, filter = 'natural' }: { tile: Tile; meId?: string; onOpen?: (photo: Photo) => void; filter?: PhotoFilter }) {
   const { colors } = useTheme();
   const styles = useStyles();
   if (tile.kind === 'local') {
@@ -38,7 +40,7 @@ export function PhotoCell({ tile, meId, onOpen }: { tile: Tile; meId?: string; o
       accessibilityLabel={`Photo by ${p.uploader.name}${byPhotographer ? ', photographer' : ''}${p.pendingReview ? ', in review' : ''}`}
       onPress={() => onOpen?.(p)}
       style={({ pressed }) => [styles.cell, pressed && { opacity: 0.85 }]}>
-      {p.thumbUrl && <Image source={{ uri: p.thumbUrl }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />}
+      <FilteredImage uri={p.thumbUrl} filter={filter} style={StyleSheet.absoluteFill} />
       {byPhotographer && (
         <View style={styles.badge}>
           <Aperture size={11} color={colors.white} />

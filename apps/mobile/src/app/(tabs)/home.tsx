@@ -1,4 +1,3 @@
-import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { Aperture, Camera, ChevronRight, Lock, MapPin } from 'lucide-react-native';
@@ -11,6 +10,7 @@ import { hostShort, longDate } from '@/features/events/identity';
 import { NoEventYet } from '@/features/events/no-event';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { lockText, openPhoto } from '@/features/gallery/album-view';
+import { FilteredImage } from '@/features/gallery/photo-filters';
 import { PhotoCell } from '@/features/gallery/photo-grid';
 import { useUploadQueue } from '@/features/uploads/use-upload-queue';
 import { usePhotos } from '@/services/api/hooks';
@@ -47,7 +47,8 @@ export default function EventHome() {
           />
         }>
         <View style={styles.hero}>
-          {event.coverUrl && <Image source={{ uri: event.coverUrl }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />}
+          {/* The host's own poster is shown as designed; a photo cover gets the event's look. */}
+          <FilteredImage uri={event.coverUrl} filter={event.posterUrl ? 'natural' : event.filter} style={StyleSheet.absoluteFill} />
           <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.62)']} locations={[0.3, 1]} style={StyleSheet.absoluteFill} />
           <View style={styles.heroText}>
             {event.startsAt && (
@@ -155,7 +156,7 @@ export default function EventHome() {
               {[strip.slice(0, 4), strip.slice(4, 8)].filter((r) => r.length).map((r, i) => (
                 <View key={i} style={styles.stripRow}>
                   {r.map((p) => (
-                    <PhotoCell key={p.id} tile={{ kind: 'remote', photo: p }} onOpen={openPhoto} />
+                    <PhotoCell key={p.id} tile={{ kind: 'remote', photo: p }} onOpen={openPhoto} filter={event.filter} />
                   ))}
                   {Array.from({ length: 4 - r.length }, (_, j) => (
                     <View key={j} style={styles.flex} />

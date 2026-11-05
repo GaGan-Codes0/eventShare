@@ -8,10 +8,14 @@ export type Preferences = {
   /** What Save puts in the phone's library: the untouched original, a framed copy, or both. */
   saveOriginal: boolean;
   saveFramed: boolean;
+  /** A full-quality copy with the event's photo look (when it has one). */
+  saveFiltered: boolean;
+  /** Show the event's date stamp on photos (when the host has it on). */
+  dateStamp: boolean;
 };
 
 const KEY = 'preferences';
-const DEFAULTS: Preferences = { viewfinderFrame: false, saveOriginal: true, saveFramed: false };
+const DEFAULTS: Preferences = { viewfinderFrame: false, saveOriginal: true, saveFramed: false, saveFiltered: true, dateStamp: true };
 let prefs = DEFAULTS;
 const listeners = new Set<() => void>();
 

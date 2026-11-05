@@ -244,6 +244,13 @@ export class EventsService {
         name: displayName(next),
       })
       .where(eq(events.id, eventId));
+    // The old picture isn't used anywhere once replaced or removed: delete it, without making the host wait.
+    for (const [old, now] of [
+      [event.logoKey, input.logoKey],
+      [event.posterKey, input.posterKey],
+    ] as const) {
+      if (now !== undefined && old && old !== now) void this.storage.delete(old).catch(() => undefined);
+    }
     return this.detail(eventId, hostId);
   }
 

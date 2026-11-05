@@ -14,6 +14,7 @@
     "@expo-google-fonts/syne": "^0.4.2",
     "@expo/ui": "~58.0.26",
     "@react-native-community/datetimepicker": "9.2.1",
+    "@shopify/react-native-skia": "2.14.0",
     "@tanstack/react-query": "^5.105.1",
     "expo": "~58.0.22",
     "expo-auth-session": "~58.0.16",
