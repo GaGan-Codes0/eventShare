@@ -97,10 +97,21 @@ export function useRemoveMember(eventId: string) {
   });
 }
 
+/** Host changes: shown at once (the screen re-themes as you tap), then confirmed by the server. */
 export function useUpdateEvent(eventId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: UpdateEventInput) => api<EventDetail>(`/events/${eventId}`, { method: 'PATCH', body: input }),
+    onMutate: (input) => {
+      const before = qc.getQueryData<EventDetail>(keys.event(eventId));
+      // Only plain fields can be shown early; image keys and names wait for the server.
+      const { logoKey: _l, posterKey: _p, ...shown } = input;
+      if (before) qc.setQueryData(keys.event(eventId), { ...before, ...shown } as EventDetail);
+      return { before };
+    },
+    onError: (_err, _input, ctx) => {
+      if (ctx?.before) qc.setQueryData(keys.event(eventId), ctx.before);
+    },
     onSuccess: (event) => {
       qc.setQueryData(keys.event(eventId), event);
       void qc.invalidateQueries({ queryKey: keys.events });
@@ -114,7 +125,10 @@ export function useSetMemberRole(eventId: string) {
   return useMutation({
     mutationFn: ({ userId, role }: { userId: string } & UpdateMemberInput) =>
       api<Member>(`/events/${eventId}/members/${userId}`, { method: 'PATCH', body: { role } }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.members(eventId) }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.members(eventId) });
+      void qc.invalidateQueries({ queryKey: keys.event(eventId) });
+    },
   });
 }
 
