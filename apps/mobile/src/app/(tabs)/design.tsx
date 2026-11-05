@@ -1,8 +1,5 @@
 import {
   NAME_JOINERS,
-  PHOTO_FILTERS,
-  POSTER_FRAMES,
-  THEME_ACCENTS,
   type EventDetail,
   type EventImageKind,
   type EventTheme,
@@ -10,25 +7,22 @@ import {
 } from '@eventshare/shared';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Camera, Check, Images, Upload } from 'lucide-react-native';
+import { Camera, Images, Upload } from 'lucide-react-native';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 
 import { toast } from '@/components/toast';
-import { LoadingState, Segmented, Text } from '@/components/ui';
-import { icon, radius, screenPadding, space } from '@/constants/theme';
+import { LoadingState, Text } from '@/components/ui';
+import { radius, screenPadding, space } from '@/constants/theme';
 import { EventBadge } from '@/features/events/event-card';
 import { HostHeader } from '@/features/events/event-header';
-import { FontGrid, ThemeGrid } from '@/features/events/look-pickers';
+import { AccentPicker, FontGrid, FramePicker, LookPicker, ThemeGrid } from '@/features/events/look-pickers';
 import { pickEventImage } from '@/features/events/event-images';
 import { longDate, stampText } from '@/features/events/identity';
 import { useCurrentEvent } from '@/features/events/use-current-event';
-import { FILTER_LABEL, FilteredImage } from '@/features/gallery/photo-filters';
+import { FilteredImage } from '@/features/gallery/photo-filters';
 import { usePhotos, useUpdateEvent } from '@/services/api/hooks';
-import { DEFAULT_EVENT_THEME, makeStyles, POSTER_FRAME_LABEL, useTheme } from '@/theme';
-
-const HEX = /^#[0-9A-Fa-f]{6}$/;
-
+import { DEFAULT_EVENT_THEME, makeStyles, useTheme } from '@/theme';
 
 /** Host: how the event looks to every guest. Changes go out as you make them. */
 export default function DesignStudio() {
@@ -44,7 +38,6 @@ function Studio({ event }: { event: EventDetail }) {
   const photos = usePhotos(event.id);
   const theme = event.theme ?? DEFAULT_EVENT_THEME;
   const [busy, setBusy] = useState<EventImageKind | null>(null);
-  const [hex, setHex] = useState(theme.accent ?? '');
   const [names, setNames] = useState({
     name: event.name,
     partner1: event.partner1 ?? '',
@@ -54,6 +47,10 @@ function Studio({ event }: { event: EventDetail }) {
   });
   const wedding = event.type === 'wedding';
   const sample = photos.data?.pages[0]?.items[0]?.thumbUrl ?? event.coverUrl;
+  // The preview follows the name fields as they're typed, before they're saved.
+  const draftName = wedding
+    ? `${names.partner1.trim() || event.partner1 || ''} ${event.joiner} ${names.partner2.trim() || event.partner2 || ''}`
+    : names.name.trim() || event.name;
 
   function save(change: UpdateEventInput) {
     update.mutate(change, { onError: (e) => Alert.alert("Couldn't save", e.message) });
@@ -94,17 +91,12 @@ function Studio({ event }: { event: EventDetail }) {
     }
   }
 
-  function typeHex(text: string) {
-    const value = text.startsWith('#') ? text : `#${text}`;
-    setHex(value);
-    if (HEX.test(value)) setTheme({ accent: value.toUpperCase() });
-  }
-
   return (
     <View style={styles.screen}>
       <HostHeader event={event} title="Design studio" />
-      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-        {/* What a guest sees, in the event's look as it is right now. */}
+      {/* What a guest sees, in the event's look as it is right now. Pinned above the options, so
+          every change can be seen as it's made. */}
+      <View style={styles.pinned}>
         <View style={styles.preview}>
           <View style={styles.previewHead}>
             <Text variant="eyebrow">Guest preview</Text>
@@ -128,8 +120,13 @@ function Studio({ event }: { event: EventDetail }) {
                 </Text>
               )}
               <Text variant="h1" numberOfLines={2} style={styles.white}>
-                {event.name}
+                {draftName}
               </Text>
+              {names.tagline.trim() !== '' && (
+                <Text variant="caption" numberOfLines={1} style={styles.previewTagline}>
+                  {names.tagline.trim()}
+                </Text>
+              )}
             </View>
           </View>
           <View style={styles.row}>
@@ -144,7 +141,8 @@ function Studio({ event }: { event: EventDetail }) {
             </View>
           </View>
         </View>
-
+      </View>
+      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
         <Section title="Logo" caption="On the join screen, app header and table card. Without one we use your monogram.">
           <View style={styles.row}>
             <EventBadge event={event} size={58} />
@@ -228,82 +226,17 @@ function Studio({ event }: { event: EventDetail }) {
         <Section title="Colour theme">
           <ThemeGrid
             value={theme.preset}
-            onChange={(preset) => {
-              setHex('');
-              setTheme({ preset, accent: null });
-            }}
+            onChange={(preset) => setTheme({ preset, accent: null })}
           />
-          <View style={styles.spread}>
-            <Text variant="label" style={{ color: colors.accent }}>
-              Accent
-            </Text>
-            {theme.accent && (
-              <Pressable
-                accessibilityRole="button"
-                hitSlop={8}
-                onPress={() => {
-                  setHex('');
-                  setTheme({ accent: null });
-                }}>
-                <Text variant="label" style={{ color: colors.primaryText }}>
-                  Use theme accent
-                </Text>
-              </Pressable>
-            )}
-          </View>
-          <View style={styles.swatches}>
-            {THEME_ACCENTS.map((c) => {
-              const selected = theme.accent === c;
-              return (
-                <Pressable
-                  key={c}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected }}
-                  accessibilityLabel={`Accent ${c}`}
-                  onPress={() => {
-                    setHex(c);
-                    setTheme({ accent: c });
-                  }}
-                  style={[styles.ring, selected && styles.ringOn]}>
-                  <View style={[styles.swatch, { backgroundColor: c }]}>{selected && <Check size={icon.sm} color={colors.white} />}</View>
-                </Pressable>
-              );
-            })}
-          </View>
-          <Field value={hex} placeholder="Or your own colour, e.g. #A2475E" onChange={typeHex} autoCapitalize="characters" maxLength={7} />
+          <AccentPicker value={theme.accent} onChange={(accent) => setTheme({ accent })} />
         </Section>
 
         <Section title="Poster frame" caption="Around the event’s cover on your events and the poster.">
-          <Segmented
-            accessibilityLabel="Poster frame"
-            options={POSTER_FRAMES.map((f) => ({ value: f, label: POSTER_FRAME_LABEL[f] }))}
-            value={theme.frame}
-            onChange={(frame) => setTheme({ frame })}
-          />
+          <FramePicker value={theme.frame} onChange={(frame) => setTheme({ frame })} />
         </Section>
 
         <Section title="Photo look" caption="A shared film style for every camera at the event. Originals stay untouched.">
-          <View style={styles.grid4}>
-            {PHOTO_FILTERS.map((f) => {
-              const selected = event.filter === f;
-              return (
-                <Pressable
-                  key={f}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected }}
-                  accessibilityLabel={`${FILTER_LABEL[f]} look`}
-                  onPress={() => save({ filter: f })}
-                  style={styles.quarter}>
-                  <View style={[styles.filterTile, selected && styles.filterOn]}>
-                    <FilteredImage uri={sample} filter={f} style={StyleSheet.absoluteFill} />
-                  </View>
-                  <Text variant="caption" align="center" style={selected && { fontFamily: fonts.sansSemiBold }}>
-                    {FILTER_LABEL[f]}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          <LookPicker value={event.filter} sample={sample} onChange={(filter) => save({ filter })} />
         </Section>
 
         <View style={styles.stampRow}>
@@ -326,10 +259,7 @@ function Studio({ event }: { event: EventDetail }) {
         {event.theme && (
           <Pressable
             accessibilityRole="button"
-            onPress={() => {
-              setHex('');
-              save({ theme: null });
-            }}
+            onPress={() => save({ theme: null })}
             style={styles.reset}>
             <Text variant="label" style={{ color: colors.accent }}>
               Use eventShare’s look
@@ -391,17 +321,19 @@ const useStyles = makeStyles(({ colors }) => ({
   body: { padding: screenPadding, paddingTop: space.lg, paddingBottom: space['4xl'], gap: space['2xl'] },
   flex: { flex: 1, gap: 2 },
   row: { flexDirection: 'row', alignItems: 'center', gap: space.md },
-  spread: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: space.xs },
   white: { color: '#FFFFFF' },
-  preview: { borderRadius: 22, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, padding: space.md, gap: space.sm + 2 },
+  pinned: { paddingHorizontal: screenPadding, paddingTop: space.sm, paddingBottom: space.md, backgroundColor: colors.paper, borderBottomWidth: 0.5, borderBottomColor: colors.line },
+  preview: { borderRadius: 20, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, padding: space.sm + 2, gap: space.sm },
   previewHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.xs },
   liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#3F9A4F' },
-  previewCover: { height: 176, borderRadius: radius.lg + 2, overflow: 'hidden', backgroundColor: colors.sage },
+  // Kept short: it stays on screen above the options.
+  previewCover: { height: 128, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: colors.sage },
   previewBadge: { position: 'absolute', top: space.sm + 2, left: space.sm + 2 },
   previewText: { position: 'absolute', left: 14, right: 14, bottom: space.md, gap: space.xs },
   previewDate: { color: '#FFFFFF', opacity: 0.9, fontSize: 9.5, lineHeight: 12 },
-  fakeCta: { flex: 1, height: 40, borderRadius: radius.md, backgroundColor: colors.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
-  fakeSquare: { width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.sage, alignItems: 'center', justifyContent: 'center' },
+  previewTagline: { color: '#FFFFFF', opacity: 0.85 },
+  fakeCta: { flex: 1, height: 36, borderRadius: radius.md, backgroundColor: colors.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  fakeSquare: { width: 36, height: 36, borderRadius: radius.md, backgroundColor: colors.sage, alignItems: 'center', justifyContent: 'center' },
   section: { gap: space.sm + 2 },
   sectionHead: { gap: 2 },
   upload: {
@@ -429,14 +361,6 @@ const useStyles = makeStyles(({ colors }) => ({
   joiners: { flexDirection: 'row', padding: 3, gap: 2, borderRadius: 11, backgroundColor: colors.field, borderWidth: 1, borderColor: colors.lineStrong },
   joiner: { minWidth: 46, height: 32, borderRadius: space.sm, alignItems: 'center', justifyContent: 'center' },
   joinerOn: { backgroundColor: colors.primary },
-  grid4: { flexDirection: 'row', gap: space.sm },
-  quarter: { flex: 1, gap: 6 },
-  swatches: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
-  ring: { padding: 2, borderRadius: radius.full, borderWidth: 2, borderColor: 'transparent' },
-  ringOn: { borderColor: colors.ink },
-  swatch: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  filterTile: { aspectRatio: 1, borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.sage, borderWidth: 2, borderColor: 'transparent' },
-  filterOn: { borderColor: colors.primary },
   stampRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: 14, borderRadius: radius.lg + 2, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line },
   reset: { alignItems: 'center', paddingVertical: space.sm },
 }));

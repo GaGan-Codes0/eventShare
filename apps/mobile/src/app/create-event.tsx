@@ -4,29 +4,34 @@ import {
   MAX_PHOTOGRAPHERS,
   PHOTOGRAPHER_PHOTO_LIMIT,
   type CreateEventInput,
+  type EventSummary,
   type EventTheme,
   type EventType,
   type FontPairing,
   type GuestPhotoLimit,
+  type PhotoFilter,
+  type PosterFrame,
   type RevealMode,
   type ThemePreset,
+  type UpdateEventInput,
 } from '@eventshare/shared';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { Aperture, ArrowRight, Briefcase, Cake, Camera, ChevronLeft, Heart, ImagePlus, Sparkles, type LucideIcon } from 'lucide-react-native';
+import { Aperture, ArrowRight, Briefcase, Cake, ChevronLeft, Heart, ImagePlus, Sparkles, type LucideIcon } from 'lucide-react-native';
 import { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, Switch, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { toast } from '@/components/toast';
 import { Text } from '@/components/ui';
 import { FocusStatusBar } from '@/components/focus-status-bar';
 import { radius, screenPadding, space } from '@/constants/theme';
+import { EventCard } from '@/features/events/event-card';
 import { uploadEventImage } from '@/features/events/event-images';
-import { longDate, monogram } from '@/features/events/identity';
-import { FontGrid, opensAt, RevealOptions, ThemeGrid } from '@/features/events/look-pickers';
+import { longDate, stampText } from '@/features/events/identity';
+import { AccentPicker, FontGrid, FramePicker, LookPicker, opensAt, RevealOptions, ThemeGrid } from '@/features/events/look-pickers';
 import { openEvent } from '@/features/events/open-event';
 import { api } from '@/services/api/client';
 import { useCreateEvent } from '@/services/api/hooks';
@@ -70,9 +75,15 @@ type Wizard = {
   organizer: string;
   date: Date;
   venue: string;
+  tagline: string;
   theme: ThemePreset;
+  accent: string | null;
   font: FontPairing;
+  frame: PosterFrame;
+  filter: PhotoFilter;
   logoUri: string | null;
+  posterUri: string | null;
+  dateStamp: boolean;
   shots: GuestPhotoLimit | null;
   reveal: RevealMode;
 };
@@ -91,16 +102,22 @@ export default function CreateEvent() {
     organizer: '',
     date: new Date(),
     venue: '',
+    tagline: TYPE_DEFAULTS.wedding.tagline,
     theme: 'sage',
+    accent: null,
     font: 'romantic',
+    frame: 'none',
+    filter: 'natural',
     logoUri: null,
+    posterUri: null,
+    dateStamp: true,
     shots: DEFAULT_GUEST_PHOTO_LIMIT,
     reveal: 'live',
   });
   const set = (change: Partial<Wizard>) => setW((v) => ({ ...v, ...change }));
   const wedding = w.type === 'wedding';
   const display = wedding ? `${w.partner1.trim() || 'Name'} & ${w.partner2.trim() || 'Name'}` : w.title.trim() || 'Your event';
-  const theme: EventTheme = { preset: w.theme, accent: null, fonts: w.font, frame: 'none' };
+  const theme: EventTheme = { preset: w.theme, accent: w.accent, fonts: w.font, frame: w.frame };
 
   function back() {
     if (step === 0) router.back();
@@ -128,13 +145,13 @@ export default function CreateEvent() {
       revealMode: w.reveal,
       albumOpensAt: opensAt(w.reveal, startsAt),
       // eventShare's own look stays "no theme", so it follows any future change to the default.
-      theme: w.theme === 'sage' && w.font === 'classic' ? null : theme,
+      theme: w.theme === 'sage' && w.font === 'classic' && !w.accent && w.frame === 'none' ? null : theme,
       prompts: d.prompts,
-      tagline: d.tagline,
+      tagline: w.tagline.trim() || null,
     };
     create.mutate(input, {
       onSuccess: async (event) => {
-        if (w.logoUri) await addLogo(event.id, w.logoUri);
+        await finishLook(event.id, w);
         router.dismissAll();
         openEvent(event.id, event.role);
         router.push('/invite');
@@ -144,9 +161,9 @@ export default function CreateEvent() {
     });
   }
 
-  async function pickLogo() {
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 1 });
-    if (!res.canceled) set({ logoUri: res.assets[0].uri });
+  async function pick(kind: 'logo' | 'poster') {
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: kind === 'logo' ? [1, 1] : [9, 10], quality: 1 });
+    if (!res.canceled) set(kind === 'logo' ? { logoUri: res.assets[0].uri } : { posterUri: res.assets[0].uri });
   }
 
   return (
@@ -171,6 +188,14 @@ export default function CreateEvent() {
         </View>
       </View>
 
+      {/* The look step keeps a preview on screen while the options scroll beneath it. */}
+      {step === 2 && (
+        <View style={styles.pinned}>
+          <ThemeProvider theme={themeFor(theme)}>
+            <LookPreview w={w} display={display} />
+          </ThemeProvider>
+        </View>
+      )}
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
         {step === 0 && (
           <>
@@ -183,7 +208,15 @@ export default function CreateEvent() {
                     key={t.value}
                     accessibilityRole="radio"
                     accessibilityState={{ selected }}
-                    onPress={() => set({ type: t.value, theme: TYPE_DEFAULTS[t.value].theme, font: TYPE_DEFAULTS[t.value].font })}
+                    onPress={() =>
+                      set({
+                        type: t.value,
+                        theme: TYPE_DEFAULTS[t.value].theme,
+                        font: TYPE_DEFAULTS[t.value].font,
+                        // Their own words stay; the suggested line follows the kind of event.
+                        ...(w.tagline === TYPE_DEFAULTS[w.type].tagline && { tagline: TYPE_DEFAULTS[t.value].tagline }),
+                      })
+                    }
                     style={[styles.type, selected && styles.typeOn]}>
                     <View style={styles.typeIcon}>
                       <t.icon size={19} color={defaultTheme.colors.ink} />
@@ -229,34 +262,58 @@ export default function CreateEvent() {
             <Labeled label="Venue">
               <Input value={w.venue} onChange={(venue) => set({ venue })} placeholder="Where’s it happening?" />
             </Labeled>
+            <Labeled label="Welcome note">
+              <Input value={w.tagline} onChange={(tagline) => set({ tagline })} placeholder="A line for your guests" capitalize="sentences" maxLength={200} />
+            </Labeled>
           </>
         )}
 
         {step === 2 && (
           <>
-            <Heading eyebrow="The look" title="Make it " emphasis="yours." />
-            <ThemeProvider theme={themeFor(theme)}>
-              <InvitePreview display={display} date={w.date} logoUri={w.logoUri} mono={monogram({ ...namesOf(w), name: display })} />
-            </ThemeProvider>
+            <Heading eyebrow="The look" title="Make it " emphasis="yours." caption="Everything here can be changed later in Design." />
             <Text variant="bodyStrong">Colour theme</Text>
-            <ThemeGrid value={w.theme} onChange={(theme) => set({ theme })} />
-            <Text variant="bodyStrong">Name font</Text>
+            <ThemeGrid value={w.theme} onChange={(preset) => set({ theme: preset, accent: null })} />
+            <AccentPicker value={w.accent} onChange={(accent) => set({ accent })} />
+            <Text variant="bodyStrong" style={styles.mt}>
+              Name font
+            </Text>
             <FontGrid value={w.font} name={display} onChange={(font) => set({ font })} />
+            <ImageRow title="Logo" caption="Optional. We’ll use your monogram." uri={w.logoUri} contain onPick={() => pick('logo')} onRemove={() => set({ logoUri: null })} />
+            <ImageRow
+              title="Cover photo"
+              caption="Optional. Without one, the newest photo is used."
+              uri={w.posterUri}
+              onPick={() => pick('poster')}
+              onRemove={() => set({ posterUri: null })}
+            />
+            <Text variant="bodyStrong" style={styles.mt}>
+              Poster frame
+            </Text>
+            <FramePicker value={w.frame} onChange={(frame) => set({ frame })} />
+            <View style={styles.gap2}>
+              <Text variant="bodyStrong" style={styles.mt}>
+                Photo look
+              </Text>
+              <Text variant="caption" color="muted">
+                A shared film style for every camera at the event. Originals stay untouched.
+              </Text>
+            </View>
+            <LookPicker value={w.filter} sample={w.posterUri} onChange={(filter) => set({ filter })} />
             <View style={styles.logoRow}>
-              <View style={styles.logoIcon}>
-                {w.logoUri ? <Image source={{ uri: w.logoUri }} style={styles.logoImg} contentFit="contain" /> : <ImagePlus size={19} color={defaultTheme.colors.ink} />}
-              </View>
               <View style={styles.flex}>
-                <Text variant="bodyStrong">Logo</Text>
+                <Text variant="bodyStrong">Stamp every photo</Text>
                 <Text variant="caption" color="muted">
-                  Optional. We’ll use your monogram.
+                  Adds <Text style={styles.stamp}>{stampText({ ...namesOf(w), name: display }, w.date.toISOString())}</Text> in the corner. Guests can hide it.
                 </Text>
               </View>
-              <Pressable accessibilityRole="button" onPress={w.logoUri ? () => set({ logoUri: null }) : pickLogo} style={styles.small}>
-                <Text variant="label" color={w.logoUri ? 'danger' : 'ink'}>
-                  {w.logoUri ? 'Remove' : 'Upload'}
-                </Text>
-              </Pressable>
+              <Switch
+                accessibilityLabel="Stamp every photo"
+                value={w.dateStamp}
+                onValueChange={(dateStamp) => set({ dateStamp })}
+                trackColor={{ true: defaultTheme.colors.primaryText, false: defaultTheme.colors.lineStrong }}
+                thumbColor={defaultTheme.colors.surface}
+                ios_backgroundColor={defaultTheme.colors.lineStrong}
+              />
             </View>
           </>
         )}
@@ -328,46 +385,76 @@ const namesOf = (w: Wizard) => ({
   organizer: w.organizer || null,
 });
 
-/** The logo picked before the event exists goes up once it's created. */
-async function addLogo(eventId: string, uri: string) {
-  try {
-    const { key } = await uploadEventImage(eventId, 'logo', uri);
-    await api(`/events/${eventId}`, { method: 'PATCH', body: { logoKey: key } });
-  } catch {
-    toast('Event created. Add the logo again from Design');
+/**
+ * What can only be saved once the event exists: the logo and cover go up, then the photo look
+ * and stamp setting (when not the defaults) are saved with them in one go.
+ */
+async function finishLook(eventId: string, w: Wizard) {
+  const change: UpdateEventInput = {};
+  const failed: string[] = [];
+  for (const [kind, uri] of [
+    ['logo', w.logoUri],
+    ['poster', w.posterUri],
+  ] as const) {
+    if (!uri) continue;
+    try {
+      const { key } = await uploadEventImage(eventId, kind, uri);
+      if (kind === 'logo') change.logoKey = key;
+      else change.posterKey = key;
+    } catch {
+      failed.push(kind === 'logo' ? 'logo' : 'cover photo');
+    }
   }
+  if (w.filter !== 'natural') change.filter = w.filter;
+  if (!w.dateStamp) change.dateStamp = false;
+  try {
+    if (Object.keys(change).length) await api(`/events/${eventId}`, { method: 'PATCH', body: change });
+  } catch {
+    failed.push('look');
+  }
+  if (failed.length) toast(`Event created. Add the ${failed.join(' and ')} again from Design`);
 }
 
-/** What guests will see when they open the invite, in the chosen look. */
-function InvitePreview({ display, date, logoUri, mono }: { display: string; date: Date; logoUri: string | null; mono: string }) {
-  const { colors } = useTheme();
+/** The event as it'll appear on "Your events": cover, frame, badge and name in the chosen look. */
+function LookPreview({ w, display }: { w: Wizard; display: string }) {
+  const preview = {
+    ...namesOf(w),
+    id: 'preview',
+    name: display,
+    startsAt: w.date.toISOString(),
+    coverUrl: w.posterUri,
+    logoUrl: w.logoUri,
+    photoCount: 0,
+    memberCount: 1,
+    role: 'host',
+  } as unknown as EventSummary;
+  return <EventCard event={preview} onPress={() => undefined} />;
+}
+
+type ImageRowProps = { title: string; caption: string; uri: string | null; contain?: boolean; onPick: () => void; onRemove: () => void };
+
+function ImageRow({ title, caption, uri, contain, onPick, onRemove }: ImageRowProps) {
   const styles = useStyles();
   return (
-    <View style={[styles.preview, { backgroundColor: colors.paper, borderColor: colors.line }]}>
-      <View style={[styles.badge, { backgroundColor: colors.surface, borderColor: colors.line }]}>
-        {logoUri ? (
-          <Image source={{ uri: logoUri }} style={styles.logoImg} contentFit="contain" />
+    <View style={styles.logoRow}>
+      <View style={styles.logoIcon}>
+        {uri ? (
+          <Image source={{ uri }} style={contain ? styles.logoImg : styles.coverImg} contentFit={contain ? 'contain' : 'cover'} />
         ) : (
-          <Text variant="h3" style={{ color: colors.primaryText, fontSize: 17 }}>
-            {mono}
-          </Text>
+          <ImagePlus size={19} color={defaultTheme.colors.ink} />
         )}
       </View>
-      <Text variant="eyebrow" style={{ color: colors.primaryText }}>
-        You’re invited to
-      </Text>
-      <Text variant="h1" align="center">
-        {display}
-      </Text>
-      <Text variant="caption" color="muted">
-        {longDate(date.toISOString())}
-      </Text>
-      <View style={[styles.previewCta, { backgroundColor: colors.primary }]}>
-        <Camera size={15} color={colors.onPrimary} />
-        <Text variant="label" style={{ color: colors.onPrimary }}>
-          Open camera
+      <View style={styles.flex}>
+        <Text variant="bodyStrong">{title}</Text>
+        <Text variant="caption" color="muted">
+          {caption}
         </Text>
       </View>
+      <Pressable accessibilityRole="button" accessibilityLabel={`${uri ? 'Remove' : 'Upload'} ${title.toLowerCase()}`} onPress={uri ? onRemove : onPick} style={styles.small}>
+        <Text variant="label" color={uri ? 'danger' : 'ink'}>
+          {uri ? 'Remove' : 'Upload'}
+        </Text>
+      </Pressable>
     </View>
   );
 }
@@ -404,7 +491,9 @@ function Labeled({ label, children, style }: { label: string; children: React.Re
   );
 }
 
-function Input({ value, onChange, placeholder }: { value: string; onChange: (t: string) => void; placeholder?: string }) {
+type InputProps = { value: string; onChange: (t: string) => void; placeholder?: string; capitalize?: 'words' | 'sentences'; maxLength?: number };
+
+function Input({ value, onChange, placeholder, capitalize = 'words', maxLength = 80 }: InputProps) {
   const { colors, fonts } = useTheme();
   const styles = useStyles();
   return (
@@ -413,8 +502,8 @@ function Input({ value, onChange, placeholder }: { value: string; onChange: (t: 
       onChangeText={onChange}
       placeholder={placeholder}
       placeholderTextColor={colors.subtle}
-      autoCapitalize="words"
-      maxLength={80}
+      autoCapitalize={capitalize}
+      maxLength={maxLength}
       style={[styles.input, { fontFamily: fonts.sans, color: colors.ink }]}
     />
   );
@@ -462,6 +551,9 @@ const useStyles = makeStyles(() => {
     segs: { flexDirection: 'row', gap: space.xs, paddingHorizontal: screenPadding, paddingBottom: space.xs },
     seg: { flex: 1, height: 3, borderRadius: 2, backgroundColor: colors.lineStrong },
     segOn: { backgroundColor: colors.primary },
+    pinned: { paddingHorizontal: screenPadding, paddingTop: space.md, paddingBottom: space.md + 4, borderBottomWidth: 0.5, borderBottomColor: colors.line },
+    stamp: { fontFamily: defaultTheme.fonts.mono, fontSize: 11.5 },
+    coverImg: { width: '100%', height: '100%' },
     body: { padding: screenPadding, paddingTop: space.xl, paddingBottom: space['2xl'], gap: space.lg - 2 },
     flex: { flex: 1, gap: 2 },
     gap2: { gap: 2 },
@@ -504,9 +596,6 @@ const useStyles = makeStyles(() => {
     },
     dateIos: { justifyContent: 'center', alignItems: 'flex-start', paddingHorizontal: space.xs },
     dateAndroid: { justifyContent: 'center' },
-    preview: { borderRadius: 20, borderWidth: 1, paddingVertical: space.xl, paddingHorizontal: 18, alignItems: 'center', gap: space.sm },
-    badge: { width: 50, height: 50, borderRadius: 25, borderWidth: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-    previewCta: { marginTop: 6, height: 38, paddingHorizontal: 18, borderRadius: radius.md, flexDirection: 'row', alignItems: 'center', gap: 6 },
     logoRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md, borderRadius: radius.lg + 2, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line },
     logoIcon: { width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.sage, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
     logoImg: { width: '76%', height: '76%' },

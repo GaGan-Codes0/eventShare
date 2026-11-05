@@ -5,7 +5,7 @@ import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Check, Download, Eye, EyeOff, Heart, Lock, Trash2, X } from 'lucide-react-native';
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -35,14 +35,21 @@ function ActionButton({ icon: Icon, label, onPress, busy, filled }: Action) {
   );
 }
 
-/** The photo, wherever it was opened from (album, gallery, a filter, the home strip). */
+/**
+ * The photo, wherever it was opened from (album, gallery, a filter, the home strip). Follows the
+ * cache, so a like (or approval) shows here at once.
+ */
 function useCachedPhoto(eventId: string, id: string) {
   const qc = useQueryClient();
-  for (const [, data] of qc.getQueriesData<InfiniteData<Page<Photo>>>({ queryKey: keys.photos(eventId) })) {
-    const found = data?.pages.flatMap((p) => p.items).find((p) => p.id === id);
-    if (found) return found;
-  }
-  return null;
+  const find = useCallback(() => {
+    for (const [, data] of qc.getQueriesData<InfiniteData<Page<Photo>>>({ queryKey: keys.photos(eventId) })) {
+      const found = data?.pages.flatMap((p) => p.items).find((p) => p.id === id);
+      if (found) return found;
+    }
+    return null;
+  }, [qc, eventId, id]);
+  const subscribe = useCallback((onChange: () => void) => qc.getQueryCache().subscribe(onChange), [qc]);
+  return useSyncExternalStore(subscribe, find);
 }
 
 function PhotoViewer() {
@@ -112,14 +119,15 @@ function PhotoViewer() {
     });
     actions.push({ icon: X, label: 'Decline', busy: del.isPending, onPress: () => remove('Declined and removed') });
   } else {
-    if (!isHost) {
-      actions.push({
-        icon: Heart,
-        label: photo.likedByMe ? 'Liked' : 'Like',
-        filled: photo.likedByMe,
-        onPress: () => like.mutate({ photoId: photo.id, liked: !photo.likedByMe }),
-      });
-    }
+    actions.push({
+      icon: Heart,
+      label: photo.likedByMe ? 'Liked' : 'Like',
+      filled: photo.likedByMe,
+      onPress: () => {
+        void Haptics.selectionAsync();
+        like.mutate({ photoId: photo.id, liked: !photo.likedByMe });
+      },
+    });
     const canSave = isHost || isMine || ev?.allowDownloads !== false;
     actions.push(
       canSave

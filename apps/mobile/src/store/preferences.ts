@@ -12,10 +12,12 @@ export type Preferences = {
   saveFiltered: boolean;
   /** Show the event's date stamp on photos (when the host has it on). */
   dateStamp: boolean;
+  /** Rule-of-thirds lines on the viewfinder. */
+  cameraGrid: boolean;
 };
 
 const KEY = 'preferences';
-const DEFAULTS: Preferences = { viewfinderFrame: false, saveOriginal: true, saveFramed: false, saveFiltered: true, dateStamp: true };
+const DEFAULTS: Preferences = { viewfinderFrame: false, saveOriginal: true, saveFramed: false, saveFiltered: true, dateStamp: true, cameraGrid: false };
 let prefs = DEFAULTS;
 const listeners = new Set<() => void>();
 

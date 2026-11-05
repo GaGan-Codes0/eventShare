@@ -9,7 +9,11 @@
     "userInterfaceStyle": "light",
     "ios": {
       "icon": "./assets/expo.icon",
-      "bundleIdentifier": "in.co.klyra.eventshare"
+      "bundleIdentifier": "in.co.klyra.eventshare",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "buildNumber": "1"
     },
     "android": {
       "adaptiveIcon": {
@@ -62,7 +66,8 @@
       "@clerk/expo",
       "expo-web-browser",
       "./plugins/with-release-signing",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,

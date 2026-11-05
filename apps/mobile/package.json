@@ -17,6 +17,7 @@
     "@shopify/react-native-skia": "2.14.0",
     "@tanstack/react-query": "^5.105.1",
     "expo": "~58.0.22",
+    "expo-asset": "~58.0.20",
     "expo-auth-session": "~58.0.16",
     "expo-camera": "~58.0.14",
     "expo-constants": "~58.0.14",

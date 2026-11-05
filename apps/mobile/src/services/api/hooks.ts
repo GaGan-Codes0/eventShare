@@ -172,19 +172,35 @@ export function useApprovePhoto(eventId: string) {
   });
 }
 
-/** Like or unlike; the photo's count updates in every cached list right away. */
+/**
+ * Like or unlike. The heart and count change the moment it's tapped, in every cached list;
+ * the server's answer then sets the true count (or the old one comes back if it failed).
+ */
 export function useLikePhoto(eventId: string) {
   const qc = useQueryClient();
+  const patch = (photoId: string, change: (p: Photo) => Partial<Photo>) =>
+    qc.setQueriesData<InfiniteData<Page<Photo>>>({ queryKey: keys.photos(eventId) }, (data) =>
+      data
+        ? { ...data, pages: data.pages.map((page) => ({ ...page, items: page.items.map((p) => (p.id === photoId ? { ...p, ...change(p) } : p)) })) }
+        : data,
+    );
   return useMutation({
     mutationFn: ({ photoId, liked }: { photoId: string; liked: boolean }) =>
       api<PhotoLikes>(`/photos/${photoId}/like`, { method: liked ? 'PUT' : 'DELETE' }),
-    onSuccess: (likes, { photoId }) => {
-      qc.setQueriesData<InfiniteData<Page<Photo>>>({ queryKey: keys.photos(eventId) }, (data) =>
-        data
-          ? { ...data, pages: data.pages.map((page) => ({ ...page, items: page.items.map((p) => (p.id === photoId ? { ...p, ...likes } : p)) })) }
-          : data,
-      );
+    onMutate: async ({ photoId, liked }) => {
+      await qc.cancelQueries({ queryKey: keys.photos(eventId) });
+      let before: PhotoLikes | undefined;
+      patch(photoId, (p) => {
+        before ??= { likeCount: p.likeCount, likedByMe: p.likedByMe };
+        if (p.likedByMe === liked) return {};
+        return { likedByMe: liked, likeCount: Math.max(0, p.likeCount + (liked ? 1 : -1)) };
+      });
+      return { before };
     },
+    onError: (_err, { photoId }, ctx) => {
+      if (ctx?.before) patch(photoId, () => ctx.before!);
+    },
+    onSuccess: (likes, { photoId }) => patch(photoId, () => likes),
   });
 }
 

@@ -1,5 +1,5 @@
 import { ALLOWED_PHOTO_TYPES } from '@eventshare/shared';
-import { CameraView, useCameraPermissions, type CameraType } from 'expo-camera';
+import { CameraView, useCameraPermissions, type CameraType, type FlashMode, type FocusMode, type LensInfo } from 'expo-camera';
 import { File } from 'expo-file-system';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
@@ -9,9 +9,9 @@ import * as LegacyLibrary from 'expo-media-library/legacy';
 import { requestPermissionsAsync as requestLibraryAccess } from 'expo-media-library';
 import { router, useIsFocused, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Aperture, ArrowUpRight, Camera, CloudUpload, Film, Frame, Images, List, SwitchCamera, Upload, X } from 'lucide-react-native';
+import { Aperture, ArrowUpRight, Camera, CloudUpload, Film, Frame, Grid3x3, Images, List, Smartphone, SwitchCamera, Upload, X, Zap, ZapOff } from 'lucide-react-native';
 import { useRef, useState } from 'react';
-import { Alert, Linking, Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Linking, Modal, Platform, Pressable, StyleSheet, View, type GestureResponderEvent } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
 
@@ -61,7 +61,21 @@ async function uploadable(file: { uri: string; contentType?: string }) {
   return { uri: jpeg.uri, contentType: 'image/jpeg' };
 }
 
-type Shot = { uri: string; width: number; height: number; takenAt: string };
+type Shot = { uri: string; contentType: string; width: number; height: number; takenAt: string };
+
+// iPhone lenses we offer as one-tap buttons, in order. Other lens types stay reachable by zooming.
+const LENS_LABEL: Record<string, string> = {
+  AVCaptureDeviceTypeBuiltInUltraWideCamera: '0.5×',
+  AVCaptureDeviceTypeBuiltInWideAngleCamera: '1×',
+  AVCaptureDeviceTypeBuiltInTelephotoCamera: 'Tele',
+};
+const WIDE = 'AVCaptureDeviceTypeBuiltInWideAngleCamera';
+const NEXT_FLASH: Record<FlashMode, FlashMode> = { off: 'auto', auto: 'on', on: 'off', screen: 'off' };
+const FLASH_LABEL: Record<FlashMode, string> = { off: 'Flash off', auto: 'Flash auto', on: 'Flash on', screen: 'Flash on' };
+/** How much a full pinch (about the width of the screen) zooms, as a share of the phone's maximum. */
+const PINCH_ZOOM = 0.5 / 300;
+
+const dist = (t: GestureResponderEvent['nativeEvent']['touches']) => Math.hypot(t[0].pageX - t[1].pageX, t[0].pageY - t[1].pageY);
 
 /** Drop a shot the person chose not to keep. It never left the phone. */
 function discardFile(uri: string) {
@@ -82,6 +96,17 @@ export default function CameraScreen() {
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [shot, setShot] = useState<Shot | null>(null);
+  const [flashMode, setFlashMode] = useState<FlashMode>('off');
+  const [zoom, setZoom] = useState(0);
+  const [lenses, setLenses] = useState<LensInfo[]>([]);
+  const [lens, setLens] = useState(WIDE);
+  const [autofocus, setAutofocus] = useState<FocusMode>('off');
+  const [focusAt, setFocusAt] = useState<{ x: number; y: number } | null>(null);
+  // The phone's own camera app is open: ours lets go of the camera meanwhile.
+  const [external, setExternal] = useState(false);
+  const pinch = useRef<{ dist: number; zoom: number } | null>(null);
+  const tap = useRef<{ x: number; y: number; at: number } | null>(null);
+  const focusTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const camera = useRef<CameraView>(null);
   const prefs = usePreferences();
   const insets = useSafeAreaInsets();
@@ -121,7 +146,7 @@ export default function CameraScreen() {
       // quality 1 = the camera's full-quality capture; we never recompress it after this.
       const pic = await camera.current.takePictureAsync({ quality: 1, exif: true });
       // Nothing is counted or uploaded until they choose Upload on the preview.
-      setShot({ uri: pic.uri, width: pic.width, height: pic.height, takenAt: new Date().toISOString() });
+      setShot({ uri: pic.uri, contentType: 'image/jpeg', width: pic.width, height: pic.height, takenAt: new Date().toISOString() });
     } catch (err) {
       Alert.alert("Couldn't take the photo", err instanceof Error ? err.message : 'Please try again.');
     } finally {
@@ -136,7 +161,7 @@ export default function CameraScreen() {
       await enqueuePhoto({
         eventId: id,
         uri: shot.uri,
-        contentType: 'image/jpeg',
+        contentType: shot.contentType,
         width: shot.width,
         height: shot.height,
         takenAt: shot.takenAt,
@@ -156,6 +181,76 @@ export default function CameraScreen() {
     } finally {
       setBusy(false);
     }
+  }
+
+  /**
+   * The phone's own camera, with every mode it has (portrait, night, its own filters...). The
+   * photo comes back here for the same preview, count and upload as one taken in ours.
+   */
+  async function openPhoneCamera() {
+    if (!id || busy || shot || outOfShots) return;
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) return enableCamera();
+    setExternal(true);
+    try {
+      const res = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1, exif: true });
+      if (res.canceled) return;
+      const asset = res.assets[0];
+      const file = await uploadable({ uri: asset.uri, contentType: asset.mimeType });
+      setShot({ uri: file.uri, contentType: file.contentType, width: asset.width, height: asset.height, takenAt: new Date().toISOString() });
+    } catch (err) {
+      Alert.alert("Couldn't use that photo", err instanceof Error ? err.message : 'Please try again.');
+    } finally {
+      setExternal(false);
+    }
+  }
+
+  function flip() {
+    setFacing((f) => (f === 'back' ? 'front' : 'back'));
+    setZoom(0);
+    setLens(WIDE);
+  }
+
+  function chooseLens(deviceType: string) {
+    void Haptics.selectionAsync();
+    setLens(deviceType);
+    setZoom(0);
+  }
+
+  /** Two fingers zoom; a quick single tap refocuses, with a ring where it was tapped. */
+  function onTouchStart(e: GestureResponderEvent) {
+    const t = e.nativeEvent.touches;
+    if (t.length === 2) {
+      pinch.current = { dist: dist(t), zoom };
+      tap.current = null;
+    } else if (t.length === 1) {
+      tap.current = { x: e.nativeEvent.locationX, y: e.nativeEvent.locationY, at: Date.now() };
+    }
+  }
+
+  function onTouchMove(e: GestureResponderEvent) {
+    const t = e.nativeEvent.touches;
+    if (t.length === 2 && pinch.current) {
+      const next = pinch.current.zoom + (dist(t) - pinch.current.dist) * PINCH_ZOOM;
+      setZoom(Math.min(1, Math.max(0, next)));
+    } else if (tap.current && Math.hypot(e.nativeEvent.locationX - tap.current.x, e.nativeEvent.locationY - tap.current.y) > 12) {
+      tap.current = null;
+    }
+  }
+
+  function onTouchEnd(e: GestureResponderEvent) {
+    if (e.nativeEvent.touches.length === 0) pinch.current = null;
+    const t = tap.current;
+    tap.current = null;
+    if (!t || pinch.current || Date.now() - t.at > 300) return;
+    setFocusAt({ x: t.x, y: t.y });
+    // Focus once on the new view, then go back to following the scene.
+    setAutofocus('on');
+    clearTimeout(focusTimer.current);
+    focusTimer.current = setTimeout(() => {
+      setAutofocus('off');
+      setFocusAt(null);
+    }, 1200);
   }
 
   function dropShot() {
@@ -210,6 +305,15 @@ export default function CameraScreen() {
   }
 
   if (!id) return <NoEventYet title="Your camera" />;
+
+  const live = granted && focused && !outOfShots;
+  // iPhone only: the back lenses this phone has, as 0.5× / 1× / Tele buttons.
+  const lensChips =
+    Platform.OS === 'ios' && facing === 'back'
+      ? Object.keys(LENS_LABEL)
+          .map((t) => lenses.find((l) => l.deviceType === t))
+          .filter((l): l is LensInfo => Boolean(l))
+      : [];
 
   const note =
     event?.role !== 'member'
@@ -271,7 +375,18 @@ export default function CameraScreen() {
             <Button label="See the album" onPress={() => router.navigate('/(tabs)/album')} />
           </View>
         ) : granted && focused ? (
-          <CameraView ref={camera} style={StyleSheet.absoluteFill} facing={facing} onCameraReady={() => setReady(true)} />
+          <CameraView
+            ref={camera}
+            style={StyleSheet.absoluteFill}
+            facing={facing}
+            active={!external}
+            flash={facing === 'front' && flashMode === 'on' ? 'screen' : flashMode}
+            zoom={zoom}
+            autofocus={autofocus}
+            selectedLens={facing === 'back' ? lens : undefined}
+            onAvailableLensesChanged={(e) => setLenses(e.lenses)}
+            onCameraReady={() => setReady(true)}
+          />
         ) : (
           <View style={styles.idle}>
             <View style={styles.lens}>
@@ -291,17 +406,95 @@ export default function CameraScreen() {
             )}
           </View>
         )}
-        {granted && focused && !outOfShots && prefs.viewfinderFrame && <ViewfinderFrame logoUrl={event?.logoUrl ?? null} />}
-        {granted && !outOfShots && (
+        {live && prefs.viewfinderFrame && <ViewfinderFrame logoUrl={event?.logoUrl ?? null} />}
+        {live && prefs.cameraGrid && (
+          <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+            {[1, 2].map((i) => (
+              <View key={`v${i}`} style={[styles.gridLine, { left: `${(i * 100) / 3}%`, top: 0, bottom: 0, width: StyleSheet.hairlineWidth }]} />
+            ))}
+            {[1, 2].map((i) => (
+              <View key={`h${i}`} style={[styles.gridLine, { top: `${(i * 100) / 3}%`, left: 0, right: 0, height: StyleSheet.hairlineWidth }]} />
+            ))}
+          </View>
+        )}
+        {live && (
+          <View style={StyleSheet.absoluteFill} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}>
+            {focusAt && <View pointerEvents="none" style={[styles.focusRing, { left: focusAt.x - 32, top: focusAt.y - 32 }]} />}
+          </View>
+        )}
+        {live && (
           <Pressable
-            accessibilityRole="switch"
-            accessibilityLabel="Show the event frame on screen"
-            accessibilityState={{ checked: prefs.viewfinderFrame }}
-            hitSlop={8}
-            onPress={() => setPreference('viewfinderFrame', !prefs.viewfinderFrame)}
-            style={[styles.frameToggle, prefs.viewfinderFrame && styles.frameToggleOn]}>
-            <Frame size={icon.sm} color={prefs.viewfinderFrame ? DARK : LIGHT} />
+            accessibilityRole="button"
+            accessibilityLabel="Use the phone’s own camera"
+            accessibilityHint="Opens your phone’s camera app with all its modes. The photo comes back here to upload."
+            hitSlop={6}
+            onPress={openPhoneCamera}
+            style={styles.phoneCamera}>
+            <Smartphone size={15} color={LIGHT} />
+            <Text variant="label" style={styles.light}>
+              Phone camera
+            </Text>
           </Pressable>
+        )}
+        {granted && !outOfShots && (
+          <View style={styles.tools}>
+            <Pressable
+              accessibilityRole="switch"
+              accessibilityLabel="Show the event frame on screen"
+              accessibilityState={{ checked: prefs.viewfinderFrame }}
+              hitSlop={6}
+              onPress={() => setPreference('viewfinderFrame', !prefs.viewfinderFrame)}
+              style={[styles.tool, prefs.viewfinderFrame && styles.toolOn]}>
+              <Frame size={icon.sm} color={prefs.viewfinderFrame ? DARK : LIGHT} />
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={FLASH_LABEL[flashMode]}
+              accessibilityHint="Changes the flash: off, auto or on"
+              hitSlop={6}
+              onPress={() => {
+                void Haptics.selectionAsync();
+                setFlashMode((f) => NEXT_FLASH[f]);
+              }}
+              style={[styles.tool, flashMode === 'on' && styles.toolOn]}>
+              {flashMode === 'off' ? <ZapOff size={icon.sm} color={LIGHT} /> : <Zap size={icon.sm} color={flashMode === 'on' ? DARK : LIGHT} />}
+              {flashMode === 'auto' && <Text style={styles.toolBadge}>A</Text>}
+            </Pressable>
+            <Pressable
+              accessibilityRole="switch"
+              accessibilityLabel="Grid lines"
+              accessibilityState={{ checked: prefs.cameraGrid }}
+              hitSlop={6}
+              onPress={() => setPreference('cameraGrid', !prefs.cameraGrid)}
+              style={[styles.tool, prefs.cameraGrid && styles.toolOn]}>
+              <Grid3x3 size={icon.sm} color={prefs.cameraGrid ? DARK : LIGHT} />
+            </Pressable>
+          </View>
+        )}
+        {live && (lensChips.length > 1 || zoom > 0.005) && (
+          <View style={styles.zoomRow}>
+            {lensChips.length > 1 ? (
+              lensChips.map((l) => {
+                const on = lens === l.deviceType;
+                return (
+                  <Pressable
+                    key={l.deviceType}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: on }}
+                    accessibilityLabel={l.localizedName}
+                    hitSlop={4}
+                    onPress={() => chooseLens(l.deviceType)}
+                    style={[styles.zoomChip, on && styles.zoomChipOn]}>
+                    <Text style={[styles.zoomText, on && styles.zoomTextOn]}>{on && zoom > 0.005 ? 'Zoom' : LENS_LABEL[l.deviceType]}</Text>
+                  </Pressable>
+                );
+              })
+            ) : (
+              <Pressable accessibilityRole="button" accessibilityLabel="Reset zoom" hitSlop={4} onPress={() => setZoom(0)} style={[styles.zoomChip, styles.zoomChipOn]}>
+                <Text style={[styles.zoomText, styles.zoomTextOn]}>1×</Text>
+              </Pressable>
+            )}
+          </View>
         )}
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.flash, flashStyle]} />
       </View>
@@ -325,7 +518,7 @@ export default function CameraScreen() {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Switch camera"
-          onPress={() => setFacing((f) => (f === 'back' ? 'front' : 'back'))}
+          onPress={flip}
           style={styles.round}>
           <SwitchCamera size={22} color={LIGHT} />
         </Pressable>
@@ -426,18 +619,29 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
     borderColor: 'rgba(205,215,171,0.45)',
   },
   flash: { backgroundColor: colors.white },
-  frameToggle: {
+  tools: { position: 'absolute', top: space.md, right: space.md, gap: space.sm },
+  tool: { width: 36, height: 36, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.35)' },
+  toolOn: { backgroundColor: LIGHT },
+  toolBadge: { position: 'absolute', right: 6, bottom: 4, fontFamily: fonts.mono, fontSize: 8, lineHeight: 9, color: LIGHT },
+  phoneCamera: {
     position: 'absolute',
     top: space.md,
-    right: space.md,
-    width: 36,
+    left: space.md,
     height: 36,
+    paddingHorizontal: space.md,
     borderRadius: radius.full,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 6,
     backgroundColor: 'rgba(0,0,0,0.35)',
   },
-  frameToggleOn: { backgroundColor: LIGHT },
+  gridLine: { position: 'absolute', backgroundColor: 'rgba(255,255,255,0.45)' },
+  focusRing: { position: 'absolute', width: 64, height: 64, borderRadius: 8, borderWidth: 1.5, borderColor: '#FFD60A' },
+  zoomRow: { position: 'absolute', bottom: space.lg, alignSelf: 'center', flexDirection: 'row', gap: 4, padding: 3, borderRadius: radius.full, backgroundColor: 'rgba(0,0,0,0.35)' },
+  zoomChip: { minWidth: 36, height: 30, paddingHorizontal: 6, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center' },
+  zoomChipOn: { backgroundColor: 'rgba(0,0,0,0.5)' },
+  zoomText: { fontFamily: fonts.mono, fontSize: 11, lineHeight: 13, color: LIGHT },
+  zoomTextOn: { color: '#FFD60A' },
   controls: { paddingTop: space.lg, paddingHorizontal: 30, paddingBottom: space.sm + 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   round: { width: 50, height: 50, borderRadius: 25, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' },
   roundOff: { backgroundColor: 'rgba(255,255,255,0.06)' },

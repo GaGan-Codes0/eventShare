@@ -1,9 +1,25 @@
-import { FONT_PAIRINGS, THEME_PRESETS, type FontPairing, type RevealMode, type ThemePreset } from '@eventshare/shared';
-import { Pressable, View } from 'react-native';
+import {
+  FONT_PAIRINGS,
+  PHOTO_FILTERS,
+  POSTER_FRAMES,
+  THEME_ACCENTS,
+  THEME_PRESETS,
+  type FontPairing,
+  type PhotoFilter,
+  type PosterFrame,
+  type RevealMode,
+  type ThemePreset,
+} from '@eventshare/shared';
+import { Check } from 'lucide-react-native';
+import { useState } from 'react';
+import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
-import { Text } from '@/components/ui';
-import { radius, space } from '@/constants/theme';
-import { FONT_PAIRING_LABEL, headingFont, headingScale, makeStyles, PRESETS, useTheme } from '@/theme';
+import { Segmented, Text } from '@/components/ui';
+import { icon, radius, space } from '@/constants/theme';
+import { FILTER_LABEL, FilteredImage, useLookSample } from '@/features/gallery/photo-filters';
+import { FONT_PAIRING_LABEL, headingFont, headingScale, makeStyles, POSTER_FRAME_LABEL, PRESETS, useTheme } from '@/theme';
+
+const HEX = /^#[0-9A-Fa-f]{6}$/;
 
 /** The six looks as small cards: three dots of the look's colours and its name. */
 export function ThemeGrid({ value, onChange }: { value: ThemePreset; onChange: (preset: ThemePreset) => void }) {
@@ -113,7 +129,125 @@ export function RevealOptions({ value, onChange }: { value: RevealMode; onChange
   );
 }
 
+/**
+ * The eight accents plus "your own colour". null means the theme's own accent. The typed colour
+ * is applied once it's a full #RRGGBB.
+ */
+export function AccentPicker({ value, onChange }: { value: string | null; onChange: (accent: string | null) => void }) {
+  const { colors, fonts } = useTheme();
+  const styles = useStyles();
+  const [hex, setHex] = useState(value ?? '');
+  // A swatch or reset from outside the field (or another screen) shows in it too.
+  const [last, setLast] = useState(value);
+  if (value !== last) {
+    setLast(value);
+    setHex(value ?? '');
+  }
+  function type(text: string) {
+    const v = text.startsWith('#') ? text : `#${text}`;
+    setHex(v);
+    if (HEX.test(v)) onChange(v.toUpperCase());
+  }
+  return (
+    <View style={styles.accent}>
+      <View style={styles.spread}>
+        <Text variant="label" style={{ color: colors.accent }}>
+          Accent
+        </Text>
+        {value && (
+          <Pressable accessibilityRole="button" hitSlop={8} onPress={() => onChange(null)}>
+            <Text variant="label" style={{ color: colors.primaryText }}>
+              Use theme accent
+            </Text>
+          </Pressable>
+        )}
+      </View>
+      <View style={styles.swatches}>
+        {THEME_ACCENTS.map((c) => {
+          const selected = value === c;
+          return (
+            <Pressable
+              key={c}
+              accessibilityRole="radio"
+              accessibilityState={{ selected }}
+              accessibilityLabel={`Accent ${c}`}
+              onPress={() => onChange(c)}
+              style={[styles.ring, selected && styles.ringOn]}>
+              <View style={[styles.swatch, { backgroundColor: c }]}>{selected && <Check size={icon.sm} color={colors.white} />}</View>
+            </Pressable>
+          );
+        })}
+      </View>
+      <TextInput
+        value={hex}
+        onChangeText={type}
+        placeholder="Or your own colour, e.g. #A2475E"
+        placeholderTextColor={colors.subtle}
+        autoCapitalize="characters"
+        autoCorrect={false}
+        maxLength={7}
+        returnKeyType="done"
+        style={[styles.field, { fontFamily: fonts.sans, color: colors.ink }]}
+      />
+    </View>
+  );
+}
+
+/** None / polaroid / ... around the event's cover. */
+export function FramePicker({ value, onChange }: { value: PosterFrame; onChange: (frame: PosterFrame) => void }) {
+  return (
+    <Segmented
+      accessibilityLabel="Poster frame"
+      options={POSTER_FRAMES.map((f) => ({ value: f, label: POSTER_FRAME_LABEL[f] }))}
+      value={value}
+      onChange={onChange}
+    />
+  );
+}
+
+/** The four photo looks, each drawn on a sample picture (the event's own, else a built-in one). */
+export function LookPicker({ value, sample, onChange }: { value: PhotoFilter; sample: string | null | undefined; onChange: (f: PhotoFilter) => void }) {
+  const { fonts } = useTheme();
+  const styles = useStyles();
+  const fallback = useLookSample();
+  const picture = sample || fallback;
+  return (
+    <View style={styles.grid4}>
+      {PHOTO_FILTERS.map((f) => {
+        const selected = value === f;
+        return (
+          <Pressable
+            key={f}
+            accessibilityRole="radio"
+            accessibilityState={{ selected }}
+            accessibilityLabel={`${FILTER_LABEL[f]} look`}
+            onPress={() => onChange(f)}
+            style={styles.quarter}>
+            <View style={[styles.filterTile, selected && styles.filterOn]}>
+              <FilteredImage uri={picture} filter={f} style={StyleSheet.absoluteFill} />
+            </View>
+            <Text variant="caption" align="center" style={selected && { fontFamily: fonts.sansSemiBold }}>
+              {FILTER_LABEL[f]}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 const useStyles = makeStyles(({ colors }) => ({
+  accent: { gap: space.sm + 2 },
+  spread: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: space.xs },
+  swatches: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  ring: { padding: 2, borderRadius: radius.full, borderWidth: 2, borderColor: 'transparent' },
+  ringOn: { borderColor: colors.ink },
+  swatch: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  field: { height: 46, paddingHorizontal: 14, borderRadius: radius.md, borderWidth: 1, borderColor: colors.lineStrong, backgroundColor: colors.surface, fontSize: 15 },
+  grid4: { flexDirection: 'row', gap: space.sm },
+  quarter: { flex: 1, gap: 6 },
+  filterTile: { aspectRatio: 1, borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.sage, borderWidth: 2, borderColor: 'transparent' },
+  filterOn: { borderColor: colors.primary },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   half: { width: '48.5%' },
   third: { width: '31.8%' },

@@ -1,5 +1,6 @@
 import type { PhotoFilter } from '@eventshare/shared';
 import { Canvas, ColorMatrix, Image as SkiaImage, ImageFormat, Skia, useImage } from '@shopify/react-native-skia';
+import { useAssets } from 'expo-asset';
 import { File, Paths } from 'expo-file-system';
 import { Image } from 'expo-image';
 import { useEffect, useState } from 'react';
@@ -10,6 +11,15 @@ import { StyleSheet, View, type ImageStyle, type StyleProp, type ViewStyle } fro
  * and only copies someone saves have it baked in.
  */
 export const FILTER_LABEL: Record<PhotoFilter, string> = { natural: 'Natural', golden: 'Golden hour', mono: 'Mono', faded: 'Faded film' };
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const SAMPLE = require('../../../assets/images/look-sample.jpg') as number;
+
+/** A picture to show the looks on before an event has photos of its own (a file the look can read). */
+export function useLookSample(): string | null {
+  const [assets] = useAssets([SAMPLE]);
+  return assets?.[0]?.localUri ?? null;
+}
 
 // 5×5 colour matrices (rows r, g, b, a, 1), the same steps as CSS filters, applied left to right.
 type M = number[];
