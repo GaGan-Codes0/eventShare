@@ -134,8 +134,11 @@ function AppStack() {
       <Stack.Screen name="sign-in" options={{ animation: 'fade' }} />
       <Stack.Screen name="events" options={{ animation: 'fade' }} />
       <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
-      <Stack.Screen name="create-event" options={sheet} />
-      <Stack.Screen name="join" options={sheet} />
+      <Stack.Screen name="create-event" options={{ animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="join" options={{ animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="join-scan" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
+      <Stack.Screen name="join-code" />
+      <Stack.Screen name="join-preview" options={{ animation: 'fade' }} />
       <Stack.Screen name="invite" options={sheet} />
       <Stack.Screen name="profile" options={sheet} />
       <Stack.Screen

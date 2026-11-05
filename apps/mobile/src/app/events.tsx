@@ -3,6 +3,7 @@ import { Plus, ScanLine, type LucideIcon } from 'lucide-react-native';
 import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
 
 import { Avatar, Header, Text } from '@/components/ui';
+import { FocusStatusBar } from '@/components/focus-status-bar';
 import { icon, radius, screenPadding, space } from '@/constants/theme';
 import { EventCard } from '@/features/events/event-card';
 import { openEvent } from '@/features/events/open-event';
@@ -20,6 +21,7 @@ export default function YourEvents() {
 
   return (
     <View style={styles.screen}>
+      <FocusStatusBar style="dark" />
       <Header
         right={
           <Pressable accessibilityLabel="Your profile" hitSlop={8} onPress={() => router.push('/profile')}>

@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router/js-tabs';
-import { StatusBar } from 'expo-status-bar';
 
+import { FocusStatusBar } from '@/components/focus-status-bar';
 import { TabBar } from '@/components/tab-bar';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { ThemeProvider, useCurrentEventTheme } from '@/theme';
@@ -15,7 +15,7 @@ export default function EventTabs() {
   return (
     <ThemeProvider theme={theme}>
       {/* Light status bar text on dark event themes. */}
-      <StatusBar style={theme.dark ? 'light' : 'dark'} />
+      <FocusStatusBar style={theme.dark ? 'light' : 'dark'} />
       <Tabs
         tabBar={(props) => <TabBar {...props} isHost={isHost} />}
         screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: theme.colors.paper } }}>

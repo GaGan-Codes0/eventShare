@@ -61,7 +61,8 @@
       "expo-secure-store",
       "@clerk/expo",
       "expo-web-browser",
-      "./plugins/with-release-signing"
+      "./plugins/with-release-signing",
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -21,9 +21,13 @@ export async function pickEventImage(eventId: string, kind: EventImageKind): Pro
     quality: 1,
   });
   if (res.canceled) return null;
+  return uploadEventImage(eventId, kind, res.assets[0].uri);
+}
 
+/** Shrinks a picked image on the phone and uploads it straight to storage; returns its key. */
+export async function uploadEventImage(eventId: string, kind: EventImageKind, uri: string): Promise<{ key: string; uri: string }> {
   const edge = EVENT_IMAGE_MAX_EDGE[kind];
-  const rendered = await ImageManipulator.manipulate(res.assets[0].uri, { maxWidth: edge, maxHeight: edge }).renderAsync();
+  const rendered = await ImageManipulator.manipulate(uri, { maxWidth: edge, maxHeight: edge }).renderAsync();
   // Logos keep their transparent background; posters are photos.
   const saved =
     kind === 'logo'

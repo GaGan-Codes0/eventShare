@@ -4,7 +4,6 @@ import {
   PHOTOGRAPHER_PHOTO_LIMIT,
   type EventDetail,
   type GuestPhotoLimit,
-  type RevealMode,
   type UpdateEventInput,
 } from '@eventshare/shared';
 import { Aperture, CalendarClock, Download, ImagePlus, ShieldCheck, X, type LucideIcon } from 'lucide-react-native';
@@ -15,6 +14,7 @@ import { toast } from '@/components/toast';
 import { LoadingState, Text } from '@/components/ui';
 import { radius, screenPadding, space } from '@/constants/theme';
 import { HostHeader } from '@/features/events/event-header';
+import { opensAt, RevealOptions } from '@/features/events/look-pickers';
 import { NoEventYet } from '@/features/events/no-event';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { useUpdateEvent } from '@/services/api/hooks';
@@ -22,26 +22,6 @@ import { makeStyles, useTheme } from '@/theme';
 
 const SHOT_NOTE =
   'Most event-camera apps give guests 10 to 25 shots, with 25 the usual default. We start at 36, a full roll of film: enough for a long day, few enough to keep every shot intentional.';
-
-const REVEALS: { value: RevealMode; label: string; caption: string }[] = [
-  { value: 'live', label: 'Live, as they’re taken', caption: 'Everyone sees new photos instantly.' },
-  { value: 'after', label: 'When the event ends', caption: 'Builds anticipation. Opens at the end.' },
-  { value: 'morning', label: 'Next morning, 9 AM', caption: 'Like collecting prints from the lab.' },
-];
-
-/** When the album opens, in this phone's local time: the end of the event's day, or 9 AM the next day. */
-function opensAt(mode: RevealMode, startsAt: string | null): string | null {
-  if (mode === 'live') return null;
-  const day = startsAt ? new Date(startsAt) : new Date();
-  const at = new Date(day.getFullYear(), day.getMonth(), day.getDate());
-  if (mode === 'after') {
-    at.setHours(23, 59, 0, 0);
-  } else {
-    at.setDate(at.getDate() + 1);
-    at.setHours(9, 0, 0, 0);
-  }
-  return at.toISOString();
-}
 
 /** Host: how many shots guests get, when the album opens, the event's rules and its shot list. */
 export default function Rules() {
@@ -140,27 +120,7 @@ function RulesBody({ event }: { event: EventDetail }) {
         <Text variant="bodyStrong" style={styles.section}>
           When guests see the album
         </Text>
-        <View style={styles.group}>
-          {REVEALS.map((r, i) => {
-            const selected = event.revealMode === r.value;
-            return (
-              <Pressable
-                key={r.value}
-                accessibilityRole="radio"
-                accessibilityState={{ selected }}
-                onPress={() => save({ revealMode: r.value, albumOpensAt: opensAt(r.value, event.startsAt) })}
-                style={[styles.option, i > 0 && styles.divider]}>
-                <View style={[styles.radio, selected && styles.radioOn]}>{selected && <View style={styles.radioDot} />}</View>
-                <View style={styles.flex}>
-                  <Text variant="bodyStrong">{r.label}</Text>
-                  <Text variant="caption" color="muted">
-                    {r.caption}
-                  </Text>
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
+        <RevealOptions value={event.revealMode} onChange={(mode) => save({ revealMode: mode, albumOpensAt: opensAt(mode, event.startsAt) })} />
 
         <Text variant="bodyStrong" style={styles.section}>
           Rules
@@ -244,9 +204,6 @@ const useStyles = makeStyles(({ colors }) => ({
   group: { borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, overflow: 'hidden' },
   option: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.lg - 2 },
   divider: { borderTopWidth: 1, borderTopColor: colors.line },
-  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, borderColor: colors.lineStrong, alignItems: 'center', justifyContent: 'center' },
-  radioOn: { borderColor: colors.primary },
-  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary },
   prompts: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   prompt: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingLeft: space.md, paddingRight: space.sm + 2, paddingVertical: space.sm, borderRadius: radius.full, backgroundColor: colors.sage },
   addRow: { flexDirection: 'row', gap: space.sm },

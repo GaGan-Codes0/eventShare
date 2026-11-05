@@ -1,10 +1,8 @@
 import {
-  FONT_PAIRINGS,
   NAME_JOINERS,
   PHOTO_FILTERS,
   POSTER_FRAMES,
   THEME_ACCENTS,
-  THEME_PRESETS,
   type EventDetail,
   type EventImageKind,
   type EventTheme,
@@ -22,11 +20,12 @@ import { LoadingState, Segmented, Text } from '@/components/ui';
 import { icon, radius, screenPadding, space } from '@/constants/theme';
 import { EventBadge } from '@/features/events/event-card';
 import { HostHeader } from '@/features/events/event-header';
+import { FontGrid, ThemeGrid } from '@/features/events/look-pickers';
 import { pickEventImage } from '@/features/events/event-images';
 import { longDate, stampText } from '@/features/events/identity';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { usePhotos, useUpdateEvent } from '@/services/api/hooks';
-import { DEFAULT_EVENT_THEME, FONT_PAIRING_LABEL, headingFont, headingScale, makeStyles, POSTER_FRAME_LABEL, PRESETS, useTheme } from '@/theme';
+import { DEFAULT_EVENT_THEME, makeStyles, POSTER_FRAME_LABEL, useTheme } from '@/theme';
 
 const HEX = /^#[0-9A-Fa-f]{6}$/;
 
@@ -224,57 +223,17 @@ function Studio({ event }: { event: EventDetail }) {
         </Section>
 
         <Section title="Name font" caption="Used for names and headings across the guest app.">
-          <View style={styles.grid2}>
-            {FONT_PAIRINGS.map((f) => {
-              const selected = theme.fonts === f;
-              return (
-                <Pressable
-                  key={f}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected }}
-                  accessibilityLabel={`${FONT_PAIRING_LABEL[f]} font`}
-                  onPress={() => setTheme({ fonts: f })}
-                  style={[styles.option, styles.half, selected && styles.optionOn]}>
-                  <Text numberOfLines={1} style={{ fontFamily: headingFont(f), fontSize: 21 * headingScale(f), lineHeight: 26, color: colors.ink }}>
-                    {event.name}
-                  </Text>
-                  <Text variant="caption" color="muted">
-                    {FONT_PAIRING_LABEL[f]}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          <FontGrid value={theme.fonts} name={event.name} onChange={(fonts) => setTheme({ fonts })} />
         </Section>
 
         <Section title="Colour theme">
-          <View style={styles.grid3}>
-            {THEME_PRESETS.map((p) => {
-              const look = PRESETS[p];
-              const selected = theme.preset === p;
-              return (
-                <Pressable
-                  key={p}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected }}
-                  accessibilityLabel={`${look.name} theme`}
-                  onPress={() => {
-                    setHex('');
-                    setTheme({ preset: p, accent: null });
-                  }}
-                  style={[styles.option, styles.third, { backgroundColor: look.bg }, selected && styles.optionOn]}>
-                  <View style={styles.dots}>
-                    {[look.accent, look.soft, look.ink].map((c) => (
-                      <View key={c} style={[styles.dot, { backgroundColor: c }]} />
-                    ))}
-                  </View>
-                  <Text variant="caption" style={{ color: look.ink }}>
-                    {look.name}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          <ThemeGrid
+            value={theme.preset}
+            onChange={(preset) => {
+              setHex('');
+              setTheme({ preset, accent: null });
+            }}
+          />
           <View style={styles.spread}>
             <Text variant="label" style={{ color: colors.accent }}>
               Accent
@@ -471,16 +430,8 @@ const useStyles = makeStyles(({ colors }) => ({
   joiners: { flexDirection: 'row', padding: 3, gap: 2, borderRadius: 11, backgroundColor: colors.field, borderWidth: 1, borderColor: colors.lineStrong },
   joiner: { minWidth: 46, height: 32, borderRadius: space.sm, alignItems: 'center', justifyContent: 'center' },
   joinerOn: { backgroundColor: colors.primary },
-  grid2: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
-  grid3: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   grid4: { flexDirection: 'row', gap: space.sm },
-  half: { width: '48.5%' },
-  third: { width: '31.8%' },
   quarter: { flex: 1, gap: 6 },
-  option: { borderRadius: 14, padding: space.sm + 2, gap: 6, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line },
-  optionOn: { borderWidth: 2, borderColor: colors.primary },
-  dots: { flexDirection: 'row', gap: 3 },
-  dot: { width: 18, height: 18, borderRadius: 9 },
   swatches: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   ring: { padding: 2, borderRadius: radius.full, borderWidth: 2, borderColor: 'transparent' },
   ringOn: { borderColor: colors.ink },
