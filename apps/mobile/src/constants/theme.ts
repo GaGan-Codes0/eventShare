@@ -15,6 +15,8 @@ export const colors = {
   ink: '#273C32',
   inkDeep: '#243B2E',
   primary: '#385447',
+  /** The accent as text and small icons: always readable on the page, even when the accent is pale. */
+  primaryText: '#385447',
   primaryPressed: '#283F31',
   onPrimary: '#FFFEFA',
   muted: '#888B80',

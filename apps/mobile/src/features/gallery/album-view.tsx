@@ -118,7 +118,7 @@ export function AlbumView({ event, host }: { event: EventDetail; host: boolean }
             locked ? (
               <View style={styles.locked}>
                 <View style={styles.lockIcon}>
-                  <Lock size={20} color={colors.primary} />
+                  <Lock size={20} color={colors.primaryText} />
                 </View>
                 <Text variant="h2">Developing…</Text>
                 <Text variant="caption" color="muted" align="center" style={styles.lockText}>
@@ -128,7 +128,7 @@ export function AlbumView({ event, host }: { event: EventDetail; host: boolean }
             ) : (
               <View style={styles.empty}>
                 <View style={[styles.lockIcon, { backgroundColor: colors.sage }]}>
-                  <Images size={20} color={colors.primary} />
+                  <Images size={20} color={colors.primaryText} />
                 </View>
                 <Text variant="h2">Nothing here yet</Text>
                 <Text variant="caption" color="muted">

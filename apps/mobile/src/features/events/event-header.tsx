@@ -54,7 +54,7 @@ export function GuestHeader({ event, dark }: { event: EventDetail | null; dark?:
         <View style={styles.titles}>
           <View style={styles.live}>
             <View style={[styles.liveDot, { backgroundColor: colors.primary }]} />
-            <Text variant="eyebrow" style={[styles.liveText, { color: dark ? colors.viewfinderAccent : colors.primary }]}>
+            <Text variant="eyebrow" style={[styles.liveText, { color: dark ? colors.viewfinderAccent : colors.primaryText }]}>
               Live now
             </Text>
           </View>

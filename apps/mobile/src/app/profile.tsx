@@ -44,7 +44,7 @@ function Profile() {
         <View style={styles.group}>
           <View style={styles.card}>
             <View style={styles.cardIcon}>
-              {event.role === 'photographer' ? <Aperture size={18} color={colors.primary} /> : <UserRound size={18} color={colors.primary} />}
+              {event.role === 'photographer' ? <Aperture size={18} color={colors.primaryText} /> : <UserRound size={18} color={colors.primaryText} />}
             </View>
             <View style={styles.flex}>
               <Text variant="bodyStrong">

@@ -79,8 +79,8 @@ export default function EventHome() {
           <View style={styles.rollTop}>
             <View style={styles.rollLeft}>
               <View style={styles.row}>
-                {photographer && <Aperture size={13} color={colors.primary} />}
-                <Text variant="eyebrow" style={{ color: colors.primary }}>
+                {photographer && <Aperture size={13} color={colors.primaryText} />}
+                <Text variant="eyebrow" style={{ color: colors.primaryText }}>
                   {photographer ? 'Photographer pass' : 'Your roll'}
                 </Text>
               </View>
@@ -132,16 +132,16 @@ export default function EventHome() {
           <View style={styles.sectionHead}>
             <Text variant="bodyStrong">From the room</Text>
             <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.navigate('/(tabs)/album')} style={styles.row}>
-              <Text variant="label" style={{ color: colors.primary }}>
+              <Text variant="label" style={{ color: colors.primaryText }}>
                 See all
               </Text>
-              <ChevronRight size={15} color={colors.primary} />
+              <ChevronRight size={15} color={colors.primaryText} />
             </Pressable>
           </View>
           {!event.albumOpen ? (
             <View style={styles.locked}>
               <View style={styles.lockIcon}>
-                <Lock size={18} color={colors.primary} />
+                <Lock size={18} color={colors.primaryText} />
               </View>
               <View style={styles.flex}>
                 <Text variant="bodyStrong">Developing…</Text>

@@ -42,6 +42,30 @@ function rgba(hex: string, alpha: number) {
   return `rgba(${channels(hex).join(',')},${alpha})`;
 }
 
+/** WCAG relative luminance (linear light), for contrast ratios. */
+function relLuminance(hex: string) {
+  const [r, g, b] = channels(hex).map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrast(a: string, b: string) {
+  const [hi, lo] = [relLuminance(a), relLuminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/** `hex` moved towards black (or white on dark pages) until it reads on `page` as text (4.5:1). */
+function readableOn(hex: string, page: string) {
+  const toward = luminance(page) < 0.2 ? '#FFFFFF' : '#000000';
+  for (let t = 0; t <= 1; t += 0.05) {
+    const c = mix(hex, toward, t);
+    if (contrast(c, page) >= 4.5) return c;
+  }
+  return toward;
+}
+
 /** Text that reads on a button of this colour. */
 export function onColor(hex: string) {
   return luminance(hex) > 0.55 ? '#141414' : '#FFFFFF';
@@ -75,11 +99,12 @@ function paletteFrom(look: Look, accentOverride: string | null): Palette {
     // The photo viewer's backdrop: always near-black.
     inkDeep: dark ? mix(look.bg, '#000000', 0.35) : mix(look.ink, '#000000', 0.15),
     primary: accent,
+    primaryText: readableOn(accent, look.bg),
     primaryPressed: mix(accent, dark ? '#FFFFFF' : '#000000', 0.14),
     onPrimary: on,
     muted: look.muted,
     subtle: mix(look.muted, look.bg, 0.25),
-    accent: dark ? accent : mix(accent, look.muted, 0.45),
+    accent: readableOn(dark ? accent : mix(accent, look.muted, 0.45), look.bg),
     line: look.line,
     lineStrong: mix(look.line, look.ink, 0.08),
     sage: look.soft,

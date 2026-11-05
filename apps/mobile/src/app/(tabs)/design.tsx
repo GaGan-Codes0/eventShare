@@ -287,7 +287,7 @@ function Studio({ event }: { event: EventDetail }) {
                   setHex('');
                   setTheme({ accent: null });
                 }}>
-                <Text variant="label" style={{ color: colors.primary }}>
+                <Text variant="label" style={{ color: colors.primaryText }}>
                   Use theme accent
                 </Text>
               </Pressable>
@@ -359,7 +359,7 @@ function Studio({ event }: { event: EventDetail }) {
             accessibilityLabel="Stamp every photo"
             value={event.dateStamp}
             onValueChange={(dateStamp) => save({ dateStamp })}
-            trackColor={{ true: colors.primary, false: colors.lineStrong }}
+            trackColor={{ true: colors.primaryText, false: colors.lineStrong }}
             thumbColor={colors.surface}
             ios_backgroundColor={colors.lineStrong}
           />

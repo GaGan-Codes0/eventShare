@@ -69,7 +69,7 @@ export function EventCard({ event, onPress }: { event: EventSummary; onPress: ()
         </View>
       </View>
       <View style={styles.body}>
-        <Text variant="eyebrow" style={{ color: colors.primary }}>
+        <Text variant="eyebrow" style={{ color: colors.primaryText }}>
           {TYPE_LABEL[event.type]}
         </Text>
         <Text variant="h2" numberOfLines={2} style={styles.name}>
@@ -130,7 +130,7 @@ const useStyles = makeStyles(({ colors }) => ({
     overflow: 'hidden',
   },
   badgeLogo: { width: '76%', height: '76%' },
-  badgeText: { color: colors.primary },
+  badgeText: { color: colors.primaryText },
   body: { paddingHorizontal: space.lg, paddingTop: space.md + 2, paddingBottom: space.lg, gap: 6 },
   name: { paddingRight: 50 },
 }));

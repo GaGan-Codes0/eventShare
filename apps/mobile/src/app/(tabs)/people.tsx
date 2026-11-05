@@ -120,7 +120,7 @@ function PeopleBody({ event }: { event: EventDetail }) {
                 </Text>
               </View>
               <View style={styles.statusPill}>
-                <Text variant="caption" style={{ color: colors.primary }}>
+                <Text variant="caption" style={{ color: colors.primaryText }}>
                   Shooting
                 </Text>
               </View>
@@ -158,8 +158,8 @@ function PeopleBody({ event }: { event: EventDetail }) {
         <View style={styles.guestHead}>
           <Text variant="eyebrow">Guests · {guests.length}</Text>
           <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push('/invite')} style={styles.row}>
-            <UserPlus size={15} color={colors.primary} />
-            <Text variant="label" style={{ color: colors.primary }}>
+            <UserPlus size={15} color={colors.primaryText} />
+            <Text variant="label" style={{ color: colors.primaryText }}>
               Invite
             </Text>
           </Pressable>
@@ -223,7 +223,7 @@ function PeopleBody({ event }: { event: EventDetail }) {
                     {g.photosUsed} shots so far
                   </Text>
                 </View>
-                <Plus size={18} color={colors.primary} />
+                <Plus size={18} color={colors.primaryText} />
               </Pressable>
             ))
         )}

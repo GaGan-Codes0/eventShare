@@ -71,7 +71,7 @@ function Invite() {
 
       <View ref={card} collapsable={false} style={styles.card}>
         <EventBadge event={event} size={46} />
-        <Text variant="eyebrow" style={{ color: colors.primary }}>
+        <Text variant="eyebrow" style={{ color: colors.primaryText }}>
           Share your photos with us
         </Text>
         <Text variant="h1" align="center">
