@@ -1,26 +1,31 @@
-import type { Photo } from '@eventshare/shared';
+import type { EventDetail, Page, Photo } from '@eventshare/shared';
 import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Download, Eye, EyeOff, Trash2, X } from 'lucide-react-native';
+import { StatusBar } from 'expo-status-bar';
+import { Check, Download, Eye, EyeOff, Heart, Lock, Trash2, X } from 'lucide-react-native';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Text } from '@/components/ui';
-import { icon, radius, screenPadding, space } from '@/constants/theme';
-import { makeStyles, ThemeProvider, useCurrentEventTheme, useTheme } from '@/theme';
+import { toast } from '@/components/toast';
+import { initialsOf, Text } from '@/components/ui';
+import { icon, radius, space } from '@/constants/theme';
+import { stampText } from '@/features/events/identity';
+import { ROLE_LABEL } from '@/features/events/roles';
 import { SaveSheet } from '@/features/gallery/save-sheet';
-import { keys, useDeletePhoto, useEvent, useMe, useSetPhotoVisibility } from '@/services/api/hooks';
+import { keys, useApprovePhoto, useDeletePhoto, useEvent, useLikePhoto, useMe, useSetPhotoVisibility } from '@/services/api/hooks';
+import { makeStyles, ThemeProvider, useCurrentEventTheme } from '@/theme';
 import { timeAgo } from '@/utils/format';
 
-function ActionButton({ icon: Icon, label, onPress, busy }: { icon: typeof X; label: string; onPress: () => void; busy?: boolean }) {
-  const { colors } = useTheme();
+type Action = { icon: typeof X; label: string; onPress: () => void; busy?: boolean; filled?: boolean };
+
+function ActionButton({ icon: Icon, label, onPress, busy, filled }: Action) {
   const styles = useStyles();
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} disabled={busy} style={({ pressed }) => [styles.action, pressed && { opacity: 0.7 }]}>
-      {busy ? <ActivityIndicator color={colors.viewfinderText} /> : <Icon size={icon.md} color={colors.viewfinderText} strokeWidth={icon.stroke} />}
+      {busy ? <ActivityIndicator color={LIGHT} /> : <Icon size={icon.md} color={LIGHT} fill={filled ? LIGHT : 'none'} strokeWidth={icon.stroke} />}
       <Text variant="caption" style={styles.light}>
         {label}
       </Text>
@@ -28,8 +33,17 @@ function ActionButton({ icon: Icon, label, onPress, busy }: { icon: typeof X; la
   );
 }
 
+/** The photo, wherever it was opened from (album, gallery, a filter, the home strip). */
+function useCachedPhoto(eventId: string, id: string) {
+  const qc = useQueryClient();
+  for (const [, data] of qc.getQueriesData<InfiniteData<Page<Photo>>>({ queryKey: keys.photos(eventId) })) {
+    const found = data?.pages.flatMap((p) => p.items).find((p) => p.id === id);
+    if (found) return found;
+  }
+  return null;
+}
+
 function PhotoViewer() {
-  const { colors } = useTheme();
   const styles = useStyles();
   const { id, eventId } = useLocalSearchParams<{ id: string; eventId: string }>();
   const insets = useSafeAreaInsets();
@@ -38,121 +52,208 @@ function PhotoViewer() {
   const event = useEvent(eventId);
   const del = useDeletePhoto(eventId);
   const visibility = useSetPhotoVisibility(eventId);
+  const approve = useApprovePhoto(eventId);
+  const like = useLikePhoto(eventId);
   const [saving, setSaving] = useState(false);
-
-  const photo = qc
-    .getQueryData<InfiniteData<{ items: Photo[] }>>(keys.photos(eventId))
-    ?.pages.flatMap((p) => p.items)
-    .find((p) => p.id === id);
+  const [area, setArea] = useState({ width: 0, height: 0 });
+  // The picture's real shape, once it loads (older photos have no stored size).
+  const [loadedRatio, setLoadedRatio] = useState<number | null>(null);
+  const photo = useCachedPhoto(eventId, id);
 
   if (!photo) {
     router.back();
     return null;
   }
 
-  const isHost = event.data?.role === 'host';
+  const ev: EventDetail | undefined = event.data;
+  const isHost = ev?.role === 'host';
   const isMine = photo.uploader.id === me.data?.id;
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: keys.photos(eventId) });
+    void qc.invalidateQueries({ queryKey: keys.event(eventId) });
+  };
+
+  function remove(done: string) {
+    del.mutate(photo!.id, {
+      onSuccess: () => {
+        refresh();
+        router.back();
+        toast(done);
+      },
+      onError: (e) => Alert.alert("Couldn't delete", e.message),
+    });
+  }
 
   function confirmDelete() {
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     Alert.alert('Delete this photo?', 'It will be removed from the album for everyone.', [
       { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () =>
-          del.mutate(photo!.id, {
-            onSuccess: () => {
-              void qc.invalidateQueries({ queryKey: keys.photos(eventId) });
-              router.back();
-            },
-            onError: (e) => Alert.alert("Couldn't delete", e.message),
-          }),
-      },
+      { text: 'Delete', style: 'destructive', onPress: () => remove(isHost ? 'Deleted for everyone' : 'Removed from the album') },
     ]);
   }
 
-  function toggleHidden() {
-    const next = photo!.visibility === 'hidden' ? 'visible' : 'hidden';
-    visibility.mutate({ photoId: photo!.id, visibility: next }, { onSuccess: () => router.back() });
+  const actions: Action[] = [];
+  if (isHost && photo.pendingReview) {
+    actions.push({
+      icon: Check,
+      label: 'Approve',
+      busy: approve.isPending,
+      onPress: () =>
+        approve.mutate(photo.id, {
+          onSuccess: () => {
+            router.back();
+            toast('Approved. It’s live for guests');
+          },
+        }),
+    });
+    actions.push({ icon: X, label: 'Decline', busy: del.isPending, onPress: () => remove('Declined and removed') });
+  } else {
+    if (!isHost) {
+      actions.push({
+        icon: Heart,
+        label: photo.likedByMe ? 'Liked' : 'Like',
+        filled: photo.likedByMe,
+        onPress: () => like.mutate({ photoId: photo.id, liked: !photo.likedByMe }),
+      });
+    }
+    const canSave = isHost || isMine || ev?.allowDownloads !== false;
+    actions.push(
+      canSave
+        ? { icon: Download, label: 'Save', onPress: () => setSaving(true) }
+        : { icon: Lock, label: 'Saving off', onPress: () => toast('The hosts turned off downloads') },
+    );
+    if (isHost) {
+      const hidden = photo.visibility === 'hidden';
+      actions.push({
+        icon: hidden ? Eye : EyeOff,
+        label: hidden ? 'Unhide' : 'Hide',
+        busy: visibility.isPending,
+        onPress: () =>
+          visibility.mutate(
+            { photoId: photo.id, visibility: hidden ? 'visible' : 'hidden' },
+            {
+              onSuccess: () => {
+                router.back();
+                toast(hidden ? 'Visible to guests again' : 'Hidden from guests');
+              },
+            },
+          ),
+      });
+    }
+    if (isMine || isHost) actions.push({ icon: Trash2, label: 'Delete', busy: del.isPending, onPress: confirmDelete });
   }
+
+  const status = [timeAgo(photo.createdAt), photo.pendingReview && 'Waiting for review', photo.visibility === 'hidden' && 'Hidden from guests']
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <View style={styles.screen}>
-      <Image
-        source={{ uri: photo.url ?? undefined }}
-        placeholder={{ uri: photo.thumbUrl ?? undefined }}
-        style={StyleSheet.absoluteFill}
-        contentFit="contain"
-        transition={200}
-        accessibilityLabel={`Photo by ${photo.uploader.name}`}
-      />
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Close"
-        onPress={() => router.back()}
-        style={[styles.close, { top: insets.top + space.sm }]}>
-        <X size={icon.lg} color={colors.white} strokeWidth={icon.stroke} />
-      </Pressable>
+      <StatusBar style="light" />
+      <View style={[styles.top, { paddingTop: insets.top + space.sm }]}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => router.back()} style={styles.close}>
+          <X size={20} color={LIGHT} strokeWidth={icon.stroke} />
+        </Pressable>
+        {photo.prompt && (
+          <View style={styles.promptPill}>
+            <Text variant="caption" style={styles.light}>
+              Shot list · {photo.prompt}
+            </Text>
+          </View>
+        )}
+      </View>
+
+      <View style={styles.photoArea} onLayout={(e) => setArea(e.nativeEvent.layout)}>
+        <Image
+          source={{ uri: photo.url ?? undefined }}
+          placeholder={{ uri: photo.thumbUrl ?? undefined }}
+          style={StyleSheet.absoluteFill}
+          contentFit="contain"
+          transition={200}
+          onLoad={(e) => e.source.width && e.source.height && setLoadedRatio(e.source.width / e.source.height)}
+          accessibilityLabel={`Photo by ${photo.uploader.name}`}
+        />
+        {ev?.dateStamp && area.width > 0 && (
+          <Text style={[styles.stamp, stampSpot(area, loadedRatio ?? (photo.width && photo.height ? photo.width / photo.height : 4 / 5))]}>{stampText(ev, photo.takenAt ?? photo.createdAt)}</Text>
+        )}
+      </View>
 
       <View style={[styles.bar, { paddingBottom: insets.bottom + space.md }]}>
         <View style={styles.meta}>
-          <Text variant="h3" style={styles.light}>
-            {photo.uploader.name}
-          </Text>
-          <Text variant="caption" style={styles.dim}>
-            {timeAgo(photo.createdAt)}
-            {photo.visibility === 'hidden' ? ' · Hidden from guests' : ''}
-          </Text>
+          <View style={styles.initials}>
+            <Text style={styles.initialsText}>{initialsOf(photo.uploader.name)}</Text>
+          </View>
+          <View style={styles.flex}>
+            <View style={styles.row}>
+              <Text variant="bodyStrong" style={styles.light}>
+                {isMine ? 'You' : photo.uploader.name}
+              </Text>
+              <View style={styles.role}>
+                <Text style={styles.roleText}>{ROLE_LABEL[photo.uploader.role]}</Text>
+              </View>
+            </View>
+            <Text variant="caption" style={styles.dim}>
+              {status}
+            </Text>
+          </View>
+          <View style={styles.row} accessibilityLabel={`${photo.likeCount} likes`}>
+            <Heart size={14} color={DIM} />
+            <Text variant="label" style={styles.dim}>
+              {photo.likeCount}
+            </Text>
+          </View>
         </View>
         <View style={styles.actions}>
-          <ActionButton icon={Download} label="Save" onPress={() => setSaving(true)} />
-          {isHost && (
-            <ActionButton
-              icon={photo.visibility === 'hidden' ? Eye : EyeOff}
-              label={photo.visibility === 'hidden' ? 'Unhide' : 'Hide'}
-              onPress={toggleHidden}
-              busy={visibility.isPending}
-            />
-          )}
-          {(isMine || isHost) && <ActionButton icon={Trash2} label="Delete" onPress={confirmDelete} busy={del.isPending} />}
+          {actions.map((a) => (
+            <ActionButton key={a.label} {...a} />
+          ))}
         </View>
       </View>
-      {saving && <SaveSheet photo={photo} event={event.data} onClose={() => setSaving(false)} />}
+      {saving && <SaveSheet photo={photo} event={ev} onClose={() => setSaving(false)} />}
     </View>
   );
 }
 
-const useStyles = makeStyles(({ colors }) => ({
-  screen: { flex: 1, backgroundColor: colors.inkDeep },
-  close: {
+/** The photo is shown whole (contain), so put the stamp in the picture's own bottom-right corner. */
+function stampSpot(area: { width: number; height: number }, ratio: number) {
+  const shown = area.width / area.height > ratio ? { width: area.height * ratio, height: area.height } : { width: area.width, height: area.width / ratio };
+  return { right: (area.width - shown.width) / 2 + space.md, bottom: (area.height - shown.height) / 2 + space.sm + 2 };
+}
+
+// The viewer is always dark: it's about the photo.
+const LIGHT = '#F4F2DF';
+const DIM = 'rgba(244,242,223,0.7)';
+
+const useStyles = makeStyles(({ fonts }) => ({
+  screen: { flex: 1, backgroundColor: '#0E1311' },
+  top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.sm, paddingHorizontal: 14, paddingBottom: space.sm },
+  close: { width: 40, height: 40, borderRadius: radius.full, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' },
+  promptPill: { paddingHorizontal: space.sm + 2, paddingVertical: 6, borderRadius: radius.full, backgroundColor: 'rgba(255,255,255,0.1)' },
+  photoArea: { flex: 1 },
+  stamp: {
     position: 'absolute',
-    right: screenPadding,
-    width: 44,
-    height: 44,
-    borderRadius: radius.full,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    letterSpacing: 1.2,
+    color: 'rgba(255,255,255,0.92)',
+    textShadowColor: 'rgba(0,0,0,0.55)',
+    textShadowRadius: 4,
   },
-  bar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingHorizontal: screenPadding,
-    paddingTop: space.lg,
-    gap: space.lg,
-    backgroundColor: 'rgba(23,43,35,0.85)',
-  },
-  meta: { gap: 2 },
+  bar: { paddingHorizontal: 18, paddingTop: 14, gap: 14, backgroundColor: 'rgba(23,43,35,0.92)' },
+  meta: { flexDirection: 'row', alignItems: 'center', gap: space.sm + 2 },
+  flex: { flex: 1, minWidth: 0, gap: 1 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  initials: { width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
+  initialsText: { fontFamily: fonts.serif, fontSize: 13, color: LIGHT },
+  role: { paddingHorizontal: 7, paddingVertical: 1, borderRadius: 6, backgroundColor: 'rgba(255,255,255,0.12)' },
+  roleText: { fontFamily: fonts.sansSemiBold, fontSize: 10, lineHeight: 15, letterSpacing: 0.6, textTransform: 'uppercase', color: LIGHT },
   actions: { flexDirection: 'row', gap: space.sm },
-  action: { flex: 1, alignItems: 'center', gap: space.xs, paddingVertical: space.sm, borderRadius: radius.md, backgroundColor: 'rgba(255,255,255,0.08)' },
-  light: { color: colors.viewfinderText },
-  dim: { color: colors.viewfinderText, opacity: 0.7 },
+  action: { flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'center', gap: space.xs, borderRadius: radius.md, backgroundColor: 'rgba(255,255,255,0.08)' },
+  light: { color: LIGHT },
+  dim: { color: DIM },
 }));
 
-/** Drawn in the open event's theme. */
+/** Drawn in the open event's theme (the sheets it opens follow it). */
 export default function PhotoViewerScreen() {
   return (
     <ThemeProvider theme={useCurrentEventTheme()}>

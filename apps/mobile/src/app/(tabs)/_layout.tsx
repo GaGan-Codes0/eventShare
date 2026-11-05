@@ -2,30 +2,31 @@ import { Tabs } from 'expo-router/js-tabs';
 import { StatusBar } from 'expo-status-bar';
 
 import { TabBar } from '@/components/tab-bar';
-import { defaultTheme, ThemeProvider, useCurrentEventTheme } from '@/theme';
+import { useCurrentEvent } from '@/features/events/use-current-event';
+import { ThemeProvider, useCurrentEventTheme } from '@/theme';
 
-/** The event tabs wear the open event's theme. Home is outside any event, so it keeps eventShare's. */
+/**
+ * One open event, in its host's theme. Guests and photographers get Home / Camera / Album; the
+ * host gets Overview / Gallery / Design / People / Rules. "Your events" sits outside, as the start.
+ */
 export default function EventTabs() {
   const theme = useCurrentEventTheme();
+  const { isHost } = useCurrentEvent();
   return (
     <ThemeProvider theme={theme}>
+      {/* Light status bar text on dark event themes. */}
+      <StatusBar style={theme.dark ? 'light' : 'dark'} />
       <Tabs
-        tabBar={(props) => {
-          const shown = props.state.routes[props.state.index]?.name === 'index' ? defaultTheme : theme;
-          return (
-            <ThemeProvider theme={shown}>
-              {/* Light status bar text on dark event themes. */}
-              <StatusBar style={shown.dark ? 'light' : 'dark'} />
-              <TabBar {...props} />
-            </ThemeProvider>
-          );
-        }}
+        tabBar={(props) => <TabBar {...props} isHost={isHost} />}
         screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: theme.colors.paper } }}>
-        <Tabs.Screen name="index" />
-        <Tabs.Screen name="album" />
+        <Tabs.Screen name="home" />
         <Tabs.Screen name="camera" />
+        <Tabs.Screen name="album" />
+        <Tabs.Screen name="overview" />
+        <Tabs.Screen name="gallery" />
+        <Tabs.Screen name="design" />
         <Tabs.Screen name="people" />
-        <Tabs.Screen name="more" />
+        <Tabs.Screen name="rules" />
       </Tabs>
     </ThemeProvider>
   );

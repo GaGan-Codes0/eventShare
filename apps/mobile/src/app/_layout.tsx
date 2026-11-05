@@ -20,6 +20,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
 
+import { Toaster } from '@/components/toast';
 import { radius } from '@/constants/theme';
 import { initUploadQueue, onPhotoUploaded, onSlotReserved } from '@/features/uploads/queue';
 import { keys } from '@/services/api/hooks';
@@ -107,6 +108,7 @@ export default function RootLayout() {
       <ThemeProvider theme={defaultTheme}>
         <StatusBar style="dark" />
         <AppStack />
+        <Toaster />
       </ThemeProvider>
     </QueryClientProvider>
     // </ClerkProvider>
@@ -130,11 +132,12 @@ function AppStack() {
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.paper } }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="sign-in" options={{ animation: 'fade' }} />
+      <Stack.Screen name="events" options={{ animation: 'fade' }} />
       <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
       <Stack.Screen name="create-event" options={sheet} />
       <Stack.Screen name="join" options={sheet} />
       <Stack.Screen name="invite" options={sheet} />
-      <Stack.Screen name="event-theme" options={sheet} />
+      <Stack.Screen name="profile" options={sheet} />
       <Stack.Screen
         name="photo/[id]"
         options={{ presentation: 'fullScreenModal', animation: 'fade', contentStyle: { backgroundColor: colors.inkDeep } }}

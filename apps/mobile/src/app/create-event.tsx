@@ -12,7 +12,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { Banner, Button, Segmented, Text, TextField } from '@/components/ui';
 import { screenPadding, space } from '@/constants/theme';
 import { useCreateEvent } from '@/services/api/hooks';
-import { setCurrentEvent } from '@/store/current-event';
+import { openEvent } from '@/features/events/open-event';
 
 export default function CreateEvent() {
   const [name, setName] = useState('');
@@ -29,10 +29,9 @@ export default function CreateEvent() {
     }
     create.mutate(parsed.data, {
       onSuccess: (event) => {
-        setCurrentEvent(event.id);
-        // Close the sheet and open the new event's album.
+        // Close the sheet and go into the new event.
         router.dismissAll();
-        router.navigate('/(tabs)/album');
+        openEvent(event.id, event.role);
       },
     });
   }

@@ -7,18 +7,21 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import * as LegacyLibrary from 'expo-media-library/legacy';
 import { requestPermissionsAsync as requestLibraryAccess } from 'expo-media-library';
-import { useIsFocused } from 'expo-router';
-import { ArrowUpRight, Camera, CloudUpload, Frame, Images, SwitchCamera, Upload, X } from 'lucide-react-native';
+import { router, useIsFocused, useLocalSearchParams } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { Aperture, ArrowUpRight, Camera, CloudUpload, Film, Frame, Images, List, SwitchCamera, Upload, X } from 'lucide-react-native';
 import { useRef, useState } from 'react';
-import { Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Alert, Linking, Modal, Pressable, StyleSheet, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
 
-import { Button, Header, IconButton, Text } from '@/components/ui';
+import { toast } from '@/components/toast';
+import { Button, Text } from '@/components/ui';
 import { icon, radius, screenPadding, space } from '@/constants/theme';
-import { makeStyles, useTheme } from '@/theme';
+import { defaultTheme, makeStyles } from '@/theme';
 import { ViewfinderFrame } from '@/features/events/event-frame';
 import { NoEventYet } from '@/features/events/no-event';
+import { lockText } from '@/features/gallery/album-view';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { enqueuePhoto } from '@/features/uploads/queue';
 import { useUploadQueue } from '@/features/uploads/use-upload-queue';
@@ -71,7 +74,6 @@ function discardFile(uri: string) {
 }
 
 export default function CameraScreen() {
-  const { colors } = useTheme();
   const styles = useStyles();
   const { id, event } = useCurrentEvent();
   const focused = useIsFocused();
@@ -82,6 +84,7 @@ export default function CameraScreen() {
   const [shot, setShot] = useState<Shot | null>(null);
   const camera = useRef<CameraView>(null);
   const prefs = usePreferences();
+  const insets = useSafeAreaInsets();
   const queue = useUploadQueue(id);
   const flash = useSharedValue(0);
   const flashStyle = useAnimatedStyle(() => ({ opacity: flash.get() }));
@@ -93,6 +96,11 @@ export default function CameraScreen() {
   const left = !event ? 0 : event.photoLimit === null ? Infinity : Math.max(0, event.photoLimit - event.photosUsed - queue.unreserved);
   const leftLabel = Number.isFinite(left) ? String(left) : '∞';
   const outOfShots = Boolean(event) && left === 0;
+  // Guests can be limited to the camera; photographers and the host never are.
+  const rollAllowed = !event || event.allowLibraryUploads || event.role !== 'member';
+  // A shot-list prompt this photo is for, from the event's Home.
+  const prompt = useLocalSearchParams<{ prompt?: string }>().prompt || null;
+  const clearPrompt = () => router.setParams({ prompt: undefined });
 
   async function enableCamera() {
     const res = await requestPermission();
@@ -125,9 +133,24 @@ export default function CameraScreen() {
     if (!shot || !id) return;
     setBusy(true);
     try {
-      await enqueuePhoto({ eventId: id, uri: shot.uri, contentType: 'image/jpeg', width: shot.width, height: shot.height, takenAt: shot.takenAt, source: 'camera' });
+      await enqueuePhoto({
+        eventId: id,
+        uri: shot.uri,
+        contentType: 'image/jpeg',
+        width: shot.width,
+        height: shot.height,
+        takenAt: shot.takenAt,
+        source: 'camera',
+        prompt: prompt ?? undefined,
+      });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setShot(null);
+      if (prompt) {
+        toast(`Ticked off the shot list: ${prompt}`);
+        clearPrompt();
+      } else if (left === 1) {
+        toast('That was your last shot. Roll complete');
+      }
     } catch (err) {
       Alert.alert("Couldn't save the photo", err instanceof Error ? err.message : 'Please try again.');
     } finally {
@@ -143,6 +166,10 @@ export default function CameraScreen() {
 
   async function pickFromLibrary() {
     if (!id || !event) return;
+    if (!rollAllowed) {
+      toast('Camera-roll uploads are off for this event');
+      return;
+    }
     if (outOfShots) {
       Alert.alert('No photos left', `You've used all ${limit} of your photos for this event.`);
       return;
@@ -184,103 +211,139 @@ export default function CameraScreen() {
 
   if (!id) return <NoEventYet title="Your camera" />;
 
+  const note =
+    event?.role !== 'member'
+      ? 'Your shots skip review and go live instantly'
+      : event.requireReview
+        ? 'The hosts review guest photos before they go live'
+        : !event.albumOpen
+          ? lockText(event)
+          : 'Photos appear live for everyone';
+
   return (
-    <View style={styles.screen}>
-      <Header title="Your camera" />
-      <ScrollView contentContainerStyle={styles.body}>
-        <View style={styles.caption}>
-          <View style={styles.row}>
-            <View style={styles.liveDot} />
-            <Text variant="eyebrow" numberOfLines={1} style={styles.flexShrink}>
-              Shooting for {event?.name ?? 'your event'}
-            </Text>
+    <View style={[styles.screen, { paddingTop: insets.top }]}>
+      {focused && <StatusBar style="light" />}
+      <View style={styles.top}>
+        <View style={styles.flex}>
+          <Text variant="eyebrow" style={styles.topEyebrow}>
+            Shooting for
+          </Text>
+          <Text variant="h3" numberOfLines={1} style={styles.light}>
+            {event?.name ?? ''}
+          </Text>
+        </View>
+        {event && (
+          <View style={styles.pill} accessibilityLabel={Number.isFinite(left) ? `${left} of ${limit} photos left` : 'No photo limit'}>
+            {event.role === 'photographer' && <Aperture size={13} color={LIGHT} />}
+            <Text style={styles.pillText}>{Number.isFinite(left) ? `${leftLabel} LEFT` : 'NO LIMIT'}</Text>
           </View>
-          {event && (
-            <View style={styles.counterBox} accessibilityLabel={Number.isFinite(left) ? `${left} of ${limit} photos left` : 'No photo limit'}>
-              <Text style={styles.counter}>{leftLabel}</Text>
-              <Text variant="caption" color="muted">
-                left
-              </Text>
-            </View>
-          )}
-        </View>
+        )}
+      </View>
 
-        <View style={styles.viewfinder}>
-          {granted && focused ? (
-            <CameraView ref={camera} style={StyleSheet.absoluteFill} facing={facing} onCameraReady={() => setReady(true)} />
-          ) : (
-            <View style={styles.idle}>
-              <View style={styles.lens}>
-                <Camera size={24} color={colors.viewfinderAccent} strokeWidth={icon.stroke} />
-              </View>
-              <Text variant="h1" align="center" style={{ color: colors.viewfinderText }}>
-                Be here.{'\n'}
-                <Text variant="h1" emphasis color="viewfinderAccent">
-                  Keep a little of it.
-                </Text>
-              </Text>
-              {!granted && (
-                <Pressable accessibilityRole="button" onPress={enableCamera} style={styles.enable}>
-                  <Text variant="label" style={{ color: colors.viewfinderText }}>
-                    Enable camera
-                  </Text>
-                  <ArrowUpRight size={16} color={colors.viewfinderText} />
-                </Pressable>
-              )}
-            </View>
-          )}
-          {granted && focused && prefs.viewfinderFrame && <ViewfinderFrame logoUrl={event?.logoUrl ?? null} />}
-          {granted && (
-            <Pressable
-              accessibilityRole="switch"
-              accessibilityLabel="Show the event frame on screen"
-              accessibilityState={{ checked: prefs.viewfinderFrame }}
-              hitSlop={8}
-              onPress={() => setPreference('viewfinderFrame', !prefs.viewfinderFrame)}
-              style={[styles.frameToggle, prefs.viewfinderFrame && styles.frameToggleOn]}>
-              <Frame size={icon.sm} color={prefs.viewfinderFrame ? colors.viewfinder : colors.viewfinderText} />
-            </Pressable>
-          )}
-          <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.flash, flashStyle]} />
-        </View>
-
-        <View style={styles.shutterRow}>
-          <IconButton icon={Images} accessibilityLabel="Add from your photos" onPress={pickFromLibrary} size={48} />
+      {prompt && (
+        <View style={styles.promptBar}>
+          <List size={15} color={LIGHT} />
+          <Text variant="label" style={[styles.light, styles.flex]}>
+            Shot list · {prompt}
+          </Text>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Take photo"
-            disabled={!granted || !ready || busy || outOfShots}
-            onPress={shoot}
-            style={[styles.shutter, (!granted || !ready || outOfShots) && { opacity: 0.45 }]}>
-            {({ pressed }) => <View style={[styles.shutterInner, pressed && styles.shutterPressed]} />}
+            accessibilityLabel="Not shooting for the shot list"
+            hitSlop={8}
+            onPress={clearPrompt}>
+            <X size={14} color={LIGHT} />
           </Pressable>
-          <IconButton
-            icon={SwitchCamera}
-            accessibilityLabel="Switch camera"
-            onPress={() => setFacing((f) => (f === 'back' ? 'front' : 'back'))}
-            size={48}
-          />
         </View>
+      )}
 
-        <View style={styles.footnote}>
-          {outOfShots ? (
-            <Text variant="caption" color="muted" align="center">
-              You’ve used all {limit} of your photos for this event.
-            </Text>
-          ) : queue.pending > 0 ? (
-            <View style={styles.row}>
-              <CloudUpload size={14} color={colors.notice} />
-              <Text variant="caption" color="notice">
-                {plural(queue.pending, 'photo')} uploading · safe on this phone until done
-              </Text>
+      <View style={styles.viewfinder}>
+        {outOfShots ? (
+          <View style={styles.idle}>
+            <View style={styles.lens}>
+              <Film size={25} color={SAGE} strokeWidth={icon.stroke} />
             </View>
-          ) : (
-            <Text variant="caption" color="muted">
-              Every photo goes to the shared album, at full quality.
+            <Text style={styles.wrapTitle}>
+              That’s a <Text style={[styles.wrapTitle, styles.wrapItalic]}>wrap.</Text>
             </Text>
-          )}
-        </View>
-      </ScrollView>
+            <Text variant="caption" align="center" style={styles.wrapText}>
+              All {limit} shots on your roll are in the album. Thank you for shooting.
+            </Text>
+            <Button label="See the album" onPress={() => router.navigate('/(tabs)/album')} />
+          </View>
+        ) : granted && focused ? (
+          <CameraView ref={camera} style={StyleSheet.absoluteFill} facing={facing} onCameraReady={() => setReady(true)} />
+        ) : (
+          <View style={styles.idle}>
+            <View style={styles.lens}>
+              <Camera size={25} color={SAGE} strokeWidth={icon.stroke} />
+            </View>
+            <Text style={styles.wrapTitle} accessibilityRole="header">
+              Be here.{'\n'}
+              <Text style={[styles.wrapTitle, styles.wrapItalic]}>Keep a little of it.</Text>
+            </Text>
+            {!granted && (
+              <Pressable accessibilityRole="button" onPress={enableCamera} style={styles.enable}>
+                <Text variant="label" style={styles.light}>
+                  Enable camera
+                </Text>
+                <ArrowUpRight size={16} color={LIGHT} />
+              </Pressable>
+            )}
+          </View>
+        )}
+        {granted && focused && !outOfShots && prefs.viewfinderFrame && <ViewfinderFrame logoUrl={event?.logoUrl ?? null} />}
+        {granted && !outOfShots && (
+          <Pressable
+            accessibilityRole="switch"
+            accessibilityLabel="Show the event frame on screen"
+            accessibilityState={{ checked: prefs.viewfinderFrame }}
+            hitSlop={8}
+            onPress={() => setPreference('viewfinderFrame', !prefs.viewfinderFrame)}
+            style={[styles.frameToggle, prefs.viewfinderFrame && styles.frameToggleOn]}>
+            <Frame size={icon.sm} color={prefs.viewfinderFrame ? DARK : LIGHT} />
+          </Pressable>
+        )}
+        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.flash, flashStyle]} />
+      </View>
+
+      <View style={styles.controls}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={rollAllowed ? 'Add from your photos' : 'Camera-roll uploads are off'}
+          onPress={pickFromLibrary}
+          style={[styles.round, !rollAllowed && styles.roundOff]}>
+          <Images size={22} color={rollAllowed ? LIGHT : 'rgba(244,242,223,0.35)'} />
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Take photo"
+          disabled={!granted || !ready || busy || outOfShots}
+          onPress={shoot}
+          style={({ pressed }) => [styles.shutter, (!granted || !ready || outOfShots) && { opacity: 0.4 }, pressed && { transform: [{ scale: 0.94 }] }]}>
+          <View style={styles.shutterInner} />
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Switch camera"
+          onPress={() => setFacing((f) => (f === 'back' ? 'front' : 'back'))}
+          style={styles.round}>
+          <SwitchCamera size={22} color={LIGHT} />
+        </Pressable>
+      </View>
+      <View style={styles.footnote}>
+        {queue.pending > 0 ? (
+          <View style={styles.row}>
+            <CloudUpload size={14} color={SAGE} />
+            <Text variant="caption" style={styles.noteText}>
+              {plural(queue.pending, 'photo')} uploading · safe on this phone until done
+            </Text>
+          </View>
+        ) : (
+          <Text variant="caption" align="center" style={styles.noteText}>
+            {note}
+          </Text>
+        )}
+      </View>
 
       <Modal visible={Boolean(shot)} animationType="fade" statusBarTranslucent onRequestClose={dropShot}>
         <SafeAreaView style={styles.preview}>
@@ -302,43 +365,65 @@ export default function CameraScreen() {
   );
 }
 
+// The camera is always dark, whatever the event's theme: it's about the picture, not the page.
+const DARK = '#0B0F0D';
+const LIGHT = '#F4F2DF';
+const SAGE = '#CDD7AB';
+
 const useStyles = makeStyles(({ colors, fonts }) => ({
-  screen: { flex: 1, backgroundColor: colors.sage },
-  body: { padding: screenPadding, paddingBottom: space['3xl'] },
-  caption: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: space.lg, gap: space.md },
+  screen: { flex: 1, backgroundColor: DARK },
+  top: { height: 54, paddingHorizontal: screenPadding - 4, flexDirection: 'row', alignItems: 'center', gap: space.md - 2 },
+  topEyebrow: { color: 'rgba(244,242,223,0.6)', fontSize: 9.5, lineHeight: 13 },
+  light: { color: LIGHT },
+  flex: { flex: 1, minWidth: 0 },
   row: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  flexShrink: { flexShrink: 1 },
-  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accent },
-  counterBox: { flexDirection: 'row', alignItems: 'baseline', gap: space.xs },
-  counter: { fontFamily: fonts.mono, fontSize: 20, color: colors.primary },
-  flex: { flex: 1 },
-  viewfinder: {
-    aspectRatio: 4 / 5,
-    borderRadius: radius.xl + 6,
-    borderWidth: 6,
-    borderColor: colors.viewfinder,
-    backgroundColor: colors.viewfinder,
-    overflow: 'hidden',
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: radius.full,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
   },
-  idle: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.lg, padding: space.xl },
+  pillText: { fontFamily: fonts.mono, fontSize: 12, lineHeight: 14, letterSpacing: 0.7, color: LIGHT },
+  promptBar: {
+    marginHorizontal: 14,
+    marginBottom: space.sm,
+    paddingVertical: 7,
+    paddingLeft: space.md,
+    paddingRight: space.sm,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.09)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  viewfinder: { flex: 1, marginHorizontal: 14, borderRadius: 24, overflow: 'hidden', backgroundColor: '#1A221E' },
+  idle: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.lg, padding: space['2xl'], backgroundColor: '#304538' },
   lens: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     borderWidth: 1,
-    borderColor: 'rgba(205,215,171,0.3)',
+    borderColor: 'rgba(205,215,171,0.35)',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // eventShare's own serif here, whatever the event's heading font (as in the design).
+  wrapTitle: { fontFamily: defaultTheme.fonts.serif, fontSize: 30, lineHeight: 34, letterSpacing: -0.6, color: LIGHT, textAlign: 'center' },
+  wrapItalic: { fontFamily: defaultTheme.fonts.serifItalic, color: SAGE },
+  wrapText: { color: 'rgba(244,242,223,0.78)', maxWidth: 240 },
   enable: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
     minHeight: 44,
     paddingHorizontal: space.lg,
-    borderRadius: radius.sm,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(170,182,139,0.45)',
+    borderColor: 'rgba(205,215,171,0.45)',
   },
   flash: { backgroundColor: colors.white },
   frameToggle: {
@@ -352,21 +437,16 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.35)',
   },
-  frameToggleOn: { backgroundColor: colors.viewfinderText },
-  shutterRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: space['3xl'] + space.lg, marginTop: space['2xl'] },
-  shutter: {
-    width: 78,
-    height: 78,
-    borderRadius: 39,
-    borderWidth: 1.5,
-    borderColor: colors.primary,
-    padding: 5,
-  },
-  shutterInner: { flex: 1, borderRadius: 34, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.lineStrong },
-  shutterPressed: { transform: [{ scale: 0.94 }], backgroundColor: colors.sage },
-  footnote: { alignItems: 'center', marginTop: space.xl },
-  preview: { flex: 1, backgroundColor: colors.viewfinder, padding: screenPadding, gap: space.lg },
+  frameToggleOn: { backgroundColor: LIGHT },
+  controls: { paddingTop: space.lg, paddingHorizontal: 30, paddingBottom: space.sm + 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  round: { width: 50, height: 50, borderRadius: 25, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' },
+  roundOff: { backgroundColor: 'rgba(255,255,255,0.06)' },
+  shutter: { width: 78, height: 78, borderRadius: 39, borderWidth: 2, borderColor: colors.primary, padding: 5 },
+  shutterInner: { flex: 1, borderRadius: 34, backgroundColor: LIGHT },
+  footnote: { alignItems: 'center', paddingHorizontal: space['2xl'], paddingBottom: space.md },
+  noteText: { color: 'rgba(244,242,223,0.6)' },
+  preview: { flex: 1, backgroundColor: DARK, padding: screenPadding, gap: space.lg },
   previewImage: { flex: 1, borderRadius: radius.lg },
-  previewHint: { color: colors.viewfinderText, opacity: 0.75 },
+  previewHint: { color: LIGHT, opacity: 0.75 },
   previewActions: { flexDirection: 'row', gap: space.md },
 }));

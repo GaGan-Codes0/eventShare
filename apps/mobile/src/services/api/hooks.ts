@@ -6,12 +6,14 @@ import type {
   Member,
   Page,
   Photo,
+  PhotoLikes,
+  PhotoListFilter,
   PhotoVisibility,
   UpdateEventInput,
   UpdateMemberInput,
   User,
 } from '@eventshare/shared';
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 
 import { api } from './client';
 
@@ -20,7 +22,9 @@ export const keys = {
   events: ['events'] as const,
   event: (id: string) => ['events', id] as const,
   members: (id: string) => ['events', id, 'members'] as const,
+  /** Every filtered list of an event's photos sits under this key, so one invalidation refreshes them all. */
   photos: (id: string) => ['events', id, 'photos'] as const,
+  photoList: (id: string, filter: PhotoListFilter) => ['events', id, 'photos', filter] as const,
 };
 
 export function useMe() {
@@ -48,11 +52,11 @@ export function useMembers(id: string | null) {
 }
 
 /** Gallery, newest first. Refreshes every 15 s so everyone's photos show up during the event. */
-export function usePhotos(id: string | null) {
+export function usePhotos(id: string | null, filter: PhotoListFilter = 'all') {
   return useInfiniteQuery({
-    queryKey: keys.photos(id ?? ''),
+    queryKey: keys.photoList(id ?? '', filter),
     queryFn: ({ pageParam }) =>
-      api<Page<Photo>>(`/events/${id}/photos${pageParam ? `?cursor=${encodeURIComponent(pageParam)}` : ''}`),
+      api<Page<Photo>>(`/events/${id}/photos?filter=${filter}${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ''}`),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.nextCursor,
     enabled: Boolean(id),
@@ -136,6 +140,34 @@ export function useSetPhotoVisibility(eventId: string) {
     mutationFn: ({ photoId, visibility }: { photoId: string; visibility: PhotoVisibility }) =>
       api<Photo>(`/photos/${photoId}`, { method: 'PATCH', body: { visibility } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.photos(eventId) }),
+  });
+}
+
+/** Host approves a guest photo waiting for review. Declining is deleting it. */
+export function useApprovePhoto(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (photoId: string) => api<Photo>(`/photos/${photoId}`, { method: 'PATCH', body: { approved: true } }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.photos(eventId) });
+      void qc.invalidateQueries({ queryKey: keys.event(eventId) });
+    },
+  });
+}
+
+/** Like or unlike; the photo's count updates in every cached list right away. */
+export function useLikePhoto(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ photoId, liked }: { photoId: string; liked: boolean }) =>
+      api<PhotoLikes>(`/photos/${photoId}/like`, { method: liked ? 'PUT' : 'DELETE' }),
+    onSuccess: (likes, { photoId }) => {
+      qc.setQueriesData<InfiniteData<Page<Photo>>>({ queryKey: keys.photos(eventId) }, (data) =>
+        data
+          ? { ...data, pages: data.pages.map((page) => ({ ...page, items: page.items.map((p) => (p.id === photoId ? { ...p, ...likes } : p)) })) }
+          : data,
+      );
+    },
   });
 }
 

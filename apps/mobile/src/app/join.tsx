@@ -9,7 +9,7 @@ import { radius, screenPadding, space } from '@/constants/theme';
 import { EventLogo } from '@/features/events/event-images';
 import { makeStyles, themeFor, ThemeProvider, useTheme } from '@/theme';
 import { useJoinEvent, useJoinPreview } from '@/services/api/hooks';
-import { setCurrentEvent } from '@/store/current-event';
+import { openEvent } from '@/features/events/open-event';
 import { plural } from '@/utils/format';
 
 /** Join by code. Also opened by invite links: eventshare://join?code=XXXXXXXX */
@@ -23,10 +23,9 @@ export default function Join() {
   function submit() {
     join.mutate(normalized, {
       onSuccess: (event) => {
-        setCurrentEvent(event.id);
-        // Close the sheet and open the new event's album.
+        // Close the sheet and go into the event.
         router.dismissAll();
-        router.navigate('/(tabs)/album');
+        openEvent(event.id, event.role);
       },
     });
   }

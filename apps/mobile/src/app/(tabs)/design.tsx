@@ -1,6 +1,5 @@
 import { FONT_PAIRINGS, POSTER_FRAMES, THEME_ACCENTS, THEME_PRESETS, type EventDetail, type EventImageKind, type EventTheme } from '@eventshare/shared';
 import { Image } from 'expo-image';
-import { router } from 'expo-router';
 import { Check, ImagePlus } from 'lucide-react-native';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, View } from 'react-native';
@@ -8,7 +7,9 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, View } from 'react-nat
 import { Button, LoadingState, Pill, Segmented, Text, TextField } from '@/components/ui';
 import { icon, radius, screenPadding, space } from '@/constants/theme';
 import { EventLogo, pickEventImage } from '@/features/events/event-images';
+import { HostHeader } from '@/features/events/event-header';
 import { EventPoster } from '@/features/events/event-poster';
+import { toast } from '@/components/toast';
 import { ROLE_LABEL } from '@/features/events/roles';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { useUpdateEvent } from '@/services/api/hooks';
@@ -31,7 +32,7 @@ const same = (a: EventTheme, b: EventTheme) => JSON.stringify(a) === JSON.string
 /** A logo / poster picked in this sheet and already uploaded; key null means removed. */
 type Picked = { key: string | null; uri: string | null };
 
-/** Host only: pick a ready-made theme or make your own. The whole sheet previews it live. */
+/** Host only: pick a ready-made theme or make your own. The whole screen previews it live. */
 export default function EventThemeScreen() {
   const { event } = useCurrentEvent();
   if (!event) return <LoadingState />;
@@ -88,12 +89,13 @@ function Editor({ event }: { event: EventDetail }) {
         ...(images.poster && { posterKey: images.poster.key }),
         ...(images.logo && { logoKey: images.logo.key }),
       },
-      { onSuccess: () => router.back(), onError: (e) => Alert.alert("Couldn't save the theme", e.message) },
+      { onSuccess: () => toast('Saved. Guests see the new look'), onError: (e) => Alert.alert("Couldn't save the theme", e.message) },
     );
   }
 
   return (
     <ThemeProvider theme={themeFor(draft)}>
+      <HostHeader event={event} title="Design studio" />
       <Body
         event={previewEvent}
         draft={draft}

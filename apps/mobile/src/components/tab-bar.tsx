@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import type { BottomTabBarProps } from 'expo-router/js-tabs';
-import { Camera, House, Images, Menu, Users, type LucideIcon } from 'lucide-react-native';
+import { Camera, House, Images, LayoutGrid, Palette, SlidersHorizontal, Users, type LucideIcon } from 'lucide-react-native';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -9,15 +9,26 @@ import { icon, space } from '@/constants/theme';
 import { makeStyles, useTheme } from '@/theme';
 
 const TABS: Record<string, { label: string; icon: LucideIcon }> = {
-  index: { label: 'Home', icon: House },
-  album: { label: 'Album', icon: Images },
+  home: { label: 'Home', icon: House },
   camera: { label: 'Camera', icon: Camera },
+  album: { label: 'Album', icon: Images },
+  overview: { label: 'Overview', icon: House },
+  gallery: { label: 'Gallery', icon: LayoutGrid },
+  design: { label: 'Design', icon: Palette },
   people: { label: 'People', icon: Users },
-  more: { label: 'More', icon: Menu },
+  rules: { label: 'Rules', icon: SlidersHorizontal },
 };
 
-/** Design §7: five tabs, the camera raised in the middle and always one tap away. */
-export function TabBar({ state, emitter, navigateToTab }: BottomTabBarProps) {
+/** Guests and photographers shoot; the host runs the event (and shoots from Overview). */
+export const GUEST_TABS = ['home', 'camera', 'album'];
+export const HOST_TABS = ['overview', 'gallery', 'design', 'people', 'rules'];
+
+/**
+ * Guests: Home, a raised Camera always one tap away, Album. Hosts: the organizer's five tabs.
+ * Every screen lives in one navigator; each role sees only its own tabs.
+ */
+export function TabBar({ state, emitter, navigateToTab, isHost }: BottomTabBarProps & { isHost: boolean }) {
+  const visible = isHost ? HOST_TABS : GUEST_TABS;
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useStyles();
@@ -25,7 +36,7 @@ export function TabBar({ state, emitter, navigateToTab }: BottomTabBarProps) {
     <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, space.sm) }]}>
       {state.routes.map((route, index) => {
         const tab = TABS[route.name];
-        if (!tab) return null;
+        if (!tab || !visible.includes(route.name)) return null;
         const focused = state.index === index;
         const isCamera = route.name === 'camera';
         const Icon = tab.icon;

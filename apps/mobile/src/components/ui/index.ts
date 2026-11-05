@@ -1,5 +1,6 @@
 export { Avatar, initialsOf } from './avatar';
 export { Button } from './button';
+export { Chips } from './chips';
 export { Banner, EmptyState, IconTile, LoadingState, Pill } from './feedback';
 export { Header, Wordmark } from './header';
 export { IconButton } from './icon-button';
