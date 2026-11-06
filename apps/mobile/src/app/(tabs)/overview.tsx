@@ -15,7 +15,7 @@ import { openPhoto } from '@/features/gallery/album-view';
 import { FilteredImage } from '@/features/gallery/photo-filters';
 import { PhotoCell } from '@/features/gallery/photo-grid';
 import { usePhotos } from '@/services/api/hooks';
-import { makeStyles, useTheme } from '@/theme';
+import { makeStyles, ThemeProvider, useEventLook, useTheme } from '@/theme';
 
 /** The host's dashboard: the event, how it's going, invite, shoot, review, and the live feed. */
 export default function Overview() {
@@ -23,6 +23,7 @@ export default function Overview() {
   const styles = useStyles();
   const { id, event, query } = useCurrentEvent();
   const photos = usePhotos(id);
+  const look = useEventLook();
   if (!id) return <NoEventYet title="Overview" />;
   if (!event) return <LoadingState />;
 
@@ -44,22 +45,25 @@ export default function Overview() {
           />
         }>
         <View style={styles.card}>
-          <View style={styles.cover}>
-            <FilteredImage uri={event.coverUrl} filter={event.posterUrl ? 'natural' : event.filter} style={StyleSheet.absoluteFill} />
-            <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.5)']} locations={[0.35, 1]} style={StyleSheet.absoluteFill} />
-            <View style={styles.status}>
-              <View style={[styles.statusDot, !live && { backgroundColor: colors.subtle }]} />
-              <Text variant="eyebrow" style={styles.statusText}>
-                {live ? 'Live · uploads open' : 'Ready for guests'}
+          {/* The cover is what guests see: the event's own badge and name font. */}
+          <ThemeProvider theme={look}>
+            <View style={styles.cover}>
+              <FilteredImage uri={event.coverUrl} filter={event.posterUrl ? 'natural' : event.filter} style={StyleSheet.absoluteFill} />
+              <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.5)']} locations={[0.35, 1]} style={StyleSheet.absoluteFill} />
+              <View style={styles.status}>
+                <View style={[styles.statusDot, !live && { backgroundColor: colors.subtle }]} />
+                <Text variant="eyebrow" style={styles.statusText}>
+                  {live ? 'Live · uploads open' : 'Ready for guests'}
+                </Text>
+              </View>
+              <View style={styles.badge}>
+                <EventBadge event={event} size={40} />
+              </View>
+              <Text variant="h1" numberOfLines={2} style={styles.coverName}>
+                {event.name}
               </Text>
             </View>
-            <View style={styles.badge}>
-              <EventBadge event={event} size={40} />
-            </View>
-            <Text variant="h1" numberOfLines={2} style={styles.coverName}>
-              {event.name}
-            </Text>
-          </View>
+          </ThemeProvider>
           <View style={styles.cardInfo}>
             <View style={styles.row}>
               <Calendar size={14} color={colors.muted} />

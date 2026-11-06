@@ -4,7 +4,6 @@ import {
   MAX_PHOTOGRAPHERS,
   PHOTOGRAPHER_PHOTO_LIMIT,
   type CreateEventInput,
-  type EventSummary,
   type EventTheme,
   type EventType,
   type FontPairing,
@@ -19,18 +18,18 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { Aperture, ArrowRight, Briefcase, Cake, ChevronLeft, Heart, ImagePlus, Sparkles, type LucideIcon } from 'lucide-react-native';
+import { Aperture, ArrowRight, Briefcase, Cake, Camera, ChevronLeft, Heart, ImagePlus, Sparkle, type LucideIcon } from 'lucide-react-native';
 import { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, Switch, TextInput, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, Switch, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { toast } from '@/components/toast';
 import { Text } from '@/components/ui';
 import { FocusStatusBar } from '@/components/focus-status-bar';
 import { radius, screenPadding, space } from '@/constants/theme';
-import { EventCard } from '@/features/events/event-card';
+import { EventBadge } from '@/features/events/event-card';
 import { uploadEventImage } from '@/features/events/event-images';
-import { longDate, stampText } from '@/features/events/identity';
+import { inviteLine, longDate, stampText } from '@/features/events/identity';
 import { AccentPicker, FontGrid, FramePicker, LookPicker, opensAt, RevealOptions, ThemeGrid } from '@/features/events/look-pickers';
 import { openEvent } from '@/features/events/open-event';
 import { api } from '@/services/api/client';
@@ -41,7 +40,7 @@ const TYPES: { value: EventType; label: string; hint: string; icon: LucideIcon }
   { value: 'wedding', label: 'Wedding', hint: 'Two names, one shared roll', icon: Heart },
   { value: 'corporate', label: 'Corporate', hint: 'Summits, offsites, launches', icon: Briefcase },
   { value: 'birthday', label: 'Birthday', hint: 'Milestones and parties', icon: Cake },
-  { value: 'other', label: 'Something else', hint: 'Reunions, festivals, trips', icon: Sparkles },
+  { value: 'other', label: 'Something else', hint: 'Reunions, festivals, trips', icon: Sparkle },
 ];
 
 /** Each kind of event starts with a fitting look, shot list and welcome line; all can be changed. */
@@ -167,7 +166,7 @@ export default function CreateEvent() {
   }
 
   return (
-    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <View style={styles.screen}>
       <FocusStatusBar style="dark" />
       <View style={[styles.top, { paddingTop: insets.top }]}>
         <View style={styles.topRow}>
@@ -196,7 +195,7 @@ export default function CreateEvent() {
           </ThemeProvider>
         </View>
       )}
-      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
         {step === 0 && (
           <>
             <Heading eyebrow="Let’s set it up" title="What are you " emphasis="celebrating?" />
@@ -373,7 +372,7 @@ export default function CreateEvent() {
           <ArrowRight size={18} color={defaultTheme.colors.onPrimary} />
         </Pressable>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -416,19 +415,30 @@ async function finishLook(eventId: string, w: Wizard) {
 }
 
 /** The event as it'll appear on "Your events": cover, frame, badge and name in the chosen look. */
+/** What guests see when they open the invite, in the chosen look (the prototype's preview card). */
 function LookPreview({ w, display }: { w: Wizard; display: string }) {
-  const preview = {
-    ...namesOf(w),
-    id: 'preview',
-    name: display,
-    startsAt: w.date.toISOString(),
-    coverUrl: w.posterUri,
-    logoUrl: w.logoUri,
-    photoCount: 0,
-    memberCount: 1,
-    role: 'host',
-  } as unknown as EventSummary;
-  return <EventCard event={preview} onPress={() => undefined} />;
+  const { colors } = useTheme();
+  const styles = useStyles();
+  return (
+    <View style={[styles.preview, { backgroundColor: colors.paper, borderColor: colors.line }]}>
+      <EventBadge event={{ ...namesOf(w), name: display, logoUrl: w.logoUri }} size={46} />
+      <Text variant="eyebrow" style={{ color: colors.primaryText }}>
+        {inviteLine(w.type)}
+      </Text>
+      <Text variant="h1" align="center" numberOfLines={2}>
+        {display}
+      </Text>
+      <Text variant="caption" color="muted">
+        {longDate(w.date.toISOString())}
+      </Text>
+      <View style={[styles.previewCta, { backgroundColor: colors.primary }]}>
+        <Camera size={15} color={colors.onPrimary} />
+        <Text variant="label" style={{ color: colors.onPrimary }}>
+          Open camera
+        </Text>
+      </View>
+    </View>
+  );
 }
 
 type ImageRowProps = { title: string; caption: string; uri: string | null; contain?: boolean; onPick: () => void; onRemove: () => void };
@@ -551,6 +561,8 @@ const useStyles = makeStyles(() => {
     segs: { flexDirection: 'row', gap: space.xs, paddingHorizontal: screenPadding, paddingBottom: space.xs },
     seg: { flex: 1, height: 3, borderRadius: 2, backgroundColor: colors.lineStrong },
     segOn: { backgroundColor: colors.primary },
+    preview: { borderRadius: 20, borderWidth: 1, paddingVertical: space.lg, paddingHorizontal: 18, alignItems: 'center', gap: 6 },
+    previewCta: { marginTop: space.xs, height: 36, paddingHorizontal: 18, borderRadius: radius.md, flexDirection: 'row', alignItems: 'center', gap: 6 },
     pinned: { paddingHorizontal: screenPadding, paddingTop: space.md, paddingBottom: space.md + 4, borderBottomWidth: 0.5, borderBottomColor: colors.line },
     stamp: { fontFamily: defaultTheme.fonts.mono, fontSize: 11.5 },
     coverImg: { width: '100%', height: '100%' },

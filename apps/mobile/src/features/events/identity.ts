@@ -13,6 +13,14 @@ function initials(name: string) {
   return parts.length ? parts[0].slice(0, 2).toUpperCase() : '?';
 }
 
+/**
+ * The line above the event's name on an invite. A wedding is named after the couple, so it
+ * reads "the wedding of Tanya & Paul" rather than being "invited to" two people.
+ */
+export function inviteLine(type: EventType) {
+  return type === 'wedding' ? 'You’re invited to the wedding of' : 'You’re invited to';
+}
+
 type Named = Pick<EventIdentity, 'name' | 'type' | 'partner1' | 'partner2' | 'joiner' | 'organizer'>;
 
 /** "T&P" for a wedding, else the name's initials. Stands in for a logo. */

@@ -8,7 +8,7 @@ import { FocusStatusBar } from '@/components/focus-status-bar';
 import { Banner, Button, LoadingState, Text } from '@/components/ui';
 import { space } from '@/constants/theme';
 import { EventBadge } from '@/features/events/event-card';
-import { longDate } from '@/features/events/identity';
+import { inviteLine, longDate } from '@/features/events/identity';
 import { openEvent } from '@/features/events/open-event';
 import { useJoinEvent, useJoinPreview, useMe } from '@/services/api/hooks';
 import { makeStyles, themeFor, ThemeProvider, useTheme } from '@/theme';
@@ -68,7 +68,7 @@ function Invited({ code, event }: { code: string; event: EventPreview }) {
       <ScrollView contentContainerStyle={styles.body}>
         <EventBadge event={event} size={78} />
         <Text variant="eyebrow" style={{ color: colors.primaryText, letterSpacing: 1.8 }}>
-          You’re invited to
+          {inviteLine(event.type)}
         </Text>
         <Text variant="display" align="center">
           {event.name}

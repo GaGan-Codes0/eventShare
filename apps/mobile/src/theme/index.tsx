@@ -27,8 +27,19 @@ export function useTheme() {
   return useContext(ThemeContext);
 }
 
-/** The open event's theme (eventShare's own while it loads or with no event open). */
+/**
+ * What the open event's screens are drawn in. Guests and photographers see the event in its
+ * host's theme; the host's own tools (Overview, Gallery, Design, People, Rules...) always stay in
+ * eventShare's look, as in the prototype. On host screens the event's look shows only where a
+ * guest would see it (its cover, the guest preview, the table card): use `useEventLook()` there.
+ */
 export function useCurrentEventTheme() {
+  const { event, isHost } = useCurrentEvent();
+  return isHost ? defaultTheme : themeFor(event?.theme);
+}
+
+/** The open event's own theme, whoever is looking: for guest-facing previews on host screens. */
+export function useEventLook() {
   return themeFor(useCurrentEvent().event?.theme);
 }
 

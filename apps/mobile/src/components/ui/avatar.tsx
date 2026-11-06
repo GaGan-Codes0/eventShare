@@ -2,7 +2,7 @@ import { Image } from 'expo-image';
 import { StyleSheet, View } from 'react-native';
 
 import { radius } from '@/constants/theme';
-import { makeStyles, useTheme } from '@/theme';
+import { defaultTheme, makeStyles } from '@/theme';
 
 import { Text } from './text';
 
@@ -14,7 +14,6 @@ export function initialsOf(name: string) {
 }
 
 export function Avatar({ name, uri, size = 34 }: { name: string; uri?: string | null; size?: 28 | 34 | 40 }) {
-  const { fonts } = useTheme();
   const styles = useStyles();
   return (
     <View
@@ -23,7 +22,8 @@ export function Avatar({ name, uri, size = 34 }: { name: string; uri?: string | 
       {uri ? (
         <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" />
       ) : (
-        <Text style={{ fontFamily: fonts.serif, fontSize: size * 0.4, lineHeight: size * 0.5 }}>{initialsOf(name)}</Text>
+        // People's initials stay in eventShare's own serif, whatever the event's name font.
+        <Text style={{ fontFamily: defaultTheme.fonts.serif, fontSize: size * 0.4, lineHeight: size * 0.5 }}>{initialsOf(name)}</Text>
       )}
     </View>
   );

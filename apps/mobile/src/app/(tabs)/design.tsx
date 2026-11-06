@@ -22,7 +22,7 @@ import { longDate, stampText } from '@/features/events/identity';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { FilteredImage } from '@/features/gallery/photo-filters';
 import { usePhotos, useUpdateEvent } from '@/services/api/hooks';
-import { DEFAULT_EVENT_THEME, makeStyles, useTheme } from '@/theme';
+import { DEFAULT_EVENT_THEME, makeStyles, ThemeProvider, useEventLook, useTheme } from '@/theme';
 
 /** Host: how the event looks to every guest. Changes go out as you make them. */
 export default function DesignStudio() {
@@ -37,6 +37,7 @@ function Studio({ event }: { event: EventDetail }) {
   const update = useUpdateEvent(event.id);
   const photos = usePhotos(event.id);
   const theme = event.theme ?? DEFAULT_EVENT_THEME;
+  const look = useEventLook();
   const [busy, setBusy] = useState<EventImageKind | null>(null);
   const [names, setNames] = useState({
     name: event.name,
@@ -107,45 +108,17 @@ function Studio({ event }: { event: EventDetail }) {
               </Text>
             </View>
           </View>
-          <View style={styles.previewCover}>
-            <FilteredImage uri={event.coverUrl} filter={event.posterUrl ? 'natural' : event.filter} style={StyleSheet.absoluteFill} />
-            <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.6)']} locations={[0.3, 1]} style={StyleSheet.absoluteFill} />
-            <View style={styles.previewBadge}>
-              <EventBadge event={event} size={40} />
-            </View>
-            <View style={styles.previewText}>
-              {event.startsAt && (
-                <Text variant="eyebrow" style={styles.previewDate}>
-                  {longDate(event.startsAt)}
-                </Text>
-              )}
-              <Text variant="h1" numberOfLines={2} style={styles.white}>
-                {draftName}
-              </Text>
-              {names.tagline.trim() !== '' && (
-                <Text variant="caption" numberOfLines={1} style={styles.previewTagline}>
-                  {names.tagline.trim()}
-                </Text>
-              )}
-            </View>
-          </View>
-          <View style={styles.row}>
-            <View style={styles.fakeCta}>
-              <Camera size={15} color={colors.onPrimary} />
-              <Text variant="label" style={{ color: colors.onPrimary }}>
-                Open camera
-              </Text>
-            </View>
-            <View style={styles.fakeSquare}>
-              <Images size={16} color={colors.ink} />
-            </View>
-          </View>
+          <ThemeProvider theme={look}>
+            <GuestPreview event={event} name={draftName} />
+          </ThemeProvider>
         </View>
       </View>
-      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
         <Section title="Logo" caption="On the join screen, app header and table card. Without one we use your monogram.">
           <View style={styles.row}>
-            <EventBadge event={event} size={58} />
+            <ThemeProvider theme={look}>
+              <EventBadge event={event} size={58} />
+            </ThemeProvider>
             <Pressable accessibilityRole="button" disabled={busy !== null} onPress={() => chooseImage('logo')} style={styles.upload}>
               {busy === 'logo' ? <ActivityIndicator color={colors.ink} /> : <Upload size={16} color={colors.ink} />}
               <Text variant="label">Upload logo</Text>
@@ -271,6 +244,44 @@ function Studio({ event }: { event: EventDetail }) {
   );
 }
 
+/** What a guest sees, drawn in the event's own look (the screen around it is eventShare's). */
+function GuestPreview({ event, name }: { event: EventDetail; name: string }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+  return (
+    <>
+      <View style={styles.previewCover}>
+        <FilteredImage uri={event.coverUrl} filter={event.posterUrl ? 'natural' : event.filter} style={StyleSheet.absoluteFill} />
+        <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.6)']} locations={[0.3, 1]} style={StyleSheet.absoluteFill} />
+        <View style={styles.previewBadge}>
+          <EventBadge event={event} size={40} />
+        </View>
+        <View style={styles.previewText}>
+          {event.startsAt && (
+            <Text variant="eyebrow" style={styles.previewDate}>
+              {longDate(event.startsAt)}
+            </Text>
+          )}
+          <Text variant="h1" numberOfLines={2} style={styles.white}>
+            {name}
+          </Text>
+        </View>
+      </View>
+      <View style={styles.row}>
+        <View style={styles.fakeCta}>
+          <Camera size={15} color={colors.onPrimary} />
+          <Text variant="label" style={{ color: colors.onPrimary }}>
+            Open camera
+          </Text>
+        </View>
+        <View style={styles.fakeSquare}>
+          <Images size={16} color={colors.ink} />
+        </View>
+      </View>
+    </>
+  );
+}
+
 function Section({ title, caption, children }: { title: string; caption?: string; children: React.ReactNode }) {
   const styles = useStyles();
   return (
@@ -327,11 +338,10 @@ const useStyles = makeStyles(({ colors }) => ({
   previewHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.xs },
   liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#3F9A4F' },
   // Kept short: it stays on screen above the options.
-  previewCover: { height: 128, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: colors.sage },
+  previewCover: { height: 146, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: colors.sage },
   previewBadge: { position: 'absolute', top: space.sm + 2, left: space.sm + 2 },
   previewText: { position: 'absolute', left: 14, right: 14, bottom: space.md, gap: space.xs },
   previewDate: { color: '#FFFFFF', opacity: 0.9, fontSize: 9.5, lineHeight: 12 },
-  previewTagline: { color: '#FFFFFF', opacity: 0.85 },
   fakeCta: { flex: 1, height: 36, borderRadius: radius.md, backgroundColor: colors.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   fakeSquare: { width: 36, height: 36, borderRadius: radius.md, backgroundColor: colors.sage, alignItems: 'center', justifyContent: 'center' },
   section: { gap: space.sm + 2 },
