@@ -83,6 +83,11 @@ export function EventCard({ event, onPress }: { event: EventSummary; onPress: ()
   );
 }
 
+/** The cover's top corners, and the poster frame's insets inside them. */
+const CORNER = radius.xl + 1;
+const RULE_OUTER = 7;
+const RULE_INNER = 11;
+
 const useStyles = makeStyles(({ colors }) => ({
   card: {
     borderRadius: radius.xl + 2,
@@ -95,13 +100,15 @@ const useStyles = makeStyles(({ colors }) => ({
     shadowOffset: { width: 0, height: 10 },
   },
   pressed: { opacity: 0.92, transform: [{ scale: 0.99 }] },
-  cover: { height: 118, borderTopLeftRadius: radius.xl + 1, borderTopRightRadius: radius.xl + 1, backgroundColor: colors.sage },
+  cover: { height: 118, borderTopLeftRadius: CORNER, borderTopRightRadius: CORNER, backgroundColor: colors.sage },
   coverMat: { backgroundColor: colors.surface, padding: space.sm, paddingBottom: 0 },
-  picture: { flex: 1, overflow: 'hidden', borderTopLeftRadius: radius.xl + 1, borderTopRightRadius: radius.xl + 1, backgroundColor: colors.sage },
+  picture: { flex: 1, overflow: 'hidden', borderTopLeftRadius: CORNER, borderTopRightRadius: CORNER, backgroundColor: colors.sage },
   pictureMat: { borderRadius: 4 },
   rule: { position: 'absolute', borderWidth: 1, borderColor: 'rgba(255,255,255,0.7)' },
-  ruleOuter: { top: 7, left: 7, right: 7, bottom: 7, borderRadius: radius.lg },
-  ruleInner: { top: 11, left: 11, right: 11, bottom: 11, borderRadius: radius.md },
+  // Concentric with the card's rounded corner (radius minus the inset), so the lines follow the
+  // curve and never poke outside it, whether or not the platform clips them.
+  ruleOuter: { top: RULE_OUTER, left: RULE_OUTER, right: RULE_OUTER, bottom: RULE_OUTER, borderRadius: CORNER - RULE_OUTER },
+  ruleInner: { top: RULE_INNER, left: RULE_INNER, right: RULE_INNER, bottom: RULE_INNER, borderRadius: CORNER - RULE_INNER },
   status: {
     position: 'absolute',
     top: space.md,

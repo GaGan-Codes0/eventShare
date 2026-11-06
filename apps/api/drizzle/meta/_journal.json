@@ -71,6 +71,13 @@
       "when": 1793949556191,
       "tag": "0009_invite_emailed_at",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793985719304,
+      "tag": "0010_six_digit_codes",
+      "breakpoints": true
     }
   ]
 }

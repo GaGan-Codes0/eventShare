@@ -1,16 +1,15 @@
 import { ALLOWED_PHOTO_TYPES, type MediaKind } from '@eventshare/shared';
 import { CameraView, useCameraPermissions, useMicrophonePermissions, type CameraType, type FlashMode, type FocusMode, type LensInfo } from 'expo-camera';
-import { File } from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import * as LegacyLibrary from 'expo-media-library/legacy';
 import { requestPermissionsAsync as requestLibraryAccess } from 'expo-media-library';
-import { router, useIsFocused, useLocalSearchParams } from 'expo-router';
+import { router, useIsFocused } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Aperture, ArrowUpRight, Camera, CloudUpload, Film, Frame, Grid3x3, Images, List, Mic, Smartphone, SwitchCamera, Upload, X, Zap, ZapOff } from 'lucide-react-native';
+import { Aperture, ArrowUpRight, Camera, CloudUpload, Film, Frame, Grid3x3, Images, Mic, SwitchCamera, Zap, ZapOff } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Linking, Modal, Platform, Pressable, StyleSheet, View, type GestureResponderEvent } from 'react-native';
+import { Alert, Linking, Platform, Pressable, StyleSheet, View, type GestureResponderEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
 
@@ -107,8 +106,6 @@ export default function CameraScreen() {
   const [lens, setLens] = useState(WIDE);
   const [autofocus, setAutofocus] = useState<FocusMode>('off');
   const [focusAt, setFocusAt] = useState<{ x: number; y: number } | null>(null);
-  // The phone's own camera app is open: ours lets go of the camera meanwhile.
-  const [external, setExternal] = useState(false);
   const pinch = useRef<{ dist: number; zoom: number } | null>(null);
   const tap = useRef<{ x: number; y: number; at: number } | null>(null);
   const focusTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -141,9 +138,6 @@ export default function CameraScreen() {
 
   // Guests can be limited to the camera; photographers and the host never are.
   const rollAllowed = !event || event.allowLibraryUploads || event.role !== 'member';
-  // A shot-list prompt this photo is for, from the event's Home.
-  const prompt = useLocalSearchParams<{ prompt?: string }>().prompt || null;
-  const clearPrompt = () => router.setParams({ prompt: undefined });
 
   async function enableCamera() {
     const res = await requestPermission();
@@ -170,15 +164,11 @@ export default function CameraScreen() {
         height: shot.height,
         takenAt: shot.takenAt,
         source: 'camera',
-        prompt: prompt ?? undefined,
         // A fresh recording is ours to take: a long video is never copied.
         move: shot.kind !== 'photo',
       });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      if (prompt) {
-        toast(`Ticked off the shot list: ${prompt}`);
-        clearPrompt();
-      } else if (shot.kind === 'photo' && left === 1) {
+      if (shot.kind === 'photo' && left === 1) {
         toast('That was your last shot. Roll complete');
       }
     } catch (err) {
@@ -276,43 +266,6 @@ export default function CameraScreen() {
     }
   }
 
-
-  /**
-   * The phone's own camera, with every mode it has (portrait, night, its own filters...). The
-   * photo comes back here for the same preview, count and upload as one taken in ours.
-   */
-  async function openPhoneCamera() {
-    if (!id || busy || out || mode === 'voice') return;
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) return enableCamera();
-    setExternal(true);
-    try {
-      const res = await ImagePicker.launchCameraAsync(
-        mode === 'video'
-          ? {
-              mediaTypes: ['videos'],
-              // Their video time left; recorded at the phone's highest quality.
-              videoMaxDuration: Math.floor(videoLeft / 1000),
-              videoQuality: ImagePicker.UIImagePickerControllerQualityType.High,
-            }
-          : { mediaTypes: ['images'], quality: 1, exif: true },
-      );
-      if (res.canceled) return;
-      const asset = res.assets[0];
-      if (asset.type === 'video') {
-        const durationMs = Math.min(videoLeft, Math.round(asset.duration ?? 0));
-        const contentType = asset.mimeType ?? (asset.uri.toLowerCase().endsWith('.mov') ? 'video/quicktime' : 'video/mp4');
-        void keep({ uri: asset.uri, kind: 'video', contentType, width: asset.width, height: asset.height, durationMs, takenAt: new Date().toISOString() });
-        return;
-      }
-      const file = await uploadable({ uri: asset.uri, contentType: asset.mimeType });
-      void keep({ uri: file.uri, kind: 'photo', contentType: file.contentType, width: asset.width, height: asset.height, takenAt: new Date().toISOString() });
-    } catch (err) {
-      Alert.alert("Couldn't use that photo", err instanceof Error ? err.message : 'Please try again.');
-    } finally {
-      setExternal(false);
-    }
-  }
 
   function flip() {
     setFacing((f) => (f === 'back' ? 'front' : 'back'));
@@ -489,21 +442,6 @@ export default function CameraScreen() {
         )}
       </View>
 
-      {prompt && (
-        <View style={styles.promptBar}>
-          <List size={15} color={LIGHT} />
-          <Text variant="label" style={[styles.light, styles.flex]}>
-            Shot list · {prompt}
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Not shooting for the shot list"
-            hitSlop={8}
-            onPress={clearPrompt}>
-            <X size={14} color={LIGHT} />
-          </Pressable>
-        </View>
-      )}
 
       <View style={styles.viewfinder}>
         {out ? (
@@ -531,7 +469,6 @@ export default function CameraScreen() {
             style={StyleSheet.absoluteFill}
             mode={mode === 'video' ? 'video' : 'picture'}
             facing={facing}
-            active={!external}
             flash={facing === 'front' && flashMode === 'on' ? 'screen' : flashMode}
             zoom={zoom}
             autofocus={autofocus}
@@ -581,20 +518,6 @@ export default function CameraScreen() {
               {clock(elapsed)} / {clock(videoLeft)}
             </Text>
           </View>
-        )}
-        {live && recStart === null && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Use the phone’s own camera"
-            accessibilityHint="Opens your phone’s camera app with all its modes. The photo comes back here to upload."
-            hitSlop={6}
-            onPress={openPhoneCamera}
-            style={styles.phoneCamera}>
-            <Smartphone size={15} color={LIGHT} />
-            <Text variant="label" style={styles.light}>
-              Phone camera
-            </Text>
-          </Pressable>
         )}
         {granted && !outOfShots && (
           <View style={styles.tools}>
@@ -759,18 +682,6 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
     borderColor: colors.primary,
   },
   pillText: { fontFamily: fonts.mono, fontSize: 12, lineHeight: 14, letterSpacing: 0.7, color: LIGHT },
-  promptBar: {
-    marginHorizontal: 14,
-    marginBottom: space.sm,
-    paddingVertical: 7,
-    paddingLeft: space.md,
-    paddingRight: space.sm,
-    borderRadius: radius.md,
-    backgroundColor: 'rgba(255,255,255,0.09)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-  },
   viewfinder: { flex: 1, marginHorizontal: 14, borderRadius: 24, overflow: 'hidden', backgroundColor: '#1A221E' },
   idle: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.lg, padding: space['2xl'], backgroundColor: '#304538' },
   lens: {
@@ -801,18 +712,6 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
   tool: { width: 36, height: 36, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.35)' },
   toolOn: { backgroundColor: LIGHT },
   toolBadge: { position: 'absolute', right: 6, bottom: 4, fontFamily: fonts.mono, fontSize: 8, lineHeight: 9, color: LIGHT },
-  phoneCamera: {
-    position: 'absolute',
-    top: space.md,
-    left: space.md,
-    height: 36,
-    paddingHorizontal: space.md,
-    borderRadius: radius.full,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
   gridLine: { position: 'absolute', backgroundColor: 'rgba(255,255,255,0.45)' },
   focusRing: { position: 'absolute', width: 64, height: 64, borderRadius: 8, borderWidth: 1.5, borderColor: '#FFD60A' },
   zoomRow: { position: 'absolute', bottom: space.lg, alignSelf: 'center', flexDirection: 'row', gap: 4, padding: 3, borderRadius: radius.full, backgroundColor: 'rgba(0,0,0,0.35)' },

@@ -264,16 +264,15 @@ export type PhotographerInvite = {
 export type InvitePhotographerResult = { status: 'invited'; invite: PhotographerInvite } | { status: 'joined'; member: Member };
 
 /** Join codes are 8 chars from an unambiguous alphabet (no 0/O, 1/I/L). */
-export const JOIN_CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
-export const JOIN_CODE_LENGTH = 8;
+export const JOIN_CODE_ALPHABET = '0123456789';
+export const JOIN_CODE_LENGTH = 6;
 
 export const joinEventSchema = z.object({
   code: z
     .string()
     .trim()
-    .toUpperCase()
     .transform((s) => s.replace(/[\s-]/g, ''))
-    .pipe(z.string().length(JOIN_CODE_LENGTH, 'Codes are 8 characters')),
+    .pipe(z.string().regex(/^\d{6}$/, 'Codes are 6 digits')),
 });
 export type JoinEventInput = z.infer<typeof joinEventSchema>;
 

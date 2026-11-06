@@ -18,7 +18,8 @@ import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/reac
 import { router, Stack, type NativeStackNavigationOptions } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 
 import { Toaster } from '@/components/toast';
 import { radius } from '@/constants/theme';
@@ -63,6 +64,7 @@ function SessionWatch() {
       subscribeSession(() => {
         if (getSessionUser()) return;
         qc.clear();
+        // The signed-in screens are gone (Stack.Protected); start fresh on sign in.
         router.replace('/sign-in');
       }),
     [qc],
@@ -103,6 +105,8 @@ export default function RootLayout() {
   return (
     // <ClerkProvider publishableKey={CLERK_KEY} tokenCache={tokenCache}>
     <QueryClientProvider client={queryClient}>
+      {/* Lets screens keep the field being typed in above the keyboard, on Android too. */}
+      <KeyboardProvider>
       <UploadSync />
       <SessionWatch />
       <ThemeProvider theme={defaultTheme}>
@@ -110,6 +114,7 @@ export default function RootLayout() {
         <AppStack />
         <Toaster />
       </ThemeProvider>
+      </KeyboardProvider>
     </QueryClientProvider>
     // </ClerkProvider>
   );
@@ -118,6 +123,7 @@ export default function RootLayout() {
 /** Every screen, with backgrounds from the current theme. */
 function AppStack() {
   const { colors } = useTheme();
+  const signedIn = useSyncExternalStore(subscribeSession, () => Boolean(getSessionUser()));
   const sheet = useMemo<NativeStackNavigationOptions>(
     () => ({
       presentation: 'formSheet',
@@ -131,21 +137,28 @@ function AppStack() {
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.paper } }}>
       <Stack.Screen name="index" />
-      <Stack.Screen name="sign-in" options={{ animation: 'fade' }} />
-      <Stack.Screen name="events" options={{ animation: 'fade' }} />
-      <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
-      <Stack.Screen name="create-event" options={{ animation: 'slide_from_bottom' }} />
-      <Stack.Screen name="join" options={{ animation: 'slide_from_bottom' }} />
-      <Stack.Screen name="join-scan" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
-      <Stack.Screen name="join-code" />
-      <Stack.Screen name="join-preview" options={{ animation: 'fade' }} />
-      <Stack.Screen name="invite" options={sheet} />
-      <Stack.Screen name="profile" options={sheet} />
-      <Stack.Screen name="download" options={sheet} />
-      <Stack.Screen
-        name="photo/[id]"
-        options={{ presentation: 'fullScreenModal', animation: 'fade', contentStyle: { backgroundColor: colors.inkDeep } }}
-      />
+      {/* Signed out, only sign-in exists; signed in, it doesn't. Switching drops the other side's
+          history, so Back after signing out can't reach a signed-in screen (it leaves the app). */}
+      <Stack.Protected guard={!signedIn}>
+        <Stack.Screen name="sign-in" options={{ animation: 'fade' }} />
+      </Stack.Protected>
+      <Stack.Protected guard={signedIn}>
+        <Stack.Screen name="events" options={{ animation: 'fade' }} />
+        <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
+        <Stack.Screen name="create-event" options={{ animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="join" options={{ animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="join-scan" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
+        <Stack.Screen name="join-code" />
+        <Stack.Screen name="join-preview" options={{ animation: 'fade' }} />
+        <Stack.Screen name="invite" options={sheet} />
+        {/* As tall as its contents, like the prototype's profile sheet. */}
+        <Stack.Screen name="profile" options={{ ...sheet, sheetAllowedDetents: 'fitToContents' }} />
+        <Stack.Screen name="download" options={sheet} />
+        <Stack.Screen
+          name="photo/[id]"
+          options={{ presentation: 'fullScreenModal', animation: 'fade', contentStyle: { backgroundColor: colors.inkDeep } }}
+        />
+      </Stack.Protected>
     </Stack>
   );
 }

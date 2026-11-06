@@ -33,7 +33,7 @@ export default function Join() {
             Let’s get you <Text variant="h1" emphasis>in.</Text>
           </Text>
           <Text variant="caption" color="muted">
-            Your host shared a QR code or an event code. Either one opens the event.
+            Your host shared a QR code or a 6-digit code. Either one opens the event.
           </Text>
         </View>
 
@@ -59,7 +59,7 @@ export default function Join() {
           <View style={styles.flex}>
             <Text variant="bodyStrong">Enter event code</Text>
             <Text variant="caption" color="muted">
-              8 characters from your host
+              6 digits from your host
             </Text>
           </View>
           <ChevronRight size={18} color={colors.ink} />

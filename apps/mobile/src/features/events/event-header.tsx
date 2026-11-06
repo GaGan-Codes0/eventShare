@@ -63,7 +63,7 @@ export function GuestHeader({ event, dark }: { event: EventDetail | null; dark?:
           </Text>
         </View>
         <Pressable accessibilityRole="button" accessibilityLabel="Your profile" hitSlop={8} onPress={() => router.push({ pathname: '/profile', params: { from: 'event' } })}>
-          <Avatar name={me.data?.name ?? ''} uri={me.data?.avatarUrl} />
+          <Avatar name={me.data?.name ?? ''} uri={me.data?.avatarUrl} variant="event" />
         </Pressable>
       </View>
     </View>

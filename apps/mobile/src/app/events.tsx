@@ -44,7 +44,7 @@ export default function YourEvents() {
               </Text>
             </Text>
             <Text style={{ color: colors.viewfinderText, opacity: 0.8 }}>
-              Join an event with its QR code or code. Every guest’s shots land in one shared album.
+              Join an event with its QR code or 6-digit code. Every guest’s shots land in one shared album.
             </Text>
           </View>
         ) : (

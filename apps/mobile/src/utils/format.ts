@@ -1,6 +1,6 @@
-/** "NETP2E57" → "NETP-2E57" (easier to read aloud). */
+/** "482916" → "482 916" (easier to read aloud), as in the prototype. */
 export function formatCode(code: string) {
-  return `${code.slice(0, 4)}-${code.slice(4)}`;
+  return `${code.slice(0, 3)} ${code.slice(3)}`;
 }
 
 export function joinLink(code: string) {

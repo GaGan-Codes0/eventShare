@@ -1,10 +1,10 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { Aperture, CalendarClock, LogOut, QrCode, UserRound } from 'lucide-react-native';
-import { Pressable, ScrollView, Switch, View } from 'react-native';
+import { Aperture, CalendarClock, LogOut } from 'lucide-react-native';
+import { Image } from 'expo-image';
+import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 
-import { Avatar, Button, Text } from '@/components/ui';
-import { icon, radius, screenPadding, space } from '@/constants/theme';
-import { ROLE_LABEL } from '@/features/events/roles';
+import { initialsOf, Text } from '@/components/ui';
+import { radius, space } from '@/constants/theme';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { useMe } from '@/services/api/hooks';
 import { setSession } from '@/services/api/session';
@@ -12,7 +12,12 @@ import { setCurrentEvent } from '@/store/current-event';
 import { setPreference, usePreferences } from '@/store/preferences';
 import { defaultTheme, makeStyles, ThemeProvider, useCurrentEventTheme, useTheme } from '@/theme';
 
-/** You: your role and photos in the open event, back to your events, invite, sign out. */
+const ROLE_NAME = { host: 'Host', photographer: 'Designated photographer', member: 'Guest' } as const;
+
+/**
+ * You, as in the prototype: who you're signed in as; inside an event, your role there and your
+ * roll, and Leave event; then Sign out.
+ */
 function Profile() {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -21,23 +26,36 @@ function Profile() {
   const { event } = useCurrentEvent();
   // Opened from inside an event (?from=event), or from Your events.
   const fromEvent = useLocalSearchParams<{ from?: string }>().from === 'event';
+  const name = me.data?.name ?? '';
 
   async function signOut() {
     setCurrentEvent(null);
-    await setSession(null); // Navigation happens in SessionWatch.
+    await setSession(null); // SessionWatch clears the data; the signed-in screens drop away.
   }
 
-  const used =
-    event && (event.photoLimit === null ? `${event.photosUsed} shots taken` : `${event.photosUsed} of ${event.photoLimit} used`);
+  /** Out of this event, back to the start (as the prototype does). You stay a member and can come back. */
+  function leaveEvent() {
+    setCurrentEvent(null);
+    router.dismissAll();
+    router.replace('/events');
+  }
+
+  const used = event && (event.photoLimit === null ? `${event.photosUsed} shots taken` : `${event.photosUsed} of ${event.photoLimit} used`);
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.body}>
+    <ScrollView style={styles.screen} contentContainerStyle={styles.body} scrollEnabled={false}>
       <View style={styles.me}>
-        <Avatar name={me.data?.name ?? ''} uri={me.data?.avatarUrl} size={40} />
+        <View style={styles.avatar}>
+          {me.data?.avatarUrl ? (
+            <Image source={{ uri: me.data.avatarUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+          ) : (
+            <Text style={styles.avatarText}>{initialsOf(name)}</Text>
+          )}
+        </View>
         <View style={styles.flex}>
-          <Text variant="title">{me.data?.name ?? ''}</Text>
-          <Text variant="caption" color="muted">
-            {me.data?.email ?? ''}
+          <Text style={styles.name}>{name}</Text>
+          <Text variant="caption" color="muted" numberOfLines={1}>
+            {me.data?.email ?? ''} · Email
           </Text>
         </View>
       </View>
@@ -46,26 +64,27 @@ function Profile() {
         <View style={styles.group}>
           <View style={styles.card}>
             <View style={styles.cardIcon}>
-              {event.role === 'photographer' ? <Aperture size={18} color={colors.primaryText} /> : <UserRound size={18} color={colors.primaryText} />}
+              <Aperture size={18} color={colors.accent} />
             </View>
             <View style={styles.flex}>
-              <Text variant="bodyStrong">
-                {event.role === 'photographer' ? 'Designated photographer' : ROLE_LABEL[event.role]} at {event.name}
+              <Text style={styles.cardTitle}>
+                {ROLE_NAME[event.role]} at {event.name}
               </Text>
               <Text variant="caption" color="muted">
                 {used}
               </Text>
             </View>
           </View>
+          {/* Your own choice: hide the host's date stamp on your phone (originals never have it). */}
           {event.dateStamp && (
             <View style={styles.card}>
               <View style={styles.cardIcon}>
-                <CalendarClock size={18} color={colors.primaryText} />
+                <CalendarClock size={18} color={colors.accent} />
               </View>
               <View style={styles.flex}>
-                <Text variant="bodyStrong">Date stamp on photos</Text>
+                <Text style={styles.cardTitle}>Date stamp on photos</Text>
                 <Text variant="caption" color="muted">
-                  The small date in the corner. Only on your phone; originals never have it.
+                  Only on your phone; originals never have it.
                 </Text>
               </View>
               <Switch
@@ -78,25 +97,15 @@ function Profile() {
               />
             </View>
           )}
-          <Button label="Invite people" leadingIcon={QrCode} variant="secondary" fullWidth onPress={() => router.replace('/invite')} />
-          <Button
-            label="Your events"
-            leadingIcon={LogOut}
-            variant="secondary"
-            fullWidth
-            onPress={() => {
-              router.back();
-              router.navigate('/events');
-            }}
-          />
+          <Pressable accessibilityRole="button" onPress={leaveEvent} style={({ pressed }) => [styles.leave, pressed && { opacity: 0.85 }]}>
+            <LogOut size={17} color={colors.ink} />
+            <Text style={styles.leaveText}>Leave event</Text>
+          </Pressable>
         </View>
       )}
 
       <Pressable accessibilityRole="button" onPress={signOut} style={styles.signOut}>
-        <LogOut size={icon.sm} color={colors.danger} />
-        <Text variant="bodyStrong" color="danger">
-          Sign out
-        </Text>
+        <Text style={styles.signOutText}>Sign out</Text>
       </Pressable>
     </ScrollView>
   );
@@ -113,22 +122,30 @@ export default function ProfileScreen() {
   );
 }
 
-const useStyles = makeStyles(({ colors }) => ({
+const useStyles = makeStyles(({ colors, fonts }) => ({
   screen: { flex: 1, backgroundColor: colors.paper },
-  body: { padding: screenPadding, paddingTop: space['2xl'], gap: space.lg },
+  body: { paddingHorizontal: space.xl, paddingTop: space['2xl'], paddingBottom: space['3xl'], gap: space.lg },
   me: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   flex: { flex: 1, gap: 2 },
+  avatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: colors.sage, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  // The prototype's sheet: initials in DM Sans, the name semibold.
+  avatarText: { fontFamily: fonts.sansSemiBold, fontSize: 15, lineHeight: 18, color: colors.ink },
+  name: { fontFamily: fonts.sansSemiBold, fontSize: 17, lineHeight: 22, color: colors.ink },
   group: { gap: space.sm + 2 },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.md,
     padding: 14,
-    borderRadius: radius.lg + 2,
+    borderRadius: 16,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.line,
   },
   cardIcon: { width: 38, height: 38, borderRadius: radius.md, backgroundColor: colors.sage, alignItems: 'center', justifyContent: 'center' },
-  signOut: { height: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm },
+  cardTitle: { fontFamily: fonts.sansSemiBold, fontSize: 14.5, lineHeight: 19, color: colors.ink },
+  leave: { height: 48, borderRadius: 14, backgroundColor: colors.sage, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm },
+  leaveText: { fontFamily: fonts.sansSemiBold, fontSize: 14.5, lineHeight: 18, color: colors.ink },
+  signOut: { height: 44, alignItems: 'center', justifyContent: 'center' },
+  signOutText: { fontFamily: fonts.sansSemiBold, fontSize: 14.5, lineHeight: 18, color: '#9F4C3E' },
 }));

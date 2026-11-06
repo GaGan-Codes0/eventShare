@@ -86,8 +86,9 @@ export function FramedCopy({ ref, uri, ratio, eventName, date, logoUrl, onLoad, 
 
 const useStyles = makeStyles(({ colors, fonts }) => ({
   rule: { position: 'absolute', borderWidth: 1.5, borderColor: colors.viewfinderText, opacity: 0.85 },
-  outer: { top: 12, left: 12, right: 12, bottom: 12, borderRadius: radius.lg },
-  inner: { top: 18, left: 18, right: 18, bottom: 18, borderRadius: radius.md },
+  // Concentric with the viewfinder's 24pt corners, so the lines follow the curve.
+  outer: { top: 12, left: 12, right: 12, bottom: 12, borderRadius: 24 - 12 },
+  inner: { top: 18, left: 18, right: 18, bottom: 18, borderRadius: 24 - 18 },
   mat: { borderWidth: 10, borderBottomWidth: 44, borderColor: colors.surface },
   logo: { position: 'absolute', right: 24, bottom: 24 },
   logoOnMat: { right: 14, bottom: 7 },

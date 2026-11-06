@@ -19,6 +19,7 @@ import type {
   UpdateMemberInput,
   User,
 } from '@eventshare/shared';
+import { JOIN_CODE_LENGTH } from '@eventshare/shared';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 
 import { api } from './client';
@@ -75,7 +76,7 @@ export function useJoinPreview(code: string | null) {
   return useQuery({
     queryKey: ['join', code],
     queryFn: () => api<EventPreview>(`/join/${encodeURIComponent(code ?? '')}`),
-    enabled: Boolean(code && code.replace(/[\s-]/g, '').length === 8),
+    enabled: Boolean(code && code.replace(/[\s-]/g, '').length === JOIN_CODE_LENGTH),
     retry: false,
   });
 }

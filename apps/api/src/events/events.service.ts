@@ -139,7 +139,7 @@ export class EventsService {
           tagline: input.tagline ?? null,
           location: input.location || null,
           startsAt: input.startsAt ? new Date(input.startsAt) : null,
-          joinCode: generateJoinCode(),
+          joinCode: await this.freshJoinCode(tx),
           guestPhotoLimit: input.guestPhotoLimit === undefined ? DEFAULT_GUEST_PHOTO_LIMIT : input.guestPhotoLimit,
           revealMode: input.revealMode ?? 'live',
           albumOpensAt: input.albumOpensAt ? new Date(input.albumOpensAt) : null,
@@ -538,8 +538,18 @@ export class EventsService {
 
   async rotateCode(eventId: string, hostId: string): Promise<EventDetail> {
     await this.requireHost(eventId, hostId);
-    await this.db.update(events).set({ joinCode: generateJoinCode() }).where(eq(events.id, eventId));
+    await this.db.update(events).set({ joinCode: await this.freshJoinCode(this.db) }).where(eq(events.id, eventId));
     return this.detail(eventId, hostId);
+  }
+
+  /** A 6-digit code no event is using (a million codes: check rather than hope). */
+  private async freshJoinCode(conn: Conn) {
+    for (let i = 0; i < 20; i++) {
+      const code = generateJoinCode();
+      const [taken] = await conn.select({ id: events.id }).from(events).where(eq(events.joinCode, code)).limit(1);
+      if (!taken) return code;
+    }
+    throw new ConflictException('Please try again');
   }
 
   private async memberCount(eventId: string) {

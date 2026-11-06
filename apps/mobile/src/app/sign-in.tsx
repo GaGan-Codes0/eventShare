@@ -4,7 +4,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { ArrowRight, Eye, EyeOff } from 'lucide-react-native';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, Text, TextField, Wordmark } from '@/components/ui';
@@ -76,9 +77,9 @@ export default function SignIn() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      {/* iOS moves the field being typed in above the keyboard; Android resizes the screen. */}
+      {/* The field being typed in always scrolls above the keyboard, on iPhone and Android. */}
       <View style={styles.flex}>
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+        <KeyboardAwareScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" bottomOffset={24}>
           {!isSignup && <Collage />}
           <Wordmark />
           <View style={styles.hero}>
@@ -95,7 +96,7 @@ export default function SignIn() {
             <Text color="muted">
               {isSignup
                 ? 'Your name appears on the photos you share with an event.'
-                : 'Join an event with its QR code or event code. Every guest’s shots land in one shared album.'}
+                : 'Join an event with its QR code or 6-digit code. Every guest’s shots land in one shared album.'}
             </Text>
           </View>
 
@@ -161,7 +162,7 @@ export default function SignIn() {
             disabled={busy}
             onPress={switchMode}
           />
-        </ScrollView>
+        </KeyboardAwareScrollView>
       </View>
     </SafeAreaView>
   );

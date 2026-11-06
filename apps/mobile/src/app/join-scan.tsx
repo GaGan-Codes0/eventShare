@@ -16,8 +16,8 @@ import { makeStyles } from '@/theme';
 /** The code in a scanned invite: our join link, a web link with ?code=, or the bare code. */
 export function codeFromScan(data: string): string | null {
   const fromLink = /[?&]code=([A-Za-z0-9-]+)/.exec(data)?.[1];
-  const code = (fromLink ?? data).replace(/[\s-]/g, '').toUpperCase();
-  return code.length === JOIN_CODE_LENGTH && /^[A-Z0-9]+$/.test(code) ? code : null;
+  const code = (fromLink ?? data).replace(/[\s-]/g, '');
+  return code.length === JOIN_CODE_LENGTH && /^\d+$/.test(code) ? code : null;
 }
 
 const FRAME = { width: 232, height: 292 };

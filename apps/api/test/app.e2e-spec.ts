@@ -51,8 +51,9 @@ describe('core flow (e2e)', () => {
     const preview = await http().get(`/join/${joinCode}`).set(as(guest)).expect(200);
     expect(preview.body).toMatchObject({ name: 'Riya & Arjun', memberCount: 1 });
 
-    // Codes are case- and dash-insensitive.
-    const loose = `${joinCode.slice(0, 4)}-${joinCode.slice(4)}`.toLowerCase();
+    // Codes are 6 digits; spaces and dashes don't matter.
+    expect(joinCode).toMatch(/^\d{6}$/);
+    const loose = `${joinCode.slice(0, 3)} ${joinCode.slice(3)}`;
     const joined = await http().post('/join').set(as(guest)).send({ code: loose }).expect(201);
     expect(joined.body).toMatchObject({ role: 'member', memberCount: 2 });
 

@@ -20,7 +20,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { Aperture, ArrowRight, Briefcase, Cake, Camera, ChevronLeft, Heart, ImagePlus, Sparkle, type LucideIcon } from 'lucide-react-native';
 import { useState } from 'react';
-import { Alert, Platform, Pressable, ScrollView, Switch, TextInput, View } from 'react-native';
+import { Alert, Platform, Pressable, Switch, TextInput, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { toast } from '@/components/toast';
@@ -44,23 +45,21 @@ const TYPES: { value: EventType; label: string; hint: string; icon: LucideIcon }
 ];
 
 /** Each kind of event starts with a fitting look, shot list and welcome line; all can be changed. */
-const TYPE_DEFAULTS: Record<EventType, { theme: ThemePreset; font: FontPairing; prompts: string[]; tagline: string; titlePh: string }> = {
+const TYPE_DEFAULTS: Record<EventType, { theme: ThemePreset; font: FontPairing; tagline: string; titlePh: string }> = {
   wedding: {
     theme: 'sage',
     font: 'romantic',
-    prompts: ['The first look', 'Happy tears', 'The dance floor', 'Your table'],
     tagline: 'Thank you for being here. Shoot everything.',
     titlePh: '',
   },
   corporate: {
     theme: 'navy',
     font: 'modern',
-    prompts: ['Keynote moment', 'Your team', 'Best booth'],
     tagline: 'One shared roll for the whole room.',
     titlePh: 'Northwind Summit 2026',
   },
-  birthday: { theme: 'blush', font: 'bold', prompts: ['The cake', 'Big laughs', 'Group photo'], tagline: 'Catch the chaos.', titlePh: 'Kabir turns 30' },
-  other: { theme: 'marigold', font: 'classic', prompts: ['Group photo', 'Best moment'], tagline: 'Every photo, everyone’s.', titlePh: 'Goa reunion' },
+  birthday: { theme: 'blush', font: 'bold', tagline: 'Catch the chaos.', titlePh: 'Kabir turns 30' },
+  other: { theme: 'marigold', font: 'classic', tagline: 'Every photo, everyone’s.', titlePh: 'Goa reunion' },
 };
 
 const SHOT_NOTE =
@@ -134,7 +133,6 @@ export default function CreateEvent() {
 
   function submit() {
     const startsAt = new Date(w.date.getFullYear(), w.date.getMonth(), w.date.getDate(), 12).toISOString();
-    const d = TYPE_DEFAULTS[w.type];
     const input: CreateEventInput = {
       type: w.type,
       ...(wedding ? { partner1: w.partner1.trim(), partner2: w.partner2.trim() } : { name: w.title.trim(), organizer: w.organizer.trim() || null }),
@@ -145,7 +143,6 @@ export default function CreateEvent() {
       albumOpensAt: opensAt(w.reveal, startsAt),
       // eventShare's own look stays "no theme", so it follows any future change to the default.
       theme: w.theme === 'sage' && w.font === 'classic' && !w.accent && w.frame === 'none' ? null : theme,
-      prompts: d.prompts,
       tagline: w.tagline.trim() || null,
     };
     create.mutate(input, {
@@ -195,7 +192,7 @@ export default function CreateEvent() {
           </ThemeProvider>
         </View>
       )}
-      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+      <KeyboardAwareScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" bottomOffset={24}>
         {step === 0 && (
           <>
             <Heading eyebrow="Let’s set it up" title="What are you " emphasis="celebrating?" />
@@ -358,7 +355,7 @@ export default function CreateEvent() {
             </View>
           </>
         )}
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       <View style={[styles.foot, { paddingBottom: insets.bottom + space.md }]}>
         <Pressable

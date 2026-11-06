@@ -9,7 +9,8 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Camera, Images, Upload } from 'lucide-react-native';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 
 import { toast } from '@/components/toast';
 import { LoadingState, Text } from '@/components/ui';
@@ -113,7 +114,7 @@ function Studio({ event }: { event: EventDetail }) {
           </ThemeProvider>
         </View>
       </View>
-      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+      <KeyboardAwareScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" bottomOffset={24}>
         <Section title="Logo" caption="On the join screen, app header and table card. Without one we use your monogram.">
           <View style={styles.row}>
             <ThemeProvider theme={look}>
@@ -239,7 +240,7 @@ function Studio({ event }: { event: EventDetail }) {
             </Text>
           </Pressable>
         )}
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </View>
   );
 }

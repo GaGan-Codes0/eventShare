@@ -5,8 +5,8 @@ import { ENV, type Env } from '../config/env.js';
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
-/** "ABCD-EFGH", as the app shows codes. */
-const formatCode = (code: string) => (code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code);
+/** "482 916", as the app shows codes. */
+const formatCode = (code: string) => (code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code);
 
 export type PhotographerInviteMail = {
   to: string;
