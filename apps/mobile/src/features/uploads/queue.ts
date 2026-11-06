@@ -8,11 +8,12 @@
  * 3. Failures retry with backoff (offline, server errors). Files are deleted only after the API
  *    confirms the photo is ready. Each item's clientUploadId makes retries idempotent.
  */
-import type { Photo, UploadTicket, UploadTarget } from '@eventshare/shared';
+import type { MediaKind, Photo, UploadTicket, UploadTarget } from '@eventshare/shared';
 import { THUMB_MAX_EDGE } from '@eventshare/shared';
 import * as Crypto from 'expo-crypto';
 import { Directory, File, Paths } from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
+import { getThumbnailAsync } from 'expo-video-thumbnails';
 import { AppState } from 'react-native';
 
 import { api, isRetryable } from '@/services/api/client';
@@ -21,7 +22,12 @@ export type QueueItem = {
   id: string; // clientUploadId
   eventId: string;
   fileName: string;
+  /** Empty for voice notes, which have no preview. */
   thumbName: string;
+  /** Older items are all photos. */
+  kind?: MediaKind;
+  /** Videos and voice notes. */
+  durationMs?: number;
   contentType: string;
   byteSize: number;
   thumbByteSize: number;
@@ -59,7 +65,14 @@ const EXT: Record<string, string> = {
   'image/heif': 'heif',
   'image/png': 'png',
   'image/webp': 'webp',
+  'video/mp4': 'mp4',
+  'video/quicktime': 'mov',
+  'audio/mp4': 'm4a',
+  'audio/x-m4a': 'm4a',
+  'audio/aac': 'aac',
 };
+
+const DEFAULT_TYPE: Record<MediaKind, string> = { photo: 'image/jpeg', video: 'video/mp4', voice: 'audio/mp4' };
 
 function emit() {
   items = [...items];
@@ -117,40 +130,50 @@ export async function initUploadQueue() {
 export async function enqueuePhoto(input: {
   eventId: string;
   uri: string;
+  kind?: MediaKind;
+  /** Videos and voice notes, in milliseconds. */
+  durationMs?: number;
   contentType?: string | null;
   width?: number;
   height?: number;
   takenAt?: string;
   source: 'camera' | 'library';
   prompt?: string;
+  /** The file is ours to take (a fresh recording, or the picker's copy): move it rather than copy. */
+  move?: boolean;
 }) {
   await initUploadQueue();
   const id = Crypto.randomUUID();
-  const contentType = input.contentType && EXT[input.contentType] ? input.contentType : 'image/jpeg';
+  const kind = input.kind ?? 'photo';
+  const contentType = input.contentType && EXT[input.contentType] ? input.contentType : DEFAULT_TYPE[kind];
 
-  // Keep the original exactly as captured.
+  // Keep the original exactly as captured. A long video can be gigabytes: never hold two copies.
   const original = new File(dir, `${id}.${EXT[contentType]}`);
   // copy/move are async: the file must be complete before we read it or its size.
-  await new File(input.uri).copy(original);
+  if (input.move) await new File(input.uri).move(original);
+  else await new File(input.uri).copy(original);
 
-  // Small preview for the gallery grid (originals are never recompressed).
-  // Downsample while decoding so a full-size photo is never held in memory as one bitmap.
-  const rendered = await ImageManipulator.manipulate(original.uri, {
-    maxWidth: THUMB_MAX_EDGE,
-    maxHeight: THUMB_MAX_EDGE,
-  }).renderAsync();
-  const saved = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.8 });
-  const thumb = new File(dir, `${id}-thumb.jpg`);
-  await new File(saved.uri).move(thumb);
+  // Small preview for the gallery grid (originals are never recompressed): a photo downsampled
+  // while decoding, a video's first frame. Voice notes have none.
+  let thumb: File | null = null;
+  if (kind !== 'voice') {
+    const source = kind === 'video' ? (await getThumbnailAsync(original.uri, { time: 0, quality: 0.8 })).uri : original.uri;
+    const rendered = await ImageManipulator.manipulate(source, { maxWidth: THUMB_MAX_EDGE, maxHeight: THUMB_MAX_EDGE }).renderAsync();
+    const saved = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.8 });
+    thumb = new File(dir, `${id}-thumb.jpg`);
+    await new File(saved.uri).move(thumb);
+  }
 
   items.push({
     id,
     eventId: input.eventId,
     fileName: original.name,
-    thumbName: thumb.name,
+    thumbName: thumb?.name ?? '',
+    kind,
+    durationMs: input.durationMs,
     contentType,
     byteSize: original.size,
-    thumbByteSize: thumb.size,
+    thumbByteSize: thumb?.size ?? 0,
     width: input.width,
     height: input.height,
     takenAt: input.takenAt,
@@ -186,6 +209,7 @@ export function retryNow() {
 
 function removeFiles(item: QueueItem) {
   for (const name of [item.fileName, item.thumbName]) {
+    if (!name) continue;
     const f = new File(dir, name);
     if (f.exists) f.delete();
   }
@@ -200,9 +224,11 @@ async function uploadOne(item: QueueItem) {
   const ticket = await api<UploadTicket>(`/events/${item.eventId}/photos/uploads`, {
     body: {
       clientUploadId: item.id,
+      kind: item.kind ?? 'photo',
+      durationMs: item.durationMs,
       contentType: item.contentType,
       byteSize: item.byteSize,
-      thumbByteSize: item.thumbByteSize,
+      thumbByteSize: item.thumbByteSize || undefined,
       width: item.width,
       height: item.height,
       takenAt: item.takenAt,
@@ -215,10 +241,8 @@ async function uploadOne(item: QueueItem) {
     persist();
     reservedListeners.forEach((l) => l(item.eventId));
   }
-  if (ticket.original && ticket.thumb) {
-    await put(new File(dir, item.fileName), ticket.original);
-    await put(new File(dir, item.thumbName), ticket.thumb);
-  }
+  if (ticket.original) await put(new File(dir, item.fileName), ticket.original);
+  if (ticket.thumb && item.thumbName) await put(new File(dir, item.thumbName), ticket.thumb);
   return api<Photo>(`/photos/${ticket.photoId}/complete`, { method: 'POST' });
 }
 

@@ -77,6 +77,12 @@ export class StorageService {
     return Buffer.from(await res.Body!.transformToByteArray());
   }
 
+  /** Bytes `start` to `end` (inclusive) of an object: for reading a video's header without fetching it all. */
+  async readRange(key: string, start: number, end: number): Promise<Buffer> {
+    const res = await this.s3.send(new GetObjectCommand({ Bucket: this.bucket, Key: key, Range: `bytes=${start}-${end}` }));
+    return Buffer.from(await res.Body!.transformToByteArray());
+  }
+
   /** An object's bytes as a stream, for passing straight on (e.g. into a ZIP). */
   async stream(key: string): Promise<Readable> {
     const res = await this.s3.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));

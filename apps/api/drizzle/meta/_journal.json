@@ -57,6 +57,20 @@
       "when": 1793945538783,
       "tag": "0007_photographer_invites",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793946627898,
+      "tag": "0008_video_and_voice",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793949556191,
+      "tag": "0009_invite_emailed_at",
+      "breakpoints": true
     }
   ]
 }

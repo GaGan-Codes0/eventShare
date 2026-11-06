@@ -17,6 +17,8 @@ import {
   MAX_PHOTOGRAPHERS,
   PHOTOGRAPHER_PHOTO_LIMIT,
   photoLimitFor,
+  VIDEO_LIMIT_MS,
+  VOICE_LIMIT_MS,
   type ApiError,
   type CreateEventImageUploadInput,
   type CreateEventData,
@@ -35,11 +37,12 @@ import {
   type UpdateEventData,
   type UpdateMemberInput,
 } from '@eventshare/shared';
-import { and, count, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import sharp from 'sharp';
 
 import { DB, type Db } from '../db/db.module.js';
 import { eventMembers, events, photographerInvites, photos, users } from '../db/schema.js';
+import { MailService } from '../mail/mail.service.js';
 import { StorageService } from '../storage/storage.service.js';
 
 type EventRow = typeof events.$inferSelect;
@@ -86,6 +89,7 @@ export class EventsService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly storage: StorageService,
+    private readonly mail: MailService,
   ) {}
 
   /**
@@ -348,7 +352,7 @@ export class EventsService {
   }
 
   private toInvite(row: typeof photographerInvites.$inferSelect): PhotographerInvite {
-    return { id: row.id, name: row.name, email: row.email, invitedAt: row.createdAt.toISOString() };
+    return { id: row.id, name: row.name, email: row.email, invitedAt: row.createdAt.toISOString(), emailed: Boolean(row.emailedAt) };
   }
 
   /** Host: the email invites still waiting to be taken up ("Invite sent"). */
@@ -393,7 +397,20 @@ export class EventsService {
         .insert(photographerInvites)
         .values({ eventId, name: input.name, email: input.email, invitedBy: hostId })
         .returning();
-      return { status: 'invited', invite: this.toInvite(row) };
+      const sent = await this.mail.photographerInvite({
+        to: input.email,
+        name: input.name,
+        hostName: host?.name ?? 'Your host',
+        eventName: event.name,
+        eventKind: event.type === 'wedding' ? 'the wedding of' : '',
+        joinCode: event.joinCode,
+        dateLabel: event.startsAt
+          ? event.startsAt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Kolkata' })
+          : null,
+      });
+      if (!sent) return { status: 'invited', invite: this.toInvite(row) };
+      const [emailed] = await this.db.update(photographerInvites).set({ emailedAt: new Date() }).where(eq(photographerInvites.id, row.id)).returning();
+      return { status: 'invited', invite: this.toInvite(emailed) };
     } catch (err) {
       // Two invites to the same email at the same moment: the unique index keeps one.
       if ((err as { code?: string }).code === '23505') throw new ConflictException(`${input.email} already has an invite`);
@@ -466,6 +483,44 @@ export class EventsService {
       statusCode: 403,
       code: 'PHOTO_LIMIT_REACHED',
       message: `You've used all ${photoLimitFor(member.role, event.guestPhotoLimit) ?? 0} of your photos for this event`,
+    };
+    throw new ForbiddenException(body);
+  }
+
+  /**
+   * Takes `ms` of this person's video or voice time, or refuses if that would go past their
+   * limit. Like reservePhotoSlot, one conditional UPDATE, so concurrent uploads can't overshoot.
+   * A negative `ms` gives time back (a recording turned out shorter than reserved).
+   */
+  async reserveMediaTime(conn: Conn, eventId: string, userId: string, kind: 'video' | 'voice', ms: number) {
+    const column = kind === 'video' ? eventMembers.videoMsUsed : eventMembers.voiceMsUsed;
+    const limit = kind === 'video' ? VIDEO_LIMIT_MS : VOICE_LIMIT_MS;
+    const next = sql`greatest(0, ${column} + ${ms}::int)`;
+    const reserved = await conn
+      .update(eventMembers)
+      .set(kind === 'video' ? { videoMsUsed: next } : { voiceMsUsed: next })
+      .where(
+        and(
+          eq(eventMembers.eventId, eventId),
+          eq(eventMembers.userId, userId),
+          eq(eventMembers.status, 'active'),
+          ms > 0 ? sql`${column} + ${ms}::int <= ${limit}::int` : sql`true`,
+        ),
+      )
+      .returning({ used: column });
+    if (reserved.length) return;
+
+    const { member } = await this.requireMember(eventId, userId);
+    const used = kind === 'video' ? member.videoMsUsed : member.voiceMsUsed;
+    const left = Math.max(0, limit - used);
+    const fmt = (t: number) => `${Math.floor(t / 60_000)}:${String(Math.floor((t % 60_000) / 1000)).padStart(2, '0')}`;
+    const body: ApiError = {
+      statusCode: 403,
+      code: kind === 'video' ? 'VIDEO_LIMIT_REACHED' : 'VOICE_LIMIT_REACHED',
+      message:
+        left === 0
+          ? `You've used all ${fmt(limit)} of your ${kind === 'video' ? 'video' : 'voice-note'} time for this event`
+          : `That's longer than the ${fmt(left)} of ${kind === 'video' ? 'video' : 'voice-note'} time you have left`,
     };
     throw new ForbiddenException(body);
   }
@@ -558,14 +613,14 @@ export class EventsService {
     const [latest] = await this.db
       .select({ thumbKey: photos.thumbKey })
       .from(photos)
-      .where(and(visibleTo(event, member.role, member.userId), eq(photos.visibility, 'visible')))
+      .where(and(visibleTo(event, member.role, member.userId), eq(photos.visibility, 'visible'), isNotNull(photos.thumbKey)))
       .orderBy(desc(photos.createdAt))
       .limit(1);
     return {
       ...identity,
       ...this.rules(event, member.role),
       id: event.id,
-      coverUrl: identity.posterUrl ?? (latest ? await this.storage.presignDownload(latest.thumbKey) : null),
+      coverUrl: identity.posterUrl ?? (latest?.thumbKey ? await this.storage.presignDownload(latest.thumbKey) : null),
       role: member.role,
       memberCount,
       // Slots taken, open email invites included (as the prototype counts them).
@@ -574,6 +629,10 @@ export class EventsService {
       pendingReviewCount: pending?.n ?? 0,
       photoLimit: photoLimitFor(member.role, event.guestPhotoLimit),
       photosUsed: member.photosUsed,
+      videoLimitMs: VIDEO_LIMIT_MS,
+      videoMsUsed: member.videoMsUsed,
+      voiceLimitMs: VOICE_LIMIT_MS,
+      voiceMsUsed: member.voiceMsUsed,
     };
   }
 }

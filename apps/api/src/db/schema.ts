@@ -1,4 +1,4 @@
-import { ARCHIVE_SCOPES, EVENT_TYPES, NAME_JOINERS, PHOTO_FILTERS, REVEAL_MODES, type EventTheme } from '@eventshare/shared';
+import { ARCHIVE_SCOPES, EVENT_TYPES, MEDIA_KINDS, NAME_JOINERS, PHOTO_FILTERS, REVEAL_MODES, type EventTheme } from '@eventshare/shared';
 import { sql } from 'drizzle-orm';
 import {
   bigint,
@@ -27,6 +27,7 @@ export const photoVisibility = pgEnum('photo_visibility', ['visible', 'hidden'])
 export const eventType = pgEnum('event_type', EVENT_TYPES);
 export const revealMode = pgEnum('reveal_mode', REVEAL_MODES);
 export const photoFilter = pgEnum('photo_filter', PHOTO_FILTERS);
+export const mediaKind = pgEnum('media_kind', MEDIA_KINDS);
 export const archiveScope = pgEnum('archive_scope', ARCHIVE_SCOPES);
 export const archiveStatus = pgEnum('archive_status', ['building', 'ready', 'failed']);
 
@@ -114,6 +115,9 @@ export const eventMembers = pgTable(
      * limit, so concurrent uploads can't overshoot. Deleting a photo doesn't give the slot back.
      */
     photosUsed: integer('photos_used').notNull().default(0),
+    /** Video and voice time this person has used here, raised the same way (never past the limit). */
+    videoMsUsed: integer('video_ms_used').notNull().default(0),
+    voiceMsUsed: integer('voice_ms_used').notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.eventId, t.userId] }), index('event_members_user_idx').on(t.userId)],
 );
@@ -139,6 +143,8 @@ export const photographerInvites = pgTable(
     acceptedBy: uuid('accepted_by').references(() => users.id),
     acceptedAt: timestamp('accepted_at', { withTimezone: true }),
     cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    /** When the invite email went out (null: not sent, e.g. no mail service set up). */
+    emailedAt: timestamp('emailed_at', { withTimezone: true }),
   },
   (t) => [
     // One open invite per email per event.
@@ -160,7 +166,12 @@ export const photos = pgTable(
       .references(() => users.id),
     clientUploadId: uuid('client_upload_id').notNull(),
     storageKey: text('storage_key').notNull(),
-    thumbKey: text('thumb_key').notNull(),
+    /** Photos and videos have a preview; voice notes don't. */
+    thumbKey: text('thumb_key'),
+    /** A photo, a video or a voice note: all live in the album together. */
+    kind: mediaKind('kind').notNull().default('photo'),
+    /** Videos and voice notes, as read from the file itself. */
+    durationMs: integer('duration_ms'),
     contentType: text('content_type').notNull(),
     byteSize: bigint('byte_size', { mode: 'number' }).notNull(),
     width: integer('width'),

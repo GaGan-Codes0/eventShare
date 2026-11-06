@@ -10,6 +10,19 @@ import { z } from 'zod';
 /** Max size of a single original photo upload. Originals are never recompressed. */
 export const MAX_PHOTO_BYTES = 50 * 1024 * 1024;
 export const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/heic', 'image/heif', 'image/png', 'image/webp'] as const;
+
+/** What a guest can add: photos, videos and voice notes. Videos and voice keep their own time limits. */
+export const MEDIA_KINDS = ['photo', 'video', 'voice'] as const;
+export type MediaKind = (typeof MEDIA_KINDS)[number];
+export const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/quicktime'] as const;
+export const ALLOWED_AUDIO_TYPES = ['audio/mp4', 'audio/x-m4a', 'audio/aac'] as const;
+/** Videos are kept exactly as recorded (no quality cap); a single upload can be up to 5 GB. */
+export const MAX_VIDEO_BYTES = 5 * 1024 * 1024 * 1024;
+export const MAX_VOICE_BYTES = 50 * 1024 * 1024;
+/** Video time per person per event, in total. Photographers get the same for now. */
+export const VIDEO_LIMIT_MS = 5 * 60_000;
+/** Voice-note time per person per event, in total. */
+export const VOICE_LIMIT_MS = 60_000;
 export const PHOTO_PAGE_SIZE = 60;
 export const MAX_THUMB_BYTES = 2 * 1024 * 1024;
 /** Long edge of the gallery preview the phone generates. */
@@ -238,7 +251,14 @@ export type InvitePhotographerInput = z.input<typeof invitePhotographerSchema>;
 export type InvitePhotographerData = z.output<typeof invitePhotographerSchema>;
 
 /** An invite that hasn't been taken up yet ("Invite sent"). */
-export type PhotographerInvite = { id: string; name: string; email: string; invitedAt: string };
+export type PhotographerInvite = {
+  id: string;
+  name: string;
+  email: string;
+  invitedAt: string;
+  /** The invite email went out ("Invite sent"); false when it couldn't (the host shares the code instead). */
+  emailed: boolean;
+};
 
 /** What inviting did: an open invite, or (when that email is already in the event) straight to photographer. */
 export type InvitePhotographerResult = { status: 'invited'; invite: PhotographerInvite } | { status: 'joined'; member: Member };
@@ -304,6 +324,11 @@ export type EventSummary = EventIdentity &
     /** Your own allowance (null: no limit) and how much of it you've used. Discarded shots never count. */
     photoLimit: number | null;
     photosUsed: number;
+    /** Video and voice time: your limits and what you've used, in milliseconds. */
+    videoLimitMs: number;
+    videoMsUsed: number;
+    voiceLimitMs: number;
+    voiceMsUsed: number;
   };
 
 export type EventDetail = EventSummary & {
@@ -341,21 +366,34 @@ export type Member = {
 export type PhotoStatus = 'pending' | 'processing' | 'ready' | 'failed';
 export type PhotoVisibility = 'visible' | 'hidden';
 
-export const createUploadSchema = z.object({
-  /** Generated on the phone when the photo is taken; makes retries idempotent. */
-  clientUploadId: z.uuid(),
-  contentType: z.enum(ALLOWED_PHOTO_TYPES),
-  byteSize: z.number().int().positive().max(MAX_PHOTO_BYTES),
-  /** Small JPEG preview made on the phone; the original is never touched. */
-  thumbByteSize: z.number().int().positive().max(MAX_THUMB_BYTES),
-  width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional(),
-  takenAt: z.iso.datetime().optional(),
-  /** Camera-roll uploads can be turned off by the host (photographers are never blocked). */
-  source: z.enum(['camera', 'library']).default('camera'),
-  /** The shot-list prompt this photo answers, if any. */
-  prompt: z.string().trim().min(1).max(60).optional(),
-});
+export const createUploadSchema = z
+  .object({
+    /** Generated on the phone when the photo is taken; makes retries idempotent. */
+    clientUploadId: z.uuid(),
+    kind: z.enum(MEDIA_KINDS).default('photo'),
+    contentType: z.enum([...ALLOWED_PHOTO_TYPES, ...ALLOWED_VIDEO_TYPES, ...ALLOWED_AUDIO_TYPES]),
+    byteSize: z.number().int().positive().max(MAX_VIDEO_BYTES),
+    /** Small JPEG preview made on the phone (a video's first frame); voice notes have none. */
+    thumbByteSize: z.number().int().positive().max(MAX_THUMB_BYTES).optional(),
+    /** Videos and voice notes: their length as the phone measured it (the server checks the file). */
+    durationMs: z.number().int().positive().max(VIDEO_LIMIT_MS).optional(),
+    width: z.number().int().positive().optional(),
+    height: z.number().int().positive().optional(),
+    takenAt: z.iso.datetime().optional(),
+    /** Camera-roll uploads can be turned off by the host (photographers are never blocked). */
+    source: z.enum(['camera', 'library']).default('camera'),
+    /** The shot-list prompt this photo answers, if any. */
+    prompt: z.string().trim().min(1).max(60).optional(),
+  })
+  .superRefine((v, ctx) => {
+    const types: Record<MediaKind, readonly string[]> = { photo: ALLOWED_PHOTO_TYPES, video: ALLOWED_VIDEO_TYPES, voice: ALLOWED_AUDIO_TYPES };
+    if (!types[v.kind].includes(v.contentType)) ctx.addIssue({ code: 'custom', path: ['contentType'], message: `Not a ${v.kind} file type` });
+    const max = v.kind === 'photo' ? MAX_PHOTO_BYTES : v.kind === 'video' ? MAX_VIDEO_BYTES : MAX_VOICE_BYTES;
+    if (v.byteSize > max) ctx.addIssue({ code: 'custom', path: ['byteSize'], message: 'File is too big' });
+    if (v.kind !== 'voice' && !v.thumbByteSize) ctx.addIssue({ code: 'custom', path: ['thumbByteSize'], message: 'Add a preview' });
+    if (v.kind !== 'photo' && !v.durationMs) ctx.addIssue({ code: 'custom', path: ['durationMs'], message: 'Add the length' });
+    if (v.kind === 'voice' && (v.durationMs ?? 0) > VOICE_LIMIT_MS) ctx.addIssue({ code: 'custom', path: ['durationMs'], message: 'Too long' });
+  });
 export type CreateUploadInput = z.input<typeof createUploadSchema>;
 
 export type UploadTarget = { url: string; headers: Record<string, string> };
@@ -417,7 +455,10 @@ export type Photo = {
   height: number | null;
   takenAt: string | null;
   createdAt: string;
-  /** Short-lived signed URLs. */
+  kind: MediaKind;
+  /** Videos and voice notes. */
+  durationMs: number | null;
+  /** Short-lived signed URLs. Voice notes have no thumbnail. */
   thumbUrl: string | null;
   url: string | null;
 };
@@ -431,6 +472,8 @@ export type ApiError = { statusCode: number; message: string; code?: ApiErrorCod
 /** Machine-readable reasons the app reacts to (instead of matching on message text). */
 export type ApiErrorCode =
   | 'PHOTO_LIMIT_REACHED'
+  | 'VIDEO_LIMIT_REACHED'
+  | 'VOICE_LIMIT_REACHED'
   | 'PHOTOGRAPHER_SLOTS_FULL'
   | 'LIBRARY_UPLOADS_OFF'
   | 'DOWNLOADS_OFF';

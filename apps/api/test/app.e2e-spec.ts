@@ -426,7 +426,8 @@ describe('core flow (e2e)', () => {
 
     // Invite by email (stored lowercased); it takes a slot at once.
     const first = await http().post(invites).set(as(host)).send({ name: 'Kabir', email: kabir.email.toUpperCase() }).expect(201);
-    expect(first.body).toMatchObject({ status: 'invited', invite: { name: 'Kabir', email: kabir.email } });
+    // No mail service in tests: the invite holds, marked as not emailed.
+    expect(first.body).toMatchObject({ status: 'invited', invite: { name: 'Kabir', email: kabir.email, emailed: false } });
     expect(await slots()).toBe(1);
     await http().post(invites).set(as(host)).send({ name: 'Kabir again', email: kabir.email }).expect(409);
     await http().post(invites).set(as(host)).send({ name: 'No email', email: 'not-an-email' }).expect(400);
@@ -461,6 +462,87 @@ describe('core flow (e2e)', () => {
     expect(forHost.body.find((m: { name: string }) => m.name === 'Kabir')).toMatchObject({ role: 'photographer', email: kabir.email });
     const forMeera = await http().get(`/events/${eventId}/members`).set(meera.auth).expect(200);
     expect(forMeera.body.every((m: { email?: string }) => m.email === undefined)).toBe(true);
+  });
+
+  it('takes videos and voice notes, within their own time limits, checked against the file', async () => {
+    const http = () => request(app.getHttpServer());
+    const box = (type: string, body: Buffer) => {
+      const head = Buffer.alloc(8);
+      head.writeUInt32BE(8 + body.length, 0);
+      head.write(type, 4, 'latin1');
+      return Buffer.concat([head, body]);
+    };
+    /** A tiny but well-formed MP4 / M4A whose movie header says it lasts `ms`, with moov after mdat (as phones write it). */
+    const media = (ms: number, brand = 'isom') => {
+      const mvhd = Buffer.alloc(100);
+      mvhd.writeUInt32BE(1000, 12); // timescale: 1 unit = 1 ms
+      mvhd.writeUInt32BE(ms, 16);
+      return Buffer.concat([box('ftyp', Buffer.from(`${brand}\0\0\0\0`, 'latin1')), box('mdat', Buffer.alloc(4096, 7)), box('moov', box('mvhd', mvhd))]);
+    };
+    const created = await http().post('/events').set(as(host)).send({ name: 'Video test', location: 'Pune' }).expect(201);
+    const { id: eventId, joinCode } = created.body as { id: string; joinCode: string };
+    const g = `vid${run}`;
+    await http().post('/join').set(as(g)).send({ code: joinCode }).expect(201);
+    const used = async () => {
+      const e = (await http().get(`/events/${eventId}`).set(as(g)).expect(200)).body;
+      return { video: e.videoMsUsed, voice: e.voiceMsUsed, photos: e.photosUsed, videoLimit: e.videoLimitMs, voiceLimit: e.voiceLimitMs };
+    };
+    const send = async (kind: 'video' | 'voice', file: Buffer, reportedMs: number, contentType: string, expectStatus = 201) => {
+      const body = {
+        clientUploadId: randomUUID(),
+        kind,
+        contentType,
+        byteSize: file.length,
+        durationMs: reportedMs,
+        ...(kind === 'video' && { thumbByteSize: thumb.length }),
+      };
+      const ticket = await http().post(`/events/${eventId}/photos/uploads`).set(as(g)).send(body).expect(expectStatus);
+      if (expectStatus !== 201) return ticket;
+      for (const [target, bytes] of [
+        [ticket.body.original, file],
+        [ticket.body.thumb, thumb],
+      ] as const) {
+        if (target) await fetch(target.url, { method: 'PUT', headers: target.headers, body: new Uint8Array(bytes) });
+      }
+      return http().post(`/photos/${ticket.body.photoId}/complete`).set(as(g));
+    };
+
+    expect(await used()).toEqual({ video: 0, voice: 0, photos: 0, videoLimit: 300_000, voiceLimit: 60_000 });
+
+    // A one-minute video: ready, with its length, and it doesn't use a photo shot.
+    const one = await send('video', media(60_000), 60_000, 'video/mp4');
+    expect(one.status).toBe(201);
+    expect(one.body).toMatchObject({ kind: 'video', durationMs: 60_000, status: 'ready' });
+    expect(one.body.thumbUrl).toBeTruthy();
+    expect(await used()).toMatchObject({ video: 60_000, photos: 0 });
+
+    // Claims 10 s but the file is 250 s long: past the 5 minutes, so it's refused and the time comes back.
+    const liar = await send('video', media(250_000), 10_000, 'video/quicktime');
+    expect(liar.status).toBe(403);
+    expect(liar.body.code).toBe('VIDEO_LIMIT_REACHED');
+    expect((await used()).video).toBe(60_000);
+
+    // Asking for more than is left is refused up front.
+    const tooLong = await send('video', media(241_000), 241_000, 'video/mp4', 403);
+    expect(tooLong.body.code).toBe('VIDEO_LIMIT_REACHED');
+
+    // Voice notes: no thumbnail, their own minute, shared across all of a person's notes.
+    const v1 = await send('voice', media(40_000, 'M4A '), 40_000, 'audio/mp4');
+    expect(v1.body).toMatchObject({ kind: 'voice', durationMs: 40_000, thumbUrl: null });
+    const v2 = await send('voice', media(30_000, 'M4A '), 30_000, 'audio/x-m4a', 403);
+    expect(v2.body.code).toBe('VOICE_LIMIT_REACHED');
+    expect(await used()).toMatchObject({ video: 60_000, voice: 40_000, photos: 0 });
+
+    // The wrong kind of file for the kind is rejected.
+    await http()
+      .post(`/events/${eventId}/photos/uploads`)
+      .set(as(g))
+      .send({ clientUploadId: randomUUID(), kind: 'voice', contentType: 'video/mp4', byteSize: 10, durationMs: 1000 })
+      .expect(400);
+
+    // Both show in the album with everyone else's photos.
+    const album = await http().get(`/events/${eventId}/photos`).set(as(host)).expect(200);
+    expect(album.body.items.map((p: { kind: string }) => p.kind).sort()).toEqual(['video', 'voice']);
   });
 
   it('rejects bad input and missing auth', async () => {

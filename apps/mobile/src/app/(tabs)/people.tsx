@@ -14,12 +14,6 @@ import { useCurrentEvent } from '@/features/events/use-current-event';
 import { useCancelPhotographerInvite, useInvitePhotographer, useMe, useMembers, usePhotographerInvites, useRemoveMember, useSetMemberRole } from '@/services/api/hooks';
 import { makeStyles, useTheme } from '@/theme';
 
-/**
- * Invite emails aren't sent yet: until they are, the host shares the event code with the person
- * themselves, and the wording says "Invite" / "Invited". Flip this when the emails go out.
- */
-const INVITE_EMAILS = false;
-
 /** Host: the designated photographers (up to 3) and every guest with their shots used. */
 export default function People() {
   const { id, event } = useCurrentEvent();
@@ -60,8 +54,9 @@ function PeopleBody({ event }: { event: EventDetail }) {
         setForm({ name: '', email: '' });
         const first = (res.status === 'joined' ? res.member.name : res.invite.name).split(' ')[0];
         if (res.status === 'joined') toast(`${first} is already here, and now a designated photographer`);
-        else if (INVITE_EMAILS) toast(`Invite sent to ${res.invite.email}`);
-        else toast(`${first} is invited. Share the event code; they join as photographer with ${res.invite.email}`);
+        else if (res.invite.emailed) toast(`Invite sent to ${res.invite.email}`);
+        // The email couldn't go out: the invite still holds, so the host passes on the code.
+        else toast(`${first} is invited, but the email didn't go out. Share the event code; they join as photographer with ${res.invite.email}`);
       },
       onError: (e) => Alert.alert("Couldn't invite", e.message),
     });
@@ -208,7 +203,7 @@ function PeopleBody({ event }: { event: EventDetail }) {
               </View>
               <View style={[styles.statusPill, styles.invitedPill]}>
                 <Text variant="caption" style={styles.invitedText}>
-                  {INVITE_EMAILS ? 'Invite sent' : 'Invited'}
+                  {i.emailed ? 'Invite sent' : 'Invited'}
                 </Text>
               </View>
             </View>
@@ -293,12 +288,10 @@ function PeopleBody({ event }: { event: EventDetail }) {
         </Text>
         <Field value={form.name} placeholder="Name" onChange={(name) => setForm((f) => ({ ...f, name }))} />
         <Field value={form.email} placeholder="Email" email onChange={(email) => setForm((f) => ({ ...f, email }))} />
-        <Button label={INVITE_EMAILS ? 'Send invite' : 'Invite'} leadingIcon={Mail} fullWidth loading={invite.isPending} onPress={sendInvite} />
-        {!INVITE_EMAILS && (
-          <Text variant="caption" color="muted">
-            They join with the event code, using this email, and come in as the photographer.
-          </Text>
-        )}
+        <Button label="Send invite" leadingIcon={Mail} fullWidth loading={invite.isPending} onPress={sendInvite} />
+        <Text variant="caption" color="muted">
+          We email them the event code. When they join with this email, they come in as the photographer.
+        </Text>
         <Text variant="eyebrow" style={styles.pickHead}>
           Or pick someone who’s here
         </Text>

@@ -27,6 +27,11 @@ const envSchema = z
     S3_FORCE_PATH_STYLE: z.stringbool().default(false),
     /** How long signed photo URLs stay valid. */
     SIGNED_URL_TTL_SECONDS: z.coerce.number().default(3600),
+
+    /** Resend (resend.com) sends the photographer invite emails. Without a key, invites still work but no email goes out. */
+    RESEND_API_KEY: z.string().optional(),
+    /** Who the emails come from: an address on a domain verified in Resend, e.g. `eventShare <invites@klyra.co.in>`. */
+    MAIL_FROM: z.string().default('eventShare <onboarding@resend.dev>'),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && env.AUTH_DEV_BYPASS) {

@@ -1,6 +1,6 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { Aperture, Camera, ChevronRight, Lock, MapPin } from 'lucide-react-native';
+import { Aperture, Camera, ChevronRight, Lock, MapPin, Mic, Video } from 'lucide-react-native';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Text } from '@/components/ui';
@@ -15,6 +15,7 @@ import { PhotoCell } from '@/features/gallery/photo-grid';
 import { useUploadQueue } from '@/features/uploads/use-upload-queue';
 import { usePhotos } from '@/services/api/hooks';
 import { makeStyles, useTheme } from '@/theme';
+import { clock } from '@/utils/format';
 
 /** A guest's view of the event: who, where, your roll, the shot list and what's coming in. */
 export default function EventHome() {
@@ -30,6 +31,8 @@ export default function EventHome() {
   const limit = event.photoLimit;
   const used = event.photosUsed + queue.unreserved;
   const left = limit === null ? null : Math.max(0, limit - used);
+  const videoLeft = Math.max(0, event.videoLimitMs - event.videoMsUsed - queue.unreservedVideoMs);
+  const voiceLeft = Math.max(0, event.voiceLimitMs - event.voiceMsUsed - queue.unreservedVoiceMs);
   const strip = (photos.data?.pages[0]?.items ?? []).slice(0, 8);
 
   return (
@@ -99,6 +102,21 @@ export default function EventHome() {
           <View style={styles.track}>
             <View style={[styles.fill, { width: `${left === null || !limit ? 100 : (left / limit) * 100}%` }]} />
           </View>
+          {/* Videos and voice notes have their own time, apart from the shots. */}
+          <View style={styles.timeRow}>
+            <View style={styles.timeItem}>
+              <Video size={14} color={colors.muted} />
+              <Text variant="caption" color="muted">
+                {clock(videoLeft)} of video
+              </Text>
+            </View>
+            <View style={styles.timeItem}>
+              <Mic size={14} color={colors.muted} />
+              <Text variant="caption" color="muted">
+                {clock(voiceLeft)} of voice notes
+              </Text>
+            </View>
+          </View>
           <Pressable
             accessibilityRole="button"
             onPress={() => router.navigate('/(tabs)/camera')}
@@ -109,25 +127,6 @@ export default function EventHome() {
             </Text>
           </Pressable>
         </View>
-
-        {event.prompts.length > 0 && (
-          <View style={styles.section}>
-            <Text variant="eyebrow">Shot list from {hostShort(event)}</Text>
-            <View style={styles.prompts}>
-              {event.prompts.map((p) => (
-                <Pressable
-                  key={p}
-                  accessibilityRole="button"
-                  accessibilityHint="Opens the camera for this shot"
-                  onPress={() => router.navigate({ pathname: '/(tabs)/camera', params: { prompt: p } })}
-                  style={styles.prompt}>
-                  <Camera size={13} color={colors.ink} />
-                  <Text variant="label">{p}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        )}
 
         <View style={styles.section}>
           <View style={styles.sectionHead}>
@@ -190,14 +189,14 @@ const useStyles = makeStyles(({ colors }) => ({
   rollTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', gap: space.sm },
   rollLeft: { gap: 6 },
   leftRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
+  timeRow: { flexDirection: 'row', gap: space.lg },
+  timeItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   leftBig: { fontSize: 34, lineHeight: 38, letterSpacing: -0.6, color: colors.ink },
   track: { height: 6, borderRadius: 3, backgroundColor: colors.sage, overflow: 'hidden' },
   fill: { height: '100%', borderRadius: 3, backgroundColor: colors.primary },
   cta: { height: 48, borderRadius: 14, backgroundColor: colors.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm },
   section: { gap: space.sm + 2 },
   sectionHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  prompts: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  prompt: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.full, backgroundColor: colors.sage },
   strip: { gap: space.xs },
   stripRow: { flexDirection: 'row', gap: space.xs },
   locked: { borderRadius: 18, backgroundColor: colors.sage, padding: 18, flexDirection: 'row', alignItems: 'center', gap: space.md },

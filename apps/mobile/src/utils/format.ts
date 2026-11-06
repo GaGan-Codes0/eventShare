@@ -23,3 +23,9 @@ export function timeAgo(iso: string) {
 export function plural(n: number, one: string, many = `${one}s`) {
   return `${n} ${n === 1 ? one : many}`;
 }
+
+/** "0:42", "4:05": a video or voice note's length, or time left. */
+export function clock(ms: number) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}

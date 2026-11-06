@@ -12,6 +12,7 @@ import {
   type ApiError,
   type CreateUploadInput,
   type EventRole,
+  type MediaKind,
   type Page,
   type Photo,
   type PhotoLikes,
@@ -25,10 +26,11 @@ import sharp from 'sharp';
 import { DB, type Db } from '../db/db.module.js';
 import { eventMembers, photoLikes, photos, users } from '../db/schema.js';
 import { albumOpen, EventsService, visibleTo } from '../events/events.service.js';
+import { mediaDurationMs } from '../media/duration.js';
 import { StorageService } from '../storage/storage.service.js';
 
 type PhotoRow = typeof photos.$inferSelect;
-type CreateUploadData = Omit<CreateUploadInput, 'source'> & { source: 'camera' | 'library' };
+type CreateUploadData = Omit<CreateUploadInput, 'source' | 'kind'> & { source: 'camera' | 'library'; kind: MediaKind };
 /** What a photo's card needs besides the row: who took it and its likes, as seen by the viewer. */
 type PhotoExtras = { uploaderName: string; uploaderRole: EventRole; likeCount: number; likedByMe: boolean };
 
@@ -43,7 +45,15 @@ const EXTENSIONS: Record<string, string> = {
   'image/heif': 'heif',
   'image/png': 'png',
   'image/webp': 'webp',
+  'video/mp4': 'mp4',
+  'video/quicktime': 'mov',
+  'audio/mp4': 'm4a',
+  'audio/x-m4a': 'm4a',
+  'audio/aac': 'aac',
 };
+
+/** The phone's own measurement may be off by a frame or two; past this the file's length wins. */
+const DURATION_SLACK_MS = 1000;
 
 function encodeCursor(row: { createdAt: Date; id: string }) {
   return Buffer.from(`${row.createdAt.toISOString()}|${row.id}`).toString('base64url');
@@ -87,10 +97,12 @@ export class PhotosService {
     if (!row) {
       const id = crypto.randomUUID();
       const base = `events/${eventId}/photos/${id}`;
-      // A new photo takes one slot of the uploader's allowance; retries of it (found above) don't.
+      // A new photo takes one slot of the uploader's allowance, a video or voice note its length
+      // of their time; retries of it (found above) don't.
       row = await this.db
         .transaction(async (tx) => {
-          await this.events.reservePhotoSlot(tx, eventId, userId);
+          if (input.kind === 'photo') await this.events.reservePhotoSlot(tx, eventId, userId);
+          else await this.events.reserveMediaTime(tx, eventId, userId, input.kind, input.durationMs ?? 0);
           const [created] = await tx
             .insert(photos)
             .values({
@@ -99,7 +111,9 @@ export class PhotosService {
               uploaderId: userId,
               clientUploadId: input.clientUploadId,
               storageKey: `${base}/original.${EXTENSIONS[input.contentType]}`,
-              thumbKey: `${base}/thumb.jpg`,
+              thumbKey: input.kind === 'voice' ? null : `${base}/thumb.jpg`,
+              kind: input.kind,
+              durationMs: input.kind === 'photo' ? null : (input.durationMs ?? null),
               contentType: input.contentType,
               byteSize: input.byteSize,
               width: input.width,
@@ -130,13 +144,13 @@ export class PhotosService {
 
     const [originalUrl, thumbUrl] = await Promise.all([
       this.storage.presignUpload(row.storageKey, row.contentType, row.byteSize),
-      this.storage.presignUpload(row.thumbKey, 'image/jpeg', input.thumbByteSize),
+      row.thumbKey && input.thumbByteSize ? this.storage.presignUpload(row.thumbKey, 'image/jpeg', input.thumbByteSize) : null,
     ]);
     return {
       photoId: row.id,
       status: row.status,
       original: { url: originalUrl, headers: { 'Content-Type': row.contentType } },
-      thumb: { url: thumbUrl, headers: { 'Content-Type': 'image/jpeg' } },
+      thumb: thumbUrl ? { url: thumbUrl, headers: { 'Content-Type': 'image/jpeg' } } : null,
     };
   }
 
@@ -147,25 +161,59 @@ export class PhotosService {
     await this.events.requireMember(row.eventId, userId);
     if (row.status === 'ready') return this.dtoFor(row, userId);
 
-    const [original, thumb] = await Promise.all([this.storage.head(row.storageKey), this.storage.head(row.thumbKey)]);
-    if (!original || !thumb) throw new BadRequestException('Upload not finished');
+    const [original, thumb] = await Promise.all([
+      this.storage.head(row.storageKey),
+      row.thumbKey ? this.storage.head(row.thumbKey) : Promise.resolve(null),
+    ]);
+    if (!original || (row.thumbKey && !thumb)) throw new BadRequestException('Upload not finished');
     if (original.size !== row.byteSize) {
       await this.setStatus(row.id, 'failed');
       throw new BadRequestException('Uploaded file size does not match');
     }
 
     // The thumbnail is small: decode it to make sure it really is an image.
-    try {
-      const meta = await sharp(await this.storage.read(row.thumbKey)).metadata();
-      if (!meta.width || !meta.height) throw new Error('no dimensions');
-    } catch (err) {
-      this.log.warn(`Invalid thumbnail for photo ${row.id}: ${String(err)}`);
-      await this.setStatus(row.id, 'failed');
-      throw new BadRequestException('Preview image is invalid');
+    if (row.thumbKey) {
+      try {
+        const meta = await sharp(await this.storage.read(row.thumbKey)).metadata();
+        if (!meta.width || !meta.height) throw new Error('no dimensions');
+      } catch (err) {
+        this.log.warn(`Invalid thumbnail for photo ${row.id}: ${String(err)}`);
+        await this.setStatus(row.id, 'failed');
+        throw new BadRequestException('Preview image is invalid');
+      }
     }
 
-    const [ready] = await this.db.update(photos).set({ status: 'ready' }).where(eq(photos.id, row.id)).returning();
+    const durationMs = row.kind === 'photo' ? null : await this.checkDuration(row);
+    const [ready] = await this.db.update(photos).set({ status: 'ready', durationMs }).where(eq(photos.id, row.id)).returning();
     return this.dtoFor(ready, userId);
+  }
+
+  /**
+   * A video or voice note's true length, from the file. Time was reserved for the length the
+   * phone reported: give back what it overstated, take what it understated (refusing the upload
+   * if that goes past the person's limit). Files we can't read keep the reported length.
+   */
+  private async checkDuration(row: PhotoRow): Promise<number | null> {
+    const kind = row.kind as 'video' | 'voice';
+    const reported = row.durationMs ?? 0;
+    const actual = await mediaDurationMs((start, end) => this.storage.readRange(row.storageKey, start, end), row.byteSize).catch(
+      (err: unknown) => {
+        this.log.warn(`Couldn't read the length of ${row.id}: ${String(err)}`);
+        return null;
+      },
+    );
+    if (actual === null) return reported;
+    const delta = actual - reported;
+    if (Math.abs(delta) <= DURATION_SLACK_MS) return actual;
+    try {
+      await this.events.reserveMediaTime(this.db, row.eventId, row.uploaderId, kind, delta);
+    } catch (err) {
+      // Longer than the time they have: refuse it and give back what was reserved.
+      await this.events.reserveMediaTime(this.db, row.eventId, row.uploaderId, kind, -reported);
+      await this.setStatus(row.id, 'failed');
+      throw err;
+    }
+    return actual;
   }
 
   /**
@@ -295,7 +343,7 @@ export class PhotosService {
   private async toDto(row: PhotoRow, extras: PhotoExtras): Promise<Photo> {
     const ready = row.status === 'ready';
     const [thumbUrl, url] = ready
-      ? await Promise.all([this.storage.presignDownload(row.thumbKey), this.storage.presignDownload(row.storageKey)])
+      ? await Promise.all([row.thumbKey ? this.storage.presignDownload(row.thumbKey) : null, this.storage.presignDownload(row.storageKey)])
       : [null, null];
     return {
       id: row.id,
@@ -311,6 +359,8 @@ export class PhotosService {
       height: row.height,
       takenAt: row.takenAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
+      kind: row.kind,
+      durationMs: row.durationMs,
       thumbUrl,
       url,
     };

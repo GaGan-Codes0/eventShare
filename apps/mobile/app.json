@@ -13,7 +13,7 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "2"
+      "buildNumber": "3"
     },
     "android": {
       "adaptiveIcon": {
@@ -38,9 +38,9 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "eventShare uses your camera to take photos for the events you join.",
-          "microphonePermission": false,
-          "recordAudioAndroid": false,
+          "cameraPermission": "eventShare uses your camera to take photos and videos for the events you join.",
+          "microphonePermission": "eventShare uses the microphone for voice notes and the sound of your videos at the events you join.",
+          "recordAudioAndroid": true,
           "barcodeScannerEnabled": true
         }
       ],
@@ -48,8 +48,8 @@
         "expo-image-picker",
         {
           "photosPermission": "eventShare needs access to your photos so you can add them to an event gallery.",
-          "cameraPermission": "eventShare uses your camera to take photos for the events you join.",
-          "microphonePermission": false
+          "cameraPermission": "eventShare uses your camera to take photos and videos for the events you join.",
+          "microphonePermission": "eventShare uses the microphone for voice notes and the sound of your videos at the events you join."
         }
       ],
       [
@@ -67,7 +67,14 @@
       "expo-web-browser",
       "./plugins/with-release-signing",
       "@react-native-community/datetimepicker",
-      "expo-asset"
+      "expo-asset",
+      "expo-video",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "eventShare uses the microphone for voice notes and the sound of your videos at the events you join."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

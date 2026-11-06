@@ -1,12 +1,15 @@
 import type { EventDetail, Page, Photo } from '@eventshare/shared';
 import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
+import { Directory, File, Paths } from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
+import { Asset, requestPermissionsAsync } from 'expo-media-library';
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Check, Download, Eye, EyeOff, Heart, Lock, Trash2, X } from 'lucide-react-native';
 import { useCallback, useState, useSyncExternalStore } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, View } from 'react-native';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { ActivityIndicator, Alert, Pressable, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { toast } from '@/components/toast';
@@ -14,11 +17,12 @@ import { initialsOf, Text } from '@/components/ui';
 import { icon, radius, space } from '@/constants/theme';
 import { stampText } from '@/features/events/identity';
 import { ROLE_LABEL } from '@/features/events/roles';
+import { VoicePlayer } from '@/features/capture/voice-player';
 import { FilteredImage } from '@/features/gallery/photo-filters';
 import { SaveSheet } from '@/features/gallery/save-sheet';
 import { usePreferences } from '@/store/preferences';
-import { keys, useApprovePhoto, useDeletePhoto, useEvent, useLikePhoto, useMe, useSetPhotoVisibility } from '@/services/api/hooks';
-import { makeStyles, ThemeProvider, useCurrentEventTheme } from '@/theme';
+import { getDownloadUrl, keys, useApprovePhoto, useDeletePhoto, useEvent, useLikePhoto, useMe, useSetPhotoVisibility } from '@/services/api/hooks';
+import { defaultTheme, makeStyles, ThemeProvider, useCurrentEventTheme } from '@/theme';
 import { timeAgo } from '@/utils/format';
 
 type Action = { icon: typeof X; label: string; onPress: () => void; busy?: boolean; filled?: boolean };
@@ -64,6 +68,7 @@ function PhotoViewer() {
   const approve = useApprovePhoto(eventId);
   const like = useLikePhoto(eventId);
   const [saving, setSaving] = useState(false);
+  const [savingMedia, setSavingMedia] = useState(false);
   const prefs = usePreferences();
   const [area, setArea] = useState({ width: 0, height: 0 });
   // The picture's real shape, once it loads (older photos have no stored size).
@@ -131,7 +136,19 @@ function PhotoViewer() {
     const canSave = isHost || isMine || ev?.allowDownloads !== false;
     actions.push(
       canSave
-        ? { icon: Download, label: 'Save', onPress: () => setSaving(true) }
+        ? {
+            icon: Download,
+            label: 'Save',
+            busy: savingMedia,
+            onPress: () => {
+              // Photos get the save choices (original, with the look, framed); videos and voice save as they are.
+              if (photo.kind === 'photo') return setSaving(true);
+              setSavingMedia(true);
+              saveMedia(photo)
+                .catch((e: unknown) => Alert.alert("Couldn't save", e instanceof Error ? e.message : 'Please try again.'))
+                .finally(() => setSavingMedia(false));
+            },
+          }
         : { icon: Lock, label: 'Saving off', onPress: () => toast('The hosts turned off downloads') },
     );
     if (isHost) {
@@ -176,7 +193,11 @@ function PhotoViewer() {
       </View>
 
       <View style={styles.photoArea} onLayout={(e) => setArea(e.nativeEvent.layout)}>
-        {ev && ev.filter !== 'natural' ? (
+        {photo.kind === 'video' && photo.url ? (
+          <VideoPlayer uri={photo.url} />
+        ) : photo.kind === 'voice' && photo.url ? (
+          <VoicePlayer uri={photo.url} durationMs={photo.durationMs ?? 0} style={StyleSheet.absoluteFill} />
+        ) : ev && ev.filter !== 'natural' ? (
           <FilteredImage uri={photo.url} filter={ev.filter} fit="contain" style={StyleSheet.absoluteFill} onLoad={onPhotoLoad} />
         ) : (
           <Image
@@ -189,7 +210,7 @@ function PhotoViewer() {
             accessibilityLabel={`Photo by ${photo.uploader.name}`}
           />
         )}
-        {ev?.dateStamp && prefs.dateStamp && area.width > 0 && (
+        {photo.kind === 'photo' && ev?.dateStamp && prefs.dateStamp && area.width > 0 && (
           <Text style={[styles.stamp, stampSpot(area, loadedRatio ?? (photo.width && photo.height ? photo.width / photo.height : 4 / 5))]}>{stampText(ev, photo.takenAt ?? photo.createdAt)}</Text>
         )}
       </View>
@@ -225,9 +246,35 @@ function PhotoViewer() {
           ))}
         </View>
       </View>
-      {saving && <SaveSheet photo={photo} event={ev} onClose={() => setSaving(false)} />}
+      {saving && photo.kind === 'photo' && <SaveSheet photo={photo} event={ev} onClose={() => setSaving(false)} />}
     </View>
   );
+}
+
+/** A video, played as filmed with the phone's own controls (the event's look is for photos). */
+function VideoPlayer({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, (p) => p.play());
+  return <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="contain" nativeControls accessibilityLabel="Video" />;
+}
+
+/**
+ * Saves a video's untouched original to Photos; a voice note (Photos can't hold audio) goes to
+ * the share sheet, for Files, WhatsApp and the like.
+ */
+async function saveMedia(photo: Photo) {
+  const { url } = await getDownloadUrl(photo.id);
+  const dir = new Directory(Paths.cache, 'downloads');
+  dir.create({ intermediates: true, idempotent: true });
+  const file = await File.downloadFileAsync(url, dir, { idempotent: true });
+  if (photo.kind === 'voice') {
+    await Share.share({ url: file.uri });
+    return;
+  }
+  const perm = await requestPermissionsAsync(true);
+  if (!perm.granted) throw new Error('Allow eventShare to add to your Photos in Settings.');
+  await Asset.create(file.uri);
+  file.delete();
+  toast('Video saved to your Photos');
 }
 
 /** The photo is shown whole (contain), so put the stamp in the picture's own bottom-right corner. */
@@ -260,7 +307,8 @@ const useStyles = makeStyles(({ fonts }) => ({
   flex: { flex: 1, minWidth: 0, gap: 1 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   initials: { width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
-  initialsText: { fontFamily: fonts.serif, fontSize: 13, color: LIGHT },
+  // People's initials are in eventShare's serif, whatever the event's name font.
+  initialsText: { fontFamily: defaultTheme.fonts.serif, fontSize: 13, color: LIGHT },
   role: { paddingHorizontal: 7, paddingVertical: 1, borderRadius: 6, backgroundColor: 'rgba(255,255,255,0.12)' },
   roleText: { fontFamily: fonts.sansSemiBold, fontSize: 10, lineHeight: 15, letterSpacing: 0.6, textTransform: 'uppercase', color: LIGHT },
   actions: { flexDirection: 'row', gap: space.sm },

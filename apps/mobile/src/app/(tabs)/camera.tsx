@@ -1,7 +1,6 @@
-import { ALLOWED_PHOTO_TYPES } from '@eventshare/shared';
-import { CameraView, useCameraPermissions, type CameraType, type FlashMode, type FocusMode, type LensInfo } from 'expo-camera';
+import { ALLOWED_PHOTO_TYPES, type MediaKind } from '@eventshare/shared';
+import { CameraView, useCameraPermissions, useMicrophonePermissions, type CameraType, type FlashMode, type FocusMode, type LensInfo } from 'expo-camera';
 import { File } from 'expo-file-system';
-import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
@@ -9,16 +8,17 @@ import * as LegacyLibrary from 'expo-media-library/legacy';
 import { requestPermissionsAsync as requestLibraryAccess } from 'expo-media-library';
 import { router, useIsFocused, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Aperture, ArrowUpRight, Camera, CloudUpload, Film, Frame, Grid3x3, Images, List, Smartphone, SwitchCamera, Upload, X, Zap, ZapOff } from 'lucide-react-native';
-import { useRef, useState } from 'react';
+import { Aperture, ArrowUpRight, Camera, CloudUpload, Film, Frame, Grid3x3, Images, List, Mic, Smartphone, SwitchCamera, Upload, X, Zap, ZapOff } from 'lucide-react-native';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Linking, Modal, Platform, Pressable, StyleSheet, View, type GestureResponderEvent } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
 
 import { toast } from '@/components/toast';
 import { Button, Text } from '@/components/ui';
 import { icon, radius, screenPadding, space } from '@/constants/theme';
 import { defaultTheme, makeStyles } from '@/theme';
+import { useVoiceNote, VoicePanel } from '@/features/capture/voice-recorder';
 import { ViewfinderFrame } from '@/features/events/event-frame';
 import { NoEventYet } from '@/features/events/no-event';
 import { lockText } from '@/features/gallery/album-view';
@@ -26,7 +26,7 @@ import { useCurrentEvent } from '@/features/events/use-current-event';
 import { enqueuePhoto } from '@/features/uploads/queue';
 import { useUploadQueue } from '@/features/uploads/use-upload-queue';
 import { setPreference, usePreferences } from '@/store/preferences';
-import { plural } from '@/utils/format';
+import { clock, plural } from '@/utils/format';
 
 const TYPE_BY_EXT: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', heic: 'image/heic', heif: 'image/heif', png: 'image/png', webp: 'image/webp' };
 
@@ -61,7 +61,15 @@ async function uploadable(file: { uri: string; contentType?: string }) {
   return { uri: jpeg.uri, contentType: 'image/jpeg' };
 }
 
-type Shot = { uri: string; contentType: string; width: number; height: number; takenAt: string };
+type Shot = { uri: string; kind: MediaKind; contentType: string; width?: number; height?: number; durationMs?: number; takenAt: string };
+
+const MODES: { value: MediaKind; label: string }[] = [
+  { value: 'photo', label: 'Photo' },
+  { value: 'video', label: 'Video' },
+  { value: 'voice', label: 'Voice' },
+];
+/** Less than this left isn't worth starting a recording for. */
+const MIN_CLIP_MS = 1000;
 
 // iPhone lenses we offer as one-tap buttons, in order. Other lens types stay reachable by zooming.
 const LENS_LABEL: Record<string, string> = {
@@ -77,16 +85,6 @@ const PINCH_ZOOM = 0.5 / 300;
 
 const dist = (t: GestureResponderEvent['nativeEvent']['touches']) => Math.hypot(t[0].pageX - t[1].pageX, t[0].pageY - t[1].pageY);
 
-/** Drop a shot the person chose not to keep. It never left the phone. */
-function discardFile(uri: string) {
-  try {
-    const f = new File(uri);
-    if (f.exists) f.delete();
-  } catch {
-    // The camera's cache gets cleared by the OS anyway.
-  }
-}
-
 export default function CameraScreen() {
   const styles = useStyles();
   const { id, event } = useCurrentEvent();
@@ -95,7 +93,14 @@ export default function CameraScreen() {
   const [facing, setFacing] = useState<CameraType>('back');
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [shot, setShot] = useState<Shot | null>(null);
+  const [mode, setMode] = useState<MediaKind>('photo');
+  // Video recording: when it started, and a clock that ticks while it runs.
+  const [recStart, setRecStart] = useState<number | null>(null);
+  const [now, setNow] = useState(0);
+  const [mic, requestMic] = useMicrophonePermissions();
+  const voice = useVoiceNote();
+  const stoppingVoice = useRef(false);
+  const wasRecordingVoice = useRef(false);
   const [flashMode, setFlashMode] = useState<FlashMode>('off');
   const [zoom, setZoom] = useState(0);
   const [lenses, setLenses] = useState<LensInfo[]>([]);
@@ -121,6 +126,19 @@ export default function CameraScreen() {
   const left = !event ? 0 : event.photoLimit === null ? Infinity : Math.max(0, event.photoLimit - event.photosUsed - queue.unreserved);
   const leftLabel = Number.isFinite(left) ? String(left) : '∞';
   const outOfShots = Boolean(event) && left === 0;
+  // Video and voice time left, counting recordings still on this phone.
+  const videoLeft = event ? Math.max(0, event.videoLimitMs - event.videoMsUsed - queue.unreservedVideoMs) : 0;
+  const voiceLeft = event ? Math.max(0, event.voiceLimitMs - event.voiceMsUsed - queue.unreservedVoiceMs) : 0;
+  const recording = recStart !== null || voice.recording;
+  // "That's a wrap" for whichever allowance this mode uses; the other modes may still have some.
+  const out = Boolean(event) && (mode === 'photo' ? outOfShots : (mode === 'video' ? videoLeft : voiceLeft) < MIN_CLIP_MS);
+
+  useEffect(() => {
+    if (recStart === null) return;
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, [recStart]);
+
   // Guests can be limited to the camera; photographers and the host never are.
   const rollAllowed = !event || event.allowLibraryUploads || event.role !== 'member';
   // A shot-list prompt this photo is for, from the event's Home.
@@ -137,43 +155,30 @@ export default function CameraScreen() {
     }
   }
 
-  async function shoot() {
-    if (!camera.current || !id || busy || shot || outOfShots) return;
-    setBusy(true);
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    flash.set(withSequence(withTiming(0.85, { duration: 40 }), withTiming(0, { duration: 260 })));
-    try {
-      // quality 1 = the camera's full-quality capture; we never recompress it after this.
-      const pic = await camera.current.takePictureAsync({ quality: 1, exif: true });
-      // Nothing is counted or uploaded until they choose Upload on the preview.
-      setShot({ uri: pic.uri, contentType: 'image/jpeg', width: pic.width, height: pic.height, takenAt: new Date().toISOString() });
-    } catch (err) {
-      Alert.alert("Couldn't take the photo", err instanceof Error ? err.message : 'Please try again.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function keepShot() {
-    if (!shot || !id) return;
+  /** Straight into the upload queue as soon as it's taken, like a camera-roll pick: no preview step. */
+  async function keep(shot: Shot) {
+    if (!id) return;
     setBusy(true);
     try {
       await enqueuePhoto({
         eventId: id,
         uri: shot.uri,
+        kind: shot.kind,
+        durationMs: shot.durationMs,
         contentType: shot.contentType,
         width: shot.width,
         height: shot.height,
         takenAt: shot.takenAt,
         source: 'camera',
         prompt: prompt ?? undefined,
+        // A fresh recording is ours to take: a long video is never copied.
+        move: shot.kind !== 'photo',
       });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setShot(null);
       if (prompt) {
         toast(`Ticked off the shot list: ${prompt}`);
         clearPrompt();
-      } else if (left === 1) {
+      } else if (shot.kind === 'photo' && left === 1) {
         toast('That was your last shot. Roll complete');
       }
     } catch (err) {
@@ -183,21 +188,125 @@ export default function CameraScreen() {
     }
   }
 
+  /** The shutter: a photo, start / stop a video, or start / stop a voice note. */
+  function press() {
+    if (mode === 'video') return void toggleVideo();
+    if (mode === 'voice') return void toggleVoice();
+    void shoot();
+  }
+
+  async function toggleVideo() {
+    if (!camera.current || !id) return;
+    if (recStart !== null) return camera.current.stopRecording();
+    if (videoLeft < MIN_CLIP_MS) return toast('No video time left for this event');
+    const micOk = mic?.granted || (await requestMic()).granted;
+    if (!micOk) {
+      Alert.alert('Microphone is off', 'Allow microphone access for eventShare in Settings to record video with sound.', [
+        { text: 'Not now', style: 'cancel' },
+        { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+      ]);
+      return;
+    }
+    const started = Date.now();
+    setRecStart(started);
+    setNow(started);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      // Stops by itself when their video time runs out. Recorded at the camera's full quality.
+      const res = await camera.current.recordAsync({ maxDuration: Math.floor(videoLeft / 1000) });
+      const durationMs = Math.min(videoLeft, Date.now() - started);
+      if (res?.uri && durationMs >= 500) {
+        const contentType = res.uri.toLowerCase().endsWith('.mov') ? 'video/quicktime' : 'video/mp4';
+        void keep({ uri: res.uri, kind: 'video', contentType, durationMs, takenAt: new Date(started).toISOString() });
+      }
+    } catch (err) {
+      Alert.alert("Couldn't record the video", err instanceof Error ? err.message : 'Please try again.');
+    } finally {
+      setRecStart(null);
+    }
+  }
+
+  async function toggleVoice() {
+    if (!id) return;
+    if (voice.recording) return finishVoice();
+    if (voiceLeft < MIN_CLIP_MS) return toast('No voice-note time left for this event');
+    try {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      await voice.start(voiceLeft);
+    } catch (err) {
+      Alert.alert("Couldn't record", err instanceof Error ? err.message : 'Please try again.');
+    }
+  }
+
+  async function finishVoice() {
+    stoppingVoice.current = true;
+    try {
+      const note = await voice.stop();
+      if (note && note.durationMs >= 500) {
+        void keep({ uri: note.uri, kind: 'voice', contentType: 'audio/mp4', durationMs: Math.min(note.durationMs, voiceLeft), takenAt: new Date().toISOString() });
+      }
+    } catch (err) {
+      Alert.alert("Couldn't save the voice note", err instanceof Error ? err.message : 'Please try again.');
+    } finally {
+      stoppingVoice.current = false;
+    }
+  }
+
+  // A voice note that stopped by itself (its time ran out) is ready to preview, like a tapped stop.
+  useEffect(() => {
+    if (wasRecordingVoice.current && !voice.recording && !stoppingVoice.current) void finishVoice();
+    wasRecordingVoice.current = voice.recording;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voice.recording]);
+
+  async function shoot() {
+    if (!camera.current || !id || busy || outOfShots) return;
+    setBusy(true);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    flash.set(withSequence(withTiming(0.85, { duration: 40 }), withTiming(0, { duration: 260 })));
+    try {
+      // quality 1 = the camera's full-quality capture; we never recompress it after this.
+      const pic = await camera.current.takePictureAsync({ quality: 1, exif: true });
+      // Nothing is counted or uploaded until they choose Upload on the preview.
+      void keep({ uri: pic.uri, kind: 'photo', contentType: 'image/jpeg', width: pic.width, height: pic.height, takenAt: new Date().toISOString() });
+    } catch (err) {
+      Alert.alert("Couldn't take the photo", err instanceof Error ? err.message : 'Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+
   /**
    * The phone's own camera, with every mode it has (portrait, night, its own filters...). The
    * photo comes back here for the same preview, count and upload as one taken in ours.
    */
   async function openPhoneCamera() {
-    if (!id || busy || shot || outOfShots) return;
+    if (!id || busy || out || mode === 'voice') return;
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) return enableCamera();
     setExternal(true);
     try {
-      const res = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1, exif: true });
+      const res = await ImagePicker.launchCameraAsync(
+        mode === 'video'
+          ? {
+              mediaTypes: ['videos'],
+              // Their video time left; recorded at the phone's highest quality.
+              videoMaxDuration: Math.floor(videoLeft / 1000),
+              videoQuality: ImagePicker.UIImagePickerControllerQualityType.High,
+            }
+          : { mediaTypes: ['images'], quality: 1, exif: true },
+      );
       if (res.canceled) return;
       const asset = res.assets[0];
+      if (asset.type === 'video') {
+        const durationMs = Math.min(videoLeft, Math.round(asset.duration ?? 0));
+        const contentType = asset.mimeType ?? (asset.uri.toLowerCase().endsWith('.mov') ? 'video/quicktime' : 'video/mp4');
+        void keep({ uri: asset.uri, kind: 'video', contentType, width: asset.width, height: asset.height, durationMs, takenAt: new Date().toISOString() });
+        return;
+      }
       const file = await uploadable({ uri: asset.uri, contentType: asset.mimeType });
-      setShot({ uri: file.uri, contentType: file.contentType, width: asset.width, height: asset.height, takenAt: new Date().toISOString() });
+      void keep({ uri: file.uri, kind: 'photo', contentType: file.contentType, width: asset.width, height: asset.height, takenAt: new Date().toISOString() });
     } catch (err) {
       Alert.alert("Couldn't use that photo", err instanceof Error ? err.message : 'Please try again.');
     } finally {
@@ -253,36 +362,58 @@ export default function CameraScreen() {
     }, 1200);
   }
 
-  function dropShot() {
-    if (!shot) return;
-    discardFile(shot.uri);
-    setShot(null);
-  }
-
   async function pickFromLibrary() {
     if (!id || !event) return;
     if (!rollAllowed) {
       toast('Camera-roll uploads are off for this event');
       return;
     }
-    if (outOfShots) {
-      Alert.alert('No photos left', `You've used all ${limit} of your photos for this event.`);
+    const videosOk = videoLeft >= MIN_CLIP_MS;
+    if (outOfShots && !videosOk) {
+      Alert.alert('Nothing left to add', `You've used all ${limit} of your photos and your video time for this event.`);
       return;
     }
-    const access = await requestLibraryAccess(false, ['photo']);
+    const access = await requestLibraryAccess(false, ['photo', 'video']);
     const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
+      // Videos too, while they have video time left; photos while they have shots.
+      mediaTypes: outOfShots ? ['videos'] : videosOk ? ['images', 'videos'] : ['images'],
       allowsMultipleSelection: true,
-      selectionLimit: Math.min(50, left),
+      selectionLimit: 50,
       quality: 1,
+      videoExportPreset: ImagePicker.VideoExportPreset.Passthrough,
       // Ask iOS for the file as stored (e.g. HEIC) instead of a converted copy.
       preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Current,
     });
     if (res.canceled) return;
-    // Some Android pickers ignore selectionLimit.
-    const picked = res.assets.slice(0, left);
-    if (picked.length < res.assets.length) {
-      Alert.alert(`Adding ${plural(picked.length, 'photo')}`, `You had ${left} left for this event, so the rest weren't added.`);
+    // Photos up to their shots left, videos up to their time left; the rest are left out.
+    let videoTime = videoLeft;
+    const videos = res.assets.filter((a) => a.type === 'video');
+    const keptVideos = videos.filter((a) => {
+      const ms = Math.round(a.duration ?? 0);
+      if (ms < 500 || ms > videoTime) return false;
+      videoTime -= ms;
+      return true;
+    });
+    const photos = res.assets.filter((a) => a.type !== 'video');
+    const picked = photos.slice(0, Number.isFinite(left) ? left : photos.length);
+    const skipped = photos.length - picked.length + videos.length - keptVideos.length;
+    if (skipped > 0) {
+      Alert.alert(
+        `${plural(skipped, 'item')} not added`,
+        `You had ${Number.isFinite(left) ? plural(left, 'photo') : 'unlimited photos'} and ${clock(videoLeft)} of video time left, so the rest weren't added.`,
+      );
+    }
+    for (const asset of keptVideos) {
+      await enqueuePhoto({
+        eventId: id,
+        uri: asset.uri,
+        kind: 'video',
+        durationMs: Math.round(asset.duration ?? 0),
+        contentType: asset.mimeType ?? (asset.uri.toLowerCase().endsWith('.mov') ? 'video/quicktime' : 'video/mp4'),
+        width: asset.width,
+        height: asset.height,
+        source: 'library',
+      });
     }
     for (const asset of picked) {
       let original: { uri: string; contentType: string };
@@ -306,7 +437,9 @@ export default function CameraScreen() {
 
   if (!id) return <NoEventYet title="Your camera" />;
 
-  const live = granted && focused && !outOfShots;
+  // The live camera: Photo and Video modes, while there's something left to take.
+  const live = granted && focused && !out && mode !== 'voice';
+  const elapsed = recStart !== null ? Math.max(0, now - recStart) : 0;
   // iPhone only: the back lenses this phone has, as 0.5× / 1× / Tele buttons.
   const lensChips =
     Platform.OS === 'ios' && facing === 'back'
@@ -337,9 +470,21 @@ export default function CameraScreen() {
           </Text>
         </View>
         {event && (
-          <View style={styles.pill} accessibilityLabel={Number.isFinite(left) ? `${left} of ${limit} photos left` : 'No photo limit'}>
+          <View
+            style={styles.pill}
+            accessibilityLabel={
+              mode === 'video'
+                ? `${clock(videoLeft)} of video time left`
+                : mode === 'voice'
+                  ? `${clock(voiceLeft)} of voice-note time left`
+                  : Number.isFinite(left)
+                    ? `${left} of ${limit} photos left`
+                    : 'No photo limit'
+            }>
             {event.role === 'photographer' && <Aperture size={13} color={LIGHT} />}
-            <Text style={styles.pillText}>{Number.isFinite(left) ? `${leftLabel} LEFT` : 'NO LIMIT'}</Text>
+            <Text style={styles.pillText}>
+              {mode === 'video' ? `${clock(videoLeft)} LEFT` : mode === 'voice' ? `${clock(voiceLeft)} LEFT` : Number.isFinite(left) ? `${leftLabel} LEFT` : 'NO LIMIT'}
+            </Text>
           </View>
         )}
       </View>
@@ -361,23 +506,30 @@ export default function CameraScreen() {
       )}
 
       <View style={styles.viewfinder}>
-        {outOfShots ? (
+        {out ? (
           <View style={styles.idle}>
             <View style={styles.lens}>
-              <Film size={25} color={SAGE} strokeWidth={icon.stroke} />
+              {mode === 'voice' ? <Mic size={25} color={SAGE} strokeWidth={icon.stroke} /> : <Film size={25} color={SAGE} strokeWidth={icon.stroke} />}
             </View>
             <Text style={styles.wrapTitle}>
               That’s a <Text style={[styles.wrapTitle, styles.wrapItalic]}>wrap.</Text>
             </Text>
             <Text variant="caption" align="center" style={styles.wrapText}>
-              All {limit} shots on your roll are in the album. Thank you for shooting.
+              {mode === 'photo'
+                ? `All ${limit} shots on your roll are in the album. Thank you for shooting.`
+                : mode === 'video'
+                  ? `You've used all ${clock(event?.videoLimitMs ?? 0)} of your video time. Thank you for filming.`
+                  : `You've used your ${clock(event?.voiceLimitMs ?? 0)} of voice notes. Thank you for the kind words.`}
             </Text>
             <Button label="See the album" onPress={() => router.navigate('/(tabs)/album')} />
           </View>
+        ) : mode === 'voice' ? (
+          <VoicePanel recording={voice.recording} elapsedMs={voice.elapsedMs} leftMs={voiceLeft} />
         ) : granted && focused ? (
           <CameraView
             ref={camera}
             style={StyleSheet.absoluteFill}
+            mode={mode === 'video' ? 'video' : 'picture'}
             facing={facing}
             active={!external}
             flash={facing === 'front' && flashMode === 'on' ? 'screen' : flashMode}
@@ -422,7 +574,15 @@ export default function CameraScreen() {
             {focusAt && <View pointerEvents="none" style={[styles.focusRing, { left: focusAt.x - 32, top: focusAt.y - 32 }]} />}
           </View>
         )}
-        {live && (
+        {recStart !== null && (
+          <View style={styles.recBadge} accessibilityLiveRegion="polite">
+            <View style={styles.recDot} />
+            <Text style={styles.recText}>
+              {clock(elapsed)} / {clock(videoLeft)}
+            </Text>
+          </View>
+        )}
+        {live && recStart === null && (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Use the phone’s own camera"
@@ -499,6 +659,26 @@ export default function CameraScreen() {
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.flash, flashStyle]} />
       </View>
 
+      <View style={styles.modes} accessibilityRole="tablist">
+        {MODES.map((m) => {
+          const on = mode === m.value;
+          return (
+            <Pressable
+              key={m.value}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on, disabled: recording }}
+              disabled={recording}
+              hitSlop={8}
+              onPress={() => {
+                void Haptics.selectionAsync();
+                setMode(m.value);
+              }}>
+              <Text style={[styles.modeText, on && styles.modeOn, recording && !on && { opacity: 0.35 }]}>{m.label.toUpperCase()}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
       <View style={styles.controls}>
         <Pressable
           accessibilityRole="button"
@@ -509,26 +689,39 @@ export default function CameraScreen() {
         </Pressable>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Take photo"
-          disabled={!granted || !ready || busy || outOfShots}
-          onPress={shoot}
-          style={({ pressed }) => [styles.shutter, (!granted || !ready || outOfShots) && { opacity: 0.4 }, pressed && { transform: [{ scale: 0.94 }] }]}>
-          <View style={styles.shutterInner} />
+          accessibilityLabel={
+            mode === 'photo' ? 'Take photo' : recording ? 'Stop recording' : mode === 'video' ? 'Record video' : 'Record a voice note'
+          }
+          disabled={busy || out || (mode !== 'voice' && (!granted || !ready))}
+          onPress={press}
+          style={({ pressed }) => [
+            styles.shutter,
+            (out || (mode !== 'voice' && (!granted || !ready))) && { opacity: 0.4 },
+            pressed && { transform: [{ scale: 0.94 }] },
+          ]}>
+          {mode === 'photo' ? (
+            <View style={styles.shutterInner} />
+          ) : (
+            <View style={styles.recWrap}>
+              <View style={recording ? styles.recStop : styles.recStart} />
+            </View>
+          )}
         </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Switch camera"
-          onPress={flip}
-          style={styles.round}>
-          <SwitchCamera size={22} color={LIGHT} />
-        </Pressable>
+        {mode === 'voice' ? (
+          // Keeps the shutter centred.
+          <View style={styles.roundSpacer} />
+        ) : (
+          <Pressable accessibilityRole="button" accessibilityLabel="Switch camera" disabled={recording} onPress={flip} style={styles.round}>
+            <SwitchCamera size={22} color={LIGHT} />
+          </Pressable>
+        )}
       </View>
       <View style={styles.footnote}>
         {queue.pending > 0 ? (
           <View style={styles.row}>
             <CloudUpload size={14} color={SAGE} />
             <Text variant="caption" style={styles.noteText}>
-              {plural(queue.pending, 'photo')} uploading · safe on this phone until done
+              {queue.pending} uploading · safe on this phone until done
             </Text>
           </View>
         ) : (
@@ -538,22 +731,6 @@ export default function CameraScreen() {
         )}
       </View>
 
-      <Modal visible={Boolean(shot)} animationType="fade" statusBarTranslucent onRequestClose={dropShot}>
-        <SafeAreaView style={styles.preview}>
-          {shot && <Image source={{ uri: shot.uri }} style={styles.previewImage} contentFit="contain" accessibilityLabel="The photo you just took" />}
-          <Text variant="caption" align="center" style={styles.previewHint}>
-            {Number.isFinite(left) ? `Uploading uses 1 of your ${left} photos left. ` : ''}Discarded photos don’t count.
-          </Text>
-          <View style={styles.previewActions}>
-            <View style={styles.flex}>
-              <Button label="Discard" variant="secondary" leadingIcon={X} fullWidth disabled={busy} onPress={dropShot} />
-            </View>
-            <View style={styles.flex}>
-              <Button label="Upload" leadingIcon={Upload} fullWidth loading={busy} onPress={keepShot} />
-            </View>
-          </View>
-        </SafeAreaView>
-      </Modal>
     </View>
   );
 }
@@ -562,6 +739,7 @@ export default function CameraScreen() {
 const DARK = '#0B0F0D';
 const LIGHT = '#F4F2DF';
 const SAGE = '#CDD7AB';
+const REC = '#E5484D';
 
 const useStyles = makeStyles(({ colors, fonts }) => ({
   screen: { flex: 1, backgroundColor: DARK },
@@ -644,13 +822,30 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
   zoomTextOn: { color: '#FFD60A' },
   controls: { paddingTop: space.lg, paddingHorizontal: 30, paddingBottom: space.sm + 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   round: { width: 50, height: 50, borderRadius: 25, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' },
+  roundSpacer: { width: 50, height: 50 },
   roundOff: { backgroundColor: 'rgba(255,255,255,0.06)' },
   shutter: { width: 78, height: 78, borderRadius: 39, borderWidth: 2, borderColor: colors.primary, padding: 5 },
   shutterInner: { flex: 1, borderRadius: 34, backgroundColor: LIGHT },
+  recWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  recStart: { width: 58, height: 58, borderRadius: 29, backgroundColor: REC },
+  recStop: { width: 28, height: 28, borderRadius: 7, backgroundColor: REC },
+  recBadge: {
+    position: 'absolute',
+    top: space.md,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    height: 30,
+    borderRadius: radius.full,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  recDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: REC },
+  recText: { fontFamily: fonts.mono, fontSize: 13, lineHeight: 16, color: '#FFFFFF' },
+  modes: { flexDirection: 'row', justifyContent: 'center', gap: space['2xl'], paddingTop: space.md },
+  modeText: { fontFamily: fonts.mono, fontSize: 12, lineHeight: 16, letterSpacing: 1.4, color: 'rgba(244,242,223,0.55)' },
+  modeOn: { color: '#FFD60A' },
   footnote: { alignItems: 'center', paddingHorizontal: space['2xl'], paddingBottom: space.md },
   noteText: { color: 'rgba(244,242,223,0.6)' },
-  preview: { flex: 1, backgroundColor: DARK, padding: screenPadding, gap: space.lg },
-  previewImage: { flex: 1, borderRadius: radius.lg },
-  previewHint: { color: LIGHT, opacity: 0.75 },
-  previewActions: { flexDirection: 'row', gap: space.md },
 }));
