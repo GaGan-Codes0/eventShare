@@ -2,11 +2,13 @@ import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, Pa
 import {
   createEventImageUploadSchema,
   createEventSchema,
+  invitePhotographerSchema,
   joinEventSchema,
   updateEventSchema,
   updateMemberSchema,
   type CreateEventImageUploadInput,
   type CreateEventData,
+  type InvitePhotographerData,
   type JoinEventInput,
   type UpdateEventData,
   type UpdateMemberInput,
@@ -67,6 +69,30 @@ export class EventsController {
     @Body(new ZodPipe(updateMemberSchema)) body: UpdateMemberInput,
   ) {
     return this.events.setMemberRole(id, user.id, userId, body);
+  }
+
+  @Get('events/:id/photographer-invites')
+  photographerInvites(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.events.photographerInvites(id, user.id);
+  }
+
+  @Post('events/:id/photographer-invites')
+  invitePhotographer(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(invitePhotographerSchema)) body: InvitePhotographerData,
+  ) {
+    return this.events.invitePhotographer(id, user.id, body);
+  }
+
+  @Delete('events/:id/photographer-invites/:inviteId')
+  @HttpCode(204)
+  cancelPhotographerInvite(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('inviteId', ParseUUIDPipe) inviteId: string,
+  ) {
+    return this.events.cancelPhotographerInvite(id, user.id, inviteId);
   }
 
   @Delete('events/:id/members/:userId')

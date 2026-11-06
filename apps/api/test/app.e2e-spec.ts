@@ -408,6 +408,61 @@ describe('core flow (e2e)', () => {
     await http().get('/me').set('Authorization', 'Bearer abc.def.ghi').expect(401);
   });
 
+  it('invites photographers by email: slots, joining as photographer, cancelling', async () => {
+    const http = () => request(app.getHttpServer());
+    const password = 'correct horse battery';
+    const account = async (name: string) => {
+      const email = `${name.toLowerCase()}.${run}@example.com`;
+      const res = await http().post('/auth/signup').send({ name, email, password }).expect(201);
+      return { email, auth: { Authorization: `Bearer ${res.body.token}` } };
+    };
+    const kabir = await account('Kabir'); // invited before he has joined
+    const meera = await account('Meera'); // already a guest when invited
+
+    const created = await http().post('/events').set(as(host)).send({ name: 'Invite test', location: 'Goa' }).expect(201);
+    const { id: eventId, joinCode } = created.body as { id: string; joinCode: string };
+    const invites = `/events/${eventId}/photographer-invites`;
+    const slots = async () => (await http().get(`/events/${eventId}`).set(as(host)).expect(200)).body.photographerCount as number;
+
+    // Invite by email (stored lowercased); it takes a slot at once.
+    const first = await http().post(invites).set(as(host)).send({ name: 'Kabir', email: kabir.email.toUpperCase() }).expect(201);
+    expect(first.body).toMatchObject({ status: 'invited', invite: { name: 'Kabir', email: kabir.email } });
+    expect(await slots()).toBe(1);
+    await http().post(invites).set(as(host)).send({ name: 'Kabir again', email: kabir.email }).expect(409);
+    await http().post(invites).set(as(host)).send({ name: 'No email', email: 'not-an-email' }).expect(400);
+
+    // Someone already in the event becomes the photographer straight away.
+    await http().post('/join').set(meera.auth).send({ code: joinCode }).expect(201);
+    const second = await http().post(invites).set(as(host)).send({ name: 'Meera', email: meera.email }).expect(201);
+    expect(second.body).toMatchObject({ status: 'joined', member: { name: 'Meera', role: 'photographer' } });
+    expect(await slots()).toBe(2);
+
+    // The third slot can be an invite too; a fourth is refused until one frees up.
+    const third = await http().post(invites).set(as(host)).send({ name: 'Ishita', email: `ishita.${run}@example.com` }).expect(201);
+    const full = await http().post(invites).set(as(host)).send({ name: 'Farhan', email: `farhan.${run}@example.com` }).expect(409);
+    expect(full.body.code).toBe('PHOTOGRAPHER_SLOTS_FULL');
+    await http().delete(`${invites}/${third.body.invite.id}`).set(as(host)).expect(204);
+    await http().delete(`${invites}/${third.body.invite.id}`).set(as(host)).expect(404);
+    expect(await slots()).toBe(2);
+
+    // Only the host manages invites.
+    await http().get(invites).set(meera.auth).expect(403);
+    const open = await http().get(invites).set(as(host)).expect(200);
+    expect(open.body.map((i: { email: string }) => i.email)).toEqual([kabir.email]);
+
+    // Kabir joins with the code and comes in as the photographer; his invite is used up.
+    const joined = await http().post('/join').set(kabir.auth).send({ code: joinCode }).expect(201);
+    expect(joined.body.role).toBe('photographer');
+    expect((await http().get(invites).set(as(host)).expect(200)).body).toEqual([]);
+    expect(await slots()).toBe(2);
+
+    // The host sees members' emails; guests don't.
+    const forHost = await http().get(`/events/${eventId}/members`).set(as(host)).expect(200);
+    expect(forHost.body.find((m: { name: string }) => m.name === 'Kabir')).toMatchObject({ role: 'photographer', email: kabir.email });
+    const forMeera = await http().get(`/events/${eventId}/members`).set(meera.auth).expect(200);
+    expect(forMeera.body.every((m: { email?: string }) => m.email === undefined)).toBe(true);
+  });
+
   it('rejects bad input and missing auth', async () => {
     await request(app.getHttpServer()).post('/events').set(as(host)).send({ name: 'x' }).expect(400);
     await request(app.getHttpServer()).get('/events').expect(401);

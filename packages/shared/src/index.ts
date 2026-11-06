@@ -226,6 +226,23 @@ export type UpdateEventData = z.output<typeof updateEventSchema>;
 export const updateMemberSchema = z.object({ role: z.enum(['photographer', 'member']) });
 export type UpdateMemberInput = z.infer<typeof updateMemberSchema>;
 
+/**
+ * Host invites someone by email to be a designated photographer. The invite takes a slot at
+ * once; when that email joins the event, they become the photographer.
+ */
+export const invitePhotographerSchema = z.object({
+  name: text(80).min(1, 'Add their name'),
+  email: z.string().trim().toLowerCase().pipe(z.email('Add a valid email')),
+});
+export type InvitePhotographerInput = z.input<typeof invitePhotographerSchema>;
+export type InvitePhotographerData = z.output<typeof invitePhotographerSchema>;
+
+/** An invite that hasn't been taken up yet ("Invite sent"). */
+export type PhotographerInvite = { id: string; name: string; email: string; invitedAt: string };
+
+/** What inviting did: an open invite, or (when that email is already in the event) straight to photographer. */
+export type InvitePhotographerResult = { status: 'invited'; invite: PhotographerInvite } | { status: 'joined'; member: Member };
+
 /** Join codes are 8 chars from an unambiguous alphabet (no 0/O, 1/I/L). */
 export const JOIN_CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
 export const JOIN_CODE_LENGTH = 8;
@@ -315,6 +332,8 @@ export type Member = {
   role: EventRole;
   joinedAt: string;
   photosUsed: number;
+  /** Only the host sees members' emails. */
+  email?: string | null;
 };
 
 // ---------- photos ----------

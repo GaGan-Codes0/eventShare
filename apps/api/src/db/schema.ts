@@ -118,6 +118,36 @@ export const eventMembers = pgTable(
   (t) => [primaryKey({ columns: [t.eventId, t.userId] }), index('event_members_user_idx').on(t.userId)],
 );
 
+/**
+ * The host's email invites to be a designated photographer. An open invite (neither accepted nor
+ * cancelled) holds one of the event's photographer slots; joining with that email accepts it.
+ */
+export const photographerInvites = pgTable(
+  'photographer_invites',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => events.id),
+    name: text('name').notNull(),
+    /** Stored lowercased, like users.email. */
+    email: text('email').notNull(),
+    invitedBy: uuid('invited_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    acceptedBy: uuid('accepted_by').references(() => users.id),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+  },
+  (t) => [
+    // One open invite per email per event.
+    uniqueIndex('photographer_invites_open_uidx')
+      .on(t.eventId, t.email)
+      .where(sql`${t.acceptedAt} is null and ${t.cancelledAt} is null`),
+  ],
+);
+
 export const photos = pgTable(
   'photos',
   {

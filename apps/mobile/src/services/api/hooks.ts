@@ -6,10 +6,13 @@ import type {
   EventDetail,
   EventPreview,
   EventSummary,
+  InvitePhotographerInput,
+  InvitePhotographerResult,
   Member,
   Page,
   Photo,
   PhotoLikes,
+  PhotographerInvite,
   PhotoListFilter,
   PhotoVisibility,
   UpdateEventInput,
@@ -25,6 +28,7 @@ export const keys = {
   events: ['events'] as const,
   event: (id: string) => ['events', id] as const,
   members: (id: string) => ['events', id, 'members'] as const,
+  invites: (id: string) => ['events', id, 'photographer-invites'] as const,
   /** Every filtered list of an event's photos sits under this key, so one invalidation refreshes them all. */
   photos: (id: string) => ['events', id, 'photos'] as const,
   photoList: (id: string, filter: PhotoListFilter) => ['events', id, 'photos', filter] as const,
@@ -123,6 +127,40 @@ export function useUpdateEvent(eventId: string) {
 }
 
 /** Host makes a guest the event's photographer, or back. */
+/** Host: email invites to be a photographer that haven't been taken up yet. */
+export function usePhotographerInvites(eventId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: keys.invites(eventId ?? ''),
+    queryFn: () => api<PhotographerInvite[]>(`/events/${eventId}/photographer-invites`),
+    enabled: Boolean(eventId) && enabled,
+  });
+}
+
+/** Host invites someone by email; someone already in the event becomes the photographer at once. */
+export function useInvitePhotographer(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: InvitePhotographerInput) =>
+      api<InvitePhotographerResult>(`/events/${eventId}/photographer-invites`, { body: input }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.invites(eventId) });
+      void qc.invalidateQueries({ queryKey: keys.members(eventId) });
+      void qc.invalidateQueries({ queryKey: keys.event(eventId) });
+    },
+  });
+}
+
+export function useCancelPhotographerInvite(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (inviteId: string) => api<void>(`/events/${eventId}/photographer-invites/${inviteId}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.invites(eventId) });
+      void qc.invalidateQueries({ queryKey: keys.event(eventId) });
+    },
+  });
+}
+
 export function useSetMemberRole(eventId: string) {
   const qc = useQueryClient();
   return useMutation({

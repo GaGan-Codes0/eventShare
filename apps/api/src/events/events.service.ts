@@ -26,7 +26,10 @@ import {
   type EventPreview,
   type EventRole,
   type EventSummary,
+  type InvitePhotographerData,
+  type InvitePhotographerResult,
   type Member,
+  type PhotographerInvite,
   type EventIdentity,
   type EventRules,
   type UpdateEventData,
@@ -36,7 +39,7 @@ import { and, count, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm
 import sharp from 'sharp';
 
 import { DB, type Db } from '../db/db.module.js';
-import { eventMembers, events, photos, users } from '../db/schema.js';
+import { eventMembers, events, photographerInvites, photos, users } from '../db/schema.js';
 import { StorageService } from '../storage/storage.service.js';
 
 type EventRow = typeof events.$inferSelect;
@@ -205,11 +208,13 @@ export class EventsService {
     if (!existing) {
       await this.db.insert(eventMembers).values({ eventId: event.id, userId, role: 'member' }).onConflictDoNothing();
     }
+    // Invited by email to shoot this event: they come in as the photographer.
+    await this.claimInvite(event.id, userId);
     return this.detail(event.id, userId);
   }
 
   async members(eventId: string, userId: string): Promise<Member[]> {
-    await this.requireMember(eventId, userId);
+    const { role } = await this.requireMember(eventId, userId);
     const rows = await this.db
       .select({ m: eventMembers, u: users })
       .from(eventMembers)
@@ -223,6 +228,7 @@ export class EventsService {
       role: m.role,
       joinedAt: m.joinedAt.toISOString(),
       photosUsed: m.photosUsed,
+      ...(role === 'host' && { email: u.email }),
     }));
   }
 
@@ -279,26 +285,10 @@ export class EventsService {
   /** Host makes a guest the photographer, or back. Photos they already took stay theirs. */
   async setMemberRole(eventId: string, hostId: string, targetUserId: string, input: UpdateMemberInput): Promise<Member> {
     await this.requireHost(eventId, hostId);
+    const target = await this.db.query.users.findFirst({ where: eq(users.id, targetUserId) });
     if (input.role === 'photographer') {
-      const [taken] = await this.db
-        .select({ n: count() })
-        .from(eventMembers)
-        .where(
-          and(
-            eq(eventMembers.eventId, eventId),
-            eq(eventMembers.role, 'photographer'),
-            eq(eventMembers.status, 'active'),
-            ne(eventMembers.userId, targetUserId),
-          ),
-        );
-      if ((taken?.n ?? 0) >= MAX_PHOTOGRAPHERS) {
-        const body: ApiError = {
-          statusCode: 409,
-          code: 'PHOTOGRAPHER_SLOTS_FULL',
-          message: `All ${MAX_PHOTOGRAPHERS} photographer slots are taken. Remove one first.`,
-        };
-        throw new ConflictException(body);
-      }
+      // Their own open invite (if any) is the slot they're taking, so it doesn't count twice.
+      if ((await this.slotsUsed(eventId, targetUserId, target?.email ?? undefined)) >= MAX_PHOTOGRAPHERS) this.slotsFull();
     }
     const updated = await this.db
       .update(eventMembers)
@@ -314,7 +304,137 @@ export class EventsService {
       .returning();
     const member = updated.length ? (await this.members(eventId, hostId)).find((m) => m.userId === targetUserId) : undefined;
     if (!member) throw new NotFoundException('Not a guest in this event');
+    // Picked from the guests after being invited by email: that invite is done.
+    if (input.role === 'photographer' && target?.email) await this.closeInvite(eventId, target.email, targetUserId);
     return member;
+  }
+
+  /**
+   * Photographer slots in use: active photographers plus open email invites. A person being
+   * promoted (and their own invite) can be left out, so they don't count against themselves.
+   */
+  private async slotsUsed(eventId: string, exceptUserId?: string, exceptEmail?: string) {
+    const [[shooters], [invites]] = await Promise.all([
+      this.db
+        .select({ n: count() })
+        .from(eventMembers)
+        .where(
+          and(
+            eq(eventMembers.eventId, eventId),
+            eq(eventMembers.role, 'photographer'),
+            eq(eventMembers.status, 'active'),
+            ...(exceptUserId ? [ne(eventMembers.userId, exceptUserId)] : []),
+          ),
+        ),
+      this.db
+        .select({ n: count() })
+        .from(photographerInvites)
+        .where(and(this.openInvites(eventId), ...(exceptEmail ? [ne(photographerInvites.email, exceptEmail)] : []))),
+    ]);
+    return (shooters?.n ?? 0) + (invites?.n ?? 0);
+  }
+
+  private openInvites(eventId: string) {
+    return and(eq(photographerInvites.eventId, eventId), isNull(photographerInvites.acceptedAt), isNull(photographerInvites.cancelledAt));
+  }
+
+  private slotsFull(): never {
+    const body: ApiError = {
+      statusCode: 409,
+      code: 'PHOTOGRAPHER_SLOTS_FULL',
+      message: `All ${MAX_PHOTOGRAPHERS} photographer slots are taken. Remove one first.`,
+    };
+    throw new ConflictException(body);
+  }
+
+  private toInvite(row: typeof photographerInvites.$inferSelect): PhotographerInvite {
+    return { id: row.id, name: row.name, email: row.email, invitedAt: row.createdAt.toISOString() };
+  }
+
+  /** Host: the email invites still waiting to be taken up ("Invite sent"). */
+  async photographerInvites(eventId: string, hostId: string): Promise<PhotographerInvite[]> {
+    await this.requireHost(eventId, hostId);
+    const rows = await this.db.select().from(photographerInvites).where(this.openInvites(eventId)).orderBy(photographerInvites.createdAt);
+    return rows.map((r) => this.toInvite(r));
+  }
+
+  /**
+   * Host invites someone by email to shoot the event. It takes a photographer slot right away;
+   * if that email is already in the event, they become the photographer now.
+   * (The invite email itself comes later: for now the host shares the code with them.)
+   */
+  async invitePhotographer(eventId: string, hostId: string, input: InvitePhotographerData): Promise<InvitePhotographerResult> {
+    const { event } = await this.requireHost(eventId, hostId);
+    const host = await this.db.query.users.findFirst({ where: eq(users.id, hostId) });
+    if (host?.email === input.email) throw new BadRequestException("That's your own email. You're already the host.");
+
+    const [open] = await this.db
+      .select({ id: photographerInvites.id })
+      .from(photographerInvites)
+      .where(and(this.openInvites(eventId), eq(photographerInvites.email, input.email)))
+      .limit(1);
+    if (open) throw new ConflictException(`${input.email} already has an invite`);
+
+    const user = await this.db.query.users.findFirst({ where: eq(users.email, input.email) });
+    const member = user
+      ? await this.db.query.eventMembers.findFirst({
+          where: and(eq(eventMembers.eventId, event.id), eq(eventMembers.userId, user.id), eq(eventMembers.status, 'active')),
+        })
+      : undefined;
+    if (user && member) {
+      if (member.role === 'photographer') throw new ConflictException(`${user.name} is already a photographer`);
+      if (member.role === 'host') throw new BadRequestException(`${user.name} is a host of this event`);
+      return { status: 'joined', member: await this.setMemberRole(eventId, hostId, user.id, { role: 'photographer' }) };
+    }
+
+    if ((await this.slotsUsed(eventId)) >= MAX_PHOTOGRAPHERS) this.slotsFull();
+    try {
+      const [row] = await this.db
+        .insert(photographerInvites)
+        .values({ eventId, name: input.name, email: input.email, invitedBy: hostId })
+        .returning();
+      return { status: 'invited', invite: this.toInvite(row) };
+    } catch (err) {
+      // Two invites to the same email at the same moment: the unique index keeps one.
+      if ((err as { code?: string }).code === '23505') throw new ConflictException(`${input.email} already has an invite`);
+      throw err;
+    }
+  }
+
+  /** Host withdraws an invite; its slot frees up. */
+  async cancelPhotographerInvite(eventId: string, hostId: string, inviteId: string) {
+    await this.requireHost(eventId, hostId);
+    const updated = await this.db
+      .update(photographerInvites)
+      .set({ cancelledAt: new Date() })
+      .where(and(eq(photographerInvites.id, inviteId), this.openInvites(eventId)))
+      .returning({ id: photographerInvites.id });
+    if (updated.length === 0) throw new NotFoundException('Invite not found');
+  }
+
+  /** On joining: an open invite for this person's email makes them the photographer. */
+  private async claimInvite(eventId: string, userId: string) {
+    const user = await this.db.query.users.findFirst({ where: eq(users.id, userId) });
+    if (!user?.email) return;
+    const [invite] = await this.db
+      .select({ id: photographerInvites.id })
+      .from(photographerInvites)
+      .where(and(this.openInvites(eventId), eq(photographerInvites.email, user.email)))
+      .limit(1);
+    if (!invite) return;
+    // The invite already holds the slot, so no limit check here. Hosts stay hosts.
+    await this.db
+      .update(eventMembers)
+      .set({ role: 'photographer' })
+      .where(and(eq(eventMembers.eventId, eventId), eq(eventMembers.userId, userId), eq(eventMembers.status, 'active'), eq(eventMembers.role, 'member')));
+    await this.closeInvite(eventId, user.email, userId);
+  }
+
+  private async closeInvite(eventId: string, email: string, userId: string) {
+    await this.db
+      .update(photographerInvites)
+      .set({ acceptedBy: userId, acceptedAt: new Date() })
+      .where(and(this.openInvites(eventId), eq(photographerInvites.email, email)));
   }
 
   /**
@@ -423,7 +543,7 @@ export class EventsService {
       eq(photos.pendingReview, false),
       isNull(photos.deletedAt),
     );
-    const [[p], [pending], [shooters], memberCount] = await Promise.all([
+    const [[p], [pending], slots, memberCount] = await Promise.all([
       this.db.select({ n: count() }).from(photos).where(shared),
       member.role === 'host'
         ? this.db
@@ -431,10 +551,7 @@ export class EventsService {
             .from(photos)
             .where(and(eq(photos.eventId, event.id), eq(photos.pendingReview, true), isNull(photos.deletedAt)))
         : Promise.resolve([{ n: 0 }]),
-      this.db
-        .select({ n: count() })
-        .from(eventMembers)
-        .where(and(eq(eventMembers.eventId, event.id), eq(eventMembers.role, 'photographer'), eq(eventMembers.status, 'active'))),
+      this.slotsUsed(event.id),
       this.memberCount(event.id),
     ]);
     // Without a poster from the host, the newest photo you can see is the cover.
@@ -451,7 +568,8 @@ export class EventsService {
       coverUrl: identity.posterUrl ?? (latest ? await this.storage.presignDownload(latest.thumbKey) : null),
       role: member.role,
       memberCount,
-      photographerCount: shooters?.n ?? 0,
+      // Slots taken, open email invites included (as the prototype counts them).
+      photographerCount: slots,
       photoCount: p?.n ?? 0,
       pendingReviewCount: pending?.n ?? 0,
       photoLimit: photoLimitFor(member.role, event.guestPhotoLimit),

@@ -1,18 +1,24 @@
-import { MAX_PHOTOGRAPHERS, PHOTOGRAPHER_PHOTO_LIMIT, type EventDetail, type Member } from '@eventshare/shared';
+import { invitePhotographerSchema, MAX_PHOTOGRAPHERS, PHOTOGRAPHER_PHOTO_LIMIT, type EventDetail, type Member, type PhotographerInvite } from '@eventshare/shared';
 import { router } from 'expo-router';
-import { Aperture, MoreHorizontal, Plus, Trash2, UserPlus } from 'lucide-react-native';
+import { Aperture, Mail, MoreHorizontal, Plus, Trash2, UserPlus, X } from 'lucide-react-native';
 import { useState, type ReactNode } from 'react';
-import { Alert, Modal, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { toast } from '@/components/toast';
-import { initialsOf, LoadingState, Text } from '@/components/ui';
+import { Button, initialsOf, LoadingState, Text } from '@/components/ui';
 import { radius, screenPadding, space } from '@/constants/theme';
 import { HostHeader } from '@/features/events/event-header';
 import { NoEventYet } from '@/features/events/no-event';
 import { useCurrentEvent } from '@/features/events/use-current-event';
-import { useMe, useMembers, useRemoveMember, useSetMemberRole } from '@/services/api/hooks';
+import { useCancelPhotographerInvite, useInvitePhotographer, useMe, useMembers, usePhotographerInvites, useRemoveMember, useSetMemberRole } from '@/services/api/hooks';
 import { makeStyles, useTheme } from '@/theme';
+
+/**
+ * Invite emails aren't sent yet: until they are, the host shares the event code with the person
+ * themselves, and the wording says "Invite" / "Invited". Flip this when the emails go out.
+ */
+const INVITE_EMAILS = false;
 
 /** Host: the designated photographers (up to 3) and every guest with their shots used. */
 export default function People() {
@@ -29,13 +35,52 @@ function PeopleBody({ event }: { event: EventDetail }) {
   const members = useMembers(event.id);
   const remove = useRemoveMember(event.id);
   const setRole = useSetMemberRole(event.id);
+  const invites = usePhotographerInvites(event.id);
+  const invite = useInvitePhotographer(event.id);
+  const cancelInvite = useCancelPhotographerInvite(event.id);
   const [picking, setPicking] = useState(false);
   const [menuFor, setMenuFor] = useState<Member | null>(null);
+  const [form, setForm] = useState({ name: '', email: '' });
 
   const list = members.data ?? [];
   const shooters = list.filter((m) => m.role === 'photographer');
   const guests = list.filter((m) => m.role === 'member');
-  const full = shooters.length >= MAX_PHOTOGRAPHERS;
+  const pending = invites.data ?? [];
+  // An open invite holds its slot until it's taken up or cancelled.
+  const taken = shooters.length + pending.length;
+  const full = taken >= MAX_PHOTOGRAPHERS;
+
+  function sendInvite() {
+    const parsed = invitePhotographerSchema.safeParse(form);
+    if (!parsed.success) return toast('Add a name and a valid email');
+    if (full) return toast(`All ${MAX_PHOTOGRAPHERS} photographer slots are taken`);
+    invite.mutate(parsed.data, {
+      onSuccess: (res) => {
+        setPicking(false);
+        setForm({ name: '', email: '' });
+        const first = (res.status === 'joined' ? res.member.name : res.invite.name).split(' ')[0];
+        if (res.status === 'joined') toast(`${first} is already here, and now a designated photographer`);
+        else if (INVITE_EMAILS) toast(`Invite sent to ${res.invite.email}`);
+        else toast(`${first} is invited. Share the event code; they join as photographer with ${res.invite.email}`);
+      },
+      onError: (e) => Alert.alert("Couldn't invite", e.message),
+    });
+  }
+
+  function confirmCancel(i: PhotographerInvite) {
+    Alert.alert(`Cancel ${i.name}'s invite?`, 'Their photographer slot frees up. If they join later, they come in as a guest.', [
+      { text: 'Keep', style: 'cancel' },
+      {
+        text: 'Cancel invite',
+        style: 'destructive',
+        onPress: () =>
+          cancelInvite.mutate(i.id, {
+            onSuccess: () => toast(`${i.name.split(' ')[0]}'s invite cancelled`),
+            onError: (e) => Alert.alert("Couldn't cancel", e.message),
+          }),
+      },
+    ]);
+  }
   const limit = event.guestPhotoLimit;
 
   function promote(m: Member) {
@@ -97,9 +142,17 @@ function PeopleBody({ event }: { event: EventDetail }) {
       <HostHeader event={event} title="People" />
       <ScrollView
         contentContainerStyle={styles.body}
-        refreshControl={<RefreshControl refreshing={members.isRefetching} onRefresh={() => void members.refetch()} />}>
+        refreshControl={
+          <RefreshControl
+            refreshing={members.isRefetching}
+            onRefresh={() => {
+              void members.refetch();
+              void invites.refetch();
+            }}
+          />
+        }>
         <Text variant="eyebrow">
-          Designated photographers · {shooters.length}/{MAX_PHOTOGRAPHERS}
+          Designated photographers · {taken}/{MAX_PHOTOGRAPHERS}
         </Text>
         <Text variant="caption" color="muted">
           Up to {MAX_PHOTOGRAPHERS} people, {PHOTOGRAPHER_PHOTO_LIMIT.toLocaleString('en-US')} uploads each. Their photos skip review, go live
@@ -115,8 +168,8 @@ function PeopleBody({ event }: { event: EventDetail }) {
                   {p.name}
                   {isMe(p) ? ' (you)' : ''}
                 </Text>
-                <Text variant="caption" color="muted">
-                  Joined {new Date(p.joinedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                <Text variant="caption" color="muted" numberOfLines={1}>
+                  {p.email ?? `Joined ${new Date(p.joinedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`}
                 </Text>
               </View>
               <View style={styles.statusPill}>
@@ -141,15 +194,47 @@ function PeopleBody({ event }: { event: EventDetail }) {
           </View>
         ))}
 
-        {Array.from({ length: Math.max(0, MAX_PHOTOGRAPHERS - shooters.length) }, (_, i) => (
+        {pending.map((i) => (
+          <View key={i.id} style={styles.card}>
+            <View style={styles.cardTop}>
+              <Initials name={i.name} badge />
+              <View style={styles.flex}>
+                <Text variant="bodyStrong" numberOfLines={1}>
+                  {i.name}
+                </Text>
+                <Text variant="caption" color="muted" numberOfLines={1}>
+                  {i.email}
+                </Text>
+              </View>
+              <View style={[styles.statusPill, styles.invitedPill]}>
+                <Text variant="caption" style={styles.invitedText}>
+                  {INVITE_EMAILS ? 'Invite sent' : 'Invited'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.track} />
+            <View style={styles.cardFoot}>
+              <Text variant="caption" color="muted" style={{ fontFamily: fonts.mono }}>
+                0 / {PHOTOGRAPHER_PHOTO_LIMIT.toLocaleString('en-US')} uploads
+              </Text>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Cancel ${i.name}'s invite`} hitSlop={8} onPress={() => confirmCancel(i)}>
+                <Text variant="label" color="danger">
+                  Remove
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        ))}
+
+        {Array.from({ length: Math.max(0, MAX_PHOTOGRAPHERS - taken) }, (_, i) => (
           <Pressable key={i} accessibilityRole="button" onPress={() => setPicking(true)} style={({ pressed }) => [styles.slot, pressed && { backgroundColor: colors.field }]}>
             <View style={styles.slotIcon}>
               <Plus size={19} color={colors.ink} />
             </View>
             <View style={styles.flex}>
-              <Text variant="bodyStrong">Add photographer {shooters.length + i + 1}</Text>
+              <Text variant="bodyStrong">Add photographer {taken + i + 1}</Text>
               <Text variant="caption" color="muted">
-                Pick someone who’s here
+                Invite by email, or pick a guest
               </Text>
             </View>
           </Pressable>
@@ -196,6 +281,9 @@ function PeopleBody({ event }: { event: EventDetail }) {
       </ScrollView>
 
       <Sheet visible={picking} onClose={() => setPicking(false)}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={8} onPress={() => setPicking(false)} style={styles.close}>
+          <X size={16} color={colors.ink} />
+        </Pressable>
         <Text variant="eyebrow">Designated photographer</Text>
         <Text variant="h2">
           Who’s <Text variant="h2" emphasis>shooting?</Text>
@@ -203,8 +291,16 @@ function PeopleBody({ event }: { event: EventDetail }) {
         <Text variant="caption" color="muted">
           They get {PHOTOGRAPHER_PHOTO_LIMIT.toLocaleString('en-US')} uploads, a Photographer badge on every shot, and their photos skip review.
         </Text>
+        <Field value={form.name} placeholder="Name" onChange={(name) => setForm((f) => ({ ...f, name }))} />
+        <Field value={form.email} placeholder="Email" email onChange={(email) => setForm((f) => ({ ...f, email }))} />
+        <Button label={INVITE_EMAILS ? 'Send invite' : 'Invite'} leadingIcon={Mail} fullWidth loading={invite.isPending} onPress={sendInvite} />
+        {!INVITE_EMAILS && (
+          <Text variant="caption" color="muted">
+            They join with the event code, using this email, and come in as the photographer.
+          </Text>
+        )}
         <Text variant="eyebrow" style={styles.pickHead}>
-          Pick someone who’s here
+          Or pick someone who’s here
         </Text>
         {guests.length === 0 ? (
           <Text variant="caption" color="muted">
@@ -282,17 +378,41 @@ function Initials({ name, badge, size = 38 }: { name: string; badge?: boolean; s
   );
 }
 
-/** A bottom sheet over the screen, like the prototype's. */
+function Field({ value, placeholder, onChange, email }: { value: string; placeholder: string; onChange: (t: string) => void; email?: boolean }) {
+  const { colors, fonts } = useTheme();
+  const styles = useStyles();
+  return (
+    <TextInput
+      value={value}
+      onChangeText={onChange}
+      placeholder={placeholder}
+      placeholderTextColor={colors.subtle}
+      autoCapitalize={email ? 'none' : 'words'}
+      autoCorrect={false}
+      keyboardType={email ? 'email-address' : 'default'}
+      autoComplete={email ? 'email' : 'name'}
+      textContentType={email ? 'emailAddress' : 'name'}
+      maxLength={email ? 254 : 80}
+      style={[styles.field, { fontFamily: fonts.sans, color: colors.ink }]}
+    />
+  );
+}
+
+/** A bottom sheet over the screen, like the prototype's. It rises with the keyboard. */
 function Sheet({ visible, onClose, children }: { visible: boolean; onClose: () => void; children: ReactNode }) {
   const styles = useStyles();
   const insets = useSafeAreaInsets();
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable accessibilityLabel="Close" style={styles.backdrop} onPress={onClose} />
-      <View style={[styles.sheet, { paddingBottom: insets.bottom + space.xl }]}>
-        <View style={styles.grabber} />
-        {children}
-      </View>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheetWrap}>
+        <Pressable accessibilityLabel="Close" style={styles.backdrop} onPress={onClose} />
+        <View style={[styles.sheet, { paddingBottom: insets.bottom + space.xl }]}>
+          <View style={styles.grabber} />
+          <ScrollView contentContainerStyle={styles.sheetBody} keyboardShouldPersistTaps="handled" bounces={false}>
+            {children}
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -340,8 +460,25 @@ const useStyles = makeStyles(({ colors }) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  sheetWrap: { flex: 1 },
   backdrop: { flex: 1, backgroundColor: colors.overlay },
-  sheet: { backgroundColor: colors.paper, borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: space.xl, paddingTop: space.sm + 2, gap: space.md },
+  sheet: { maxHeight: '88%', backgroundColor: colors.paper, borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: space.xl, paddingTop: space.sm + 2 },
+  sheetBody: { gap: space.md, paddingBottom: space.xs },
+  close: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    zIndex: 1,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.field,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  field: { height: 46, paddingHorizontal: 14, borderRadius: radius.md, borderWidth: 1, borderColor: colors.lineStrong, backgroundColor: colors.surface, fontSize: 15 },
+  invitedPill: { backgroundColor: '#F3E9D6' },
+  invitedText: { color: '#806F46' },
   grabber: { alignSelf: 'center', width: 36, height: 5, borderRadius: 3, backgroundColor: colors.lineStrong, marginBottom: space.xs },
   pickHead: { marginTop: space.sm },
   pick: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm + 2, borderBottomWidth: 0.5, borderBottomColor: colors.line },
