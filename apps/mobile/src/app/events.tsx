@@ -63,13 +63,14 @@ export default function YourEvents() {
           </>
         )}
 
+        {/* Joining comes first: most people opening the app are guests. */}
+        <DashedAction icon={ScanLine} title="Join an event" caption="Scan the QR or enter the code from your host." onPress={() => router.push('/join')} />
         <DashedAction
           icon={Plus}
           title="Create a new event"
           caption="Wedding, corporate, birthday. Live in two minutes."
           onPress={() => router.push('/create-event')}
         />
-        <DashedAction icon={ScanLine} title="Join an event" caption="Scan the QR or enter the code from your host." onPress={() => router.push('/join')} />
       </ScrollView>
     </View>
   );
