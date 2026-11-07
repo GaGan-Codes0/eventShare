@@ -11,7 +11,8 @@ import { Aperture, ArrowUpRight, Camera, CloudUpload, Film, Frame, Grid3x3, Imag
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Linking, Platform, Pressable, StyleSheet, View, type GestureResponderEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
+import { Image } from 'expo-image';
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withDelay, withSequence, withTiming } from 'react-native-reanimated';
 
 import { toast } from '@/components/toast';
 import { Button, Text } from '@/components/ui';
@@ -26,6 +27,9 @@ import { enqueuePhoto } from '@/features/uploads/queue';
 import { useUploadQueue } from '@/features/uploads/use-upload-queue';
 import { setPreference, usePreferences } from '@/store/preferences';
 import { clock, plural } from '@/utils/format';
+
+/** How long a photo just taken stays on the viewfinder before it fades. */
+const SHOT_HOLD_MS = 2000;
 
 const TYPE_BY_EXT: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', heic: 'image/heic', heif: 'image/heif', png: 'image/png', webp: 'image/webp' };
 
@@ -115,6 +119,24 @@ export default function CameraScreen() {
   const queue = useUploadQueue(id);
   const flash = useSharedValue(0);
   const flashStyle = useAnimatedStyle(() => ({ opacity: flash.get() }));
+  // The shot just taken stays on screen for 2 seconds, then fades as it uploads.
+  const [justTaken, setJustTaken] = useState<string | null>(null);
+  const shown = useSharedValue(0);
+  const shownStyle = useAnimatedStyle(() => ({ opacity: shown.get() }));
+  function showShot(uri: string) {
+    setJustTaken(uri);
+    shown.set(
+      withSequence(
+        withTiming(1, { duration: 120 }),
+        withDelay(
+          SHOT_HOLD_MS,
+          withTiming(0, { duration: 450 }, (done) => {
+            if (done) runOnJS(setJustTaken)(null);
+          }),
+        ),
+      ),
+    );
+  }
 
   const granted = permission?.granted ?? false;
   // Photos still on this phone count too, until the server has counted them itself.
@@ -257,7 +279,7 @@ export default function CameraScreen() {
     try {
       // quality 1 = the camera's full-quality capture; we never recompress it after this.
       const pic = await camera.current.takePictureAsync({ quality: 1, exif: true });
-      // Nothing is counted or uploaded until they choose Upload on the preview.
+      showShot(pic.uri);
       void keep({ uri: pic.uri, kind: 'photo', contentType: 'image/jpeg', width: pic.width, height: pic.height, takenAt: new Date().toISOString() });
     } catch (err) {
       Alert.alert("Couldn't take the photo", err instanceof Error ? err.message : 'Please try again.');
@@ -579,6 +601,15 @@ export default function CameraScreen() {
             )}
           </View>
         )}
+        {justTaken && (
+          <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, shownStyle]}>
+            <Image source={{ uri: justTaken }} style={StyleSheet.absoluteFill} contentFit="cover" transition={0} />
+            <View style={styles.uploadingTag}>
+              <CloudUpload size={14} color={LIGHT} />
+              <Text style={styles.uploadingText}>Uploading</Text>
+            </View>
+          </Animated.View>
+        )}
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.flash, flashStyle]} />
       </View>
 
@@ -708,6 +739,19 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
     borderColor: 'rgba(205,215,171,0.45)',
   },
   flash: { backgroundColor: colors.white },
+  uploadingTag: {
+    position: 'absolute',
+    left: 14,
+    bottom: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.full,
+    backgroundColor: 'rgba(14,18,16,0.55)',
+  },
+  uploadingText: { fontFamily: fonts.sansSemiBold, fontSize: 12.5, lineHeight: 16, color: LIGHT },
   tools: { position: 'absolute', top: space.md, right: space.md, gap: space.sm },
   tool: { width: 36, height: 36, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.35)' },
   toolOn: { backgroundColor: LIGHT },
