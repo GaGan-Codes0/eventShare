@@ -78,6 +78,13 @@
       "when": 1793985719304,
       "tag": "0010_six_digit_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794042391575,
+      "tag": "0011_find_my_photos",
+      "breakpoints": true
     }
   ]
 }

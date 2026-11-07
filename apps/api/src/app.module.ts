@@ -8,6 +8,8 @@ import { ConfigModule } from './config/config.module.js';
 import { DbModule } from './db/db.module.js';
 import { EventsController } from './events/events.controller.js';
 import { EventsService } from './events/events.service.js';
+import { FacesController } from './faces/faces.controller.js';
+import { FacesService } from './faces/faces.service.js';
 import { HealthController } from './health.controller.js';
 import { MailService } from './mail/mail.service.js';
 import { PhotosController } from './photos/photos.controller.js';
@@ -24,7 +26,7 @@ import { UsersService } from './users/users.service.js';
     // Applied only where ThrottlerGuard is used (the auth routes): 10 attempts per minute per IP.
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 10 }]),
   ],
-  controllers: [HealthController, AuthController, UsersController, EventsController, PhotosController],
-  providers: [AuthService, AuthGuard, UsersService, EventsService, PhotosService, ArchiveService, StorageService, MailService],
+  controllers: [HealthController, AuthController, UsersController, EventsController, PhotosController, FacesController],
+  providers: [AuthService, AuthGuard, UsersService, EventsService, PhotosService, ArchiveService, StorageService, MailService, FacesService],
 })
 export class AppModule {}

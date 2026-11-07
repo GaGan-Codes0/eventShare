@@ -5,7 +5,7 @@ import {
   type GuestPhotoLimit,
   type UpdateEventInput,
 } from '@eventshare/shared';
-import { Aperture, CalendarClock, Download, ImagePlus, ShieldCheck, type LucideIcon } from 'lucide-react-native';
+import { Aperture, CalendarClock, Download, ImagePlus, ScanFace, ShieldCheck, type LucideIcon } from 'lucide-react-native';
 import { Alert, Pressable, ScrollView, Switch, View } from 'react-native';
 
 import { toast } from '@/components/toast';
@@ -69,6 +69,13 @@ function RulesBody({ event }: { event: EventDetail }) {
       icon: CalendarClock,
       on: event.dateStamp,
       change: (on) => ({ dateStamp: on }),
+    },
+    {
+      title: 'Find my photos',
+      caption: 'Guests who take a selfie see the photos their face is in. Off deletes everyone’s faceprints.',
+      icon: ScanFace,
+      on: event.findMyPhotos,
+      change: (on) => ({ findMyPhotos: on }),
     },
   ];
 

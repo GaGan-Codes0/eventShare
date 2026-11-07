@@ -1,7 +1,7 @@
 import type { EventDetail, Photo, PhotoListFilter } from '@eventshare/shared';
 import { router } from 'expo-router';
-import { Camera, Download, Images, Lock } from 'lucide-react-native';
-import { useMemo, useState } from 'react';
+import { Camera, Download, Images, Lock, ScanFace } from 'lucide-react-native';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -16,11 +16,13 @@ import { plural } from '@/utils/format';
 
 import { PhotoCell, tileKey, type Tile } from './photo-grid';
 
-const GUEST_FILTERS = [
+const GUEST_FILTERS: { value: PhotoListFilter; label: string }[] = [
   { value: 'all', label: 'Everyone' },
   { value: 'photographers', label: 'Photographers' },
   { value: 'mine', label: 'Mine' },
-] as const;
+];
+/** Find my photos: the photos your face is in. */
+const ME_FILTER = { value: 'me', label: 'Me' } as const;
 
 /** "The album opens when the event ends." */
 export function lockText(event: Pick<EventDetail, 'revealMode' | 'albumOpensAt'>) {
@@ -43,7 +45,11 @@ export function AlbumView({ event, host }: { event: EventDetail; host: boolean }
   const styles = useStyles();
   const insets = useSafeAreaInsets();
   const me = useMe();
-  const [filter, setFilter] = useState<PhotoListFilter>('all');
+  const [picked, setFilter] = useState<PhotoListFilter>('all');
+  // "Me" falls back to everything if the hosts turn Find my photos off while it's showing.
+  const filter = picked === 'me' && !event.findMyPhotos ? 'all' : picked;
+  // "Me" before you've taken your selfie: show how to start instead of the photos.
+  const needsSelfie = filter === 'me' && !event.hasFaceProfile;
   const photos = usePhotos(event.id, filter);
   const queue = useUploadQueue(event.id);
   const locked = !host && !event.albumOpen && filter !== 'mine';
@@ -56,8 +62,17 @@ export function AlbumView({ event, host }: { event: EventDetail; host: boolean }
     ];
     if (event.requireReview || event.pendingReviewCount > 0) chips.push({ value: 'review', label: `Review · ${event.pendingReviewCount}` });
     chips.push({ value: 'hidden', label: 'Hidden' });
+    if (event.findMyPhotos) chips.push(ME_FILTER);
     return chips;
-  }, [event.requireReview, event.pendingReviewCount]);
+  }, [event.requireReview, event.pendingReviewCount, event.findMyPhotos]);
+  const guestFilters = useMemo(() => (event.findMyPhotos ? [...GUEST_FILTERS, ME_FILTER] : GUEST_FILTERS), [event.findMyPhotos]);
+
+  // Host: faces in photos from before Find my photos was on are found on this phone, in the background.
+  const [backfilled, setBackfilled] = useState(0);
+  useEffect(() => {
+    if (!host || !event.findMyPhotos) return;
+    import('@/features/faces/scan').then(({ backfill }) => backfill(event.id, setBackfilled)).catch(() => undefined);
+  }, [host, event.id, event.findMyPhotos]);
 
   const tiles = useMemo<Tile[]>(() => {
     const remote = photos.data?.pages.flatMap((p) => p.items) ?? [];
@@ -88,12 +103,17 @@ export function AlbumView({ event, host }: { event: EventDetail; host: boolean }
         {host ? (
           <Chips accessibilityLabel="Show" options={hostFilters} value={filter} onChange={setFilter} />
         ) : (
-          <Chips accessibilityLabel="Show" options={GUEST_FILTERS} value={filter as (typeof GUEST_FILTERS)[number]['value']} onChange={setFilter} />
+          <Chips accessibilityLabel="Show" options={guestFilters} value={filter} onChange={setFilter} />
         )}
         {host && (
           <View style={styles.captionRow}>
             <Text variant="caption" color="muted">
-              {filter === 'all' ? `Latest of ${plural(event.photoCount, 'photo')}` : plural(tiles.length, 'photo')}
+              {filter === 'all'
+                ? `Latest of ${plural(event.photoCount, 'photo')}`
+                : needsSelfie
+                  ? 'Photos you’re in'
+                  : plural(tiles.length, 'photo')}
+              {backfilled > 0 && ` · faces found in ${plural(backfilled, 'older photo')}`}
             </Text>
             <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push('/download')} style={styles.downloadLink}>
               <Download size={15} color={colors.ink} />
@@ -101,8 +121,29 @@ export function AlbumView({ event, host }: { event: EventDetail; host: boolean }
             </Pressable>
           </View>
         )}
+        {filter === 'me' && event.hasFaceProfile && (
+          <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push('/find-me')} style={styles.downloadLink}>
+            <ScanFace size={15} color={colors.ink} />
+            <Text variant="caption" color="muted">
+              Photos your face is in · <Text variant="label">Change</Text>
+            </Text>
+          </Pressable>
+        )}
       </View>
-      {photos.isPending ? (
+      {needsSelfie ? (
+        <View style={styles.body}>
+          <View style={[styles.locked, { backgroundColor: colors.sage }]}>
+            <View style={styles.lockIcon}>
+              <ScanFace size={20} color={colors.primaryText} />
+            </View>
+            <Text variant="h2">Find the photos you’re in</Text>
+            <Text variant="caption" color="muted" align="center" style={styles.lockText}>
+              Take a selfie and see every photo your face is in. Your selfie stays on your phone.
+            </Text>
+            <Button label="Take a selfie" leadingIcon={ScanFace} onPress={() => router.push('/find-me')} style={styles.emptyCta} />
+          </View>
+        </View>
+      ) : photos.isPending ? (
         <LoadingState />
       ) : (
         <FlatList

@@ -10,6 +10,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  real,
   text,
   timestamp,
   uniqueIndex,
@@ -80,6 +81,8 @@ export const events = pgTable(
     allowDownloads: boolean('allow_downloads').notNull().default(true),
     allowLibraryUploads: boolean('allow_library_uploads').notNull().default(true),
     dateStamp: boolean('date_stamp').notNull().default(true),
+    /** "Find my photos": guests can opt in with a selfie to see the photos they're in. Off by default. */
+    findMyPhotos: boolean('find_my_photos').notNull().default(true),
     filter: photoFilter('filter').notNull().default('natural'),
     /** The host's shot list. */
     prompts: jsonb('prompts').$type<string[]>().notNull().default([]),
@@ -171,6 +174,8 @@ export const photos = pgTable(
     /** A photo, a video or a voice note: all live in the album together. */
     kind: mediaKind('kind').notNull().default('photo'),
     /** Videos and voice notes, as read from the file itself. */
+    /** When the photo's faces were looked for (null: not yet). */
+    facesScannedAt: timestamp('faces_scanned_at', { withTimezone: true }),
     durationMs: integer('duration_ms'),
     contentType: text('content_type').notNull(),
     byteSize: bigint('byte_size', { mode: 'number' }).notNull(),
@@ -194,6 +199,49 @@ export const photos = pgTable(
       .on(t.eventId, t.createdAt.desc(), t.id.desc())
       .where(sql`${t.deletedAt} IS NULL`),
   ],
+);
+
+/**
+ * Faces found in a photo, as faceprints (128 numbers from the SFace model), made on the phone
+ * that uploaded it, or later by the host's phone for older photos. No picture of the face is kept.
+ */
+export const photoFaces = pgTable(
+  'photo_faces',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    photoId: uuid('photo_id')
+      .notNull()
+      .references(() => photos.id),
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => events.id),
+    /** Which model made it: only faceprints from the same model can be compared. */
+    model: text('model').notNull(),
+    embedding: real('embedding').array().notNull(),
+    /** Where the face is, as fractions of the picture: [x, y, width, height]. */
+    box: real('box').array().notNull(),
+  },
+  (t) => [index('photo_faces_event_idx').on(t.eventId, t.model), index('photo_faces_photo_idx').on(t.photoId)],
+);
+
+/**
+ * A guest's opted-in selfie faceprint for one event (the selfie itself never leaves the phone).
+ * Deleted when they switch it off, or when the host turns Find my photos off.
+ */
+export const faceProfiles = pgTable(
+  'face_profiles',
+  {
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => events.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    model: text('model').notNull(),
+    embedding: real('embedding').array().notNull(),
+    consentedAt: timestamp('consented_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.eventId, t.userId] })],
 );
 
 /** One like per person per photo. */

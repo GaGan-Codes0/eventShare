@@ -224,6 +224,8 @@ export const updateEventSchema = z
     allowLibraryUploads: z.boolean(),
     /** A small date stamp on photos, like a disposable camera. Display only. */
     dateStamp: z.boolean(),
+    /** Guests can opt in with a selfie to find the photos they're in. */
+    findMyPhotos: z.boolean(),
     filter: z.enum(PHOTO_FILTERS),
     prompts,
     theme: eventThemeSchema.nullable(),
@@ -305,6 +307,10 @@ export type EventRules = {
   allowDownloads: boolean;
   allowLibraryUploads: boolean;
   dateStamp: boolean;
+  /** "Find my photos" is on for this event. */
+  findMyPhotos: boolean;
+  /** You've opted in with a selfie (always false while findMyPhotos is off). */
+  hasFaceProfile: boolean;
   filter: PhotoFilter;
   prompts: string[];
 };
@@ -416,7 +422,8 @@ export const updatePhotoSchema = z
 export type UpdatePhotoInput = z.infer<typeof updatePhotoSchema>;
 
 /** Album filters. `review` and `hidden` are for the host. */
-export const PHOTO_LIST_FILTERS = ['all', 'photographers', 'guests', 'mine', 'review', 'hidden'] as const;
+/** `me`: photos you're in (Find my photos); `mine`: photos you took. */
+export const PHOTO_LIST_FILTERS = ['all', 'photographers', 'guests', 'mine', 'me', 'review', 'hidden'] as const;
 export type PhotoListFilter = (typeof PHOTO_LIST_FILTERS)[number];
 
 export type PhotoLikes = { likeCount: number; likedByMe: boolean };
@@ -476,3 +483,40 @@ export type ApiErrorCode =
   | 'PHOTOGRAPHER_SLOTS_FULL'
   | 'LIBRARY_UPLOADS_OFF'
   | 'DOWNLOADS_OFF';
+
+// ---------- find my photos ----------
+
+/**
+ * Faceprints are made on the phone: YuNet (OpenCV Zoo, MIT) finds each face and its 5 points,
+ * SFace (OpenCV Zoo, Apache-2.0) turns the aligned 112×112 face into 128 numbers. Only prints
+ * from the same model can be compared, so the model is named on every one.
+ */
+export const FACE_MODEL = 'sface-2021dec-int8';
+export const FACE_EMBEDDING_SIZE = 128;
+/** Cosine similarity at or above this counts as the same person (OpenCV's value for SFace). */
+export const FACE_MATCH_THRESHOLD = 0.363;
+/** More faces than this in one photo are left out (crowd shots). */
+export const MAX_FACES_PER_PHOTO = 40;
+
+const embedding = z.array(z.number().finite()).length(FACE_EMBEDDING_SIZE);
+
+/** The faces a phone found in a photo (an empty list is fine: "no faces"). */
+export const saveFacesSchema = z.object({
+  model: z.literal(FACE_MODEL),
+  faces: z
+    .array(z.object({ box: z.array(z.number().min(0).max(1)).length(4), embedding }))
+    .max(MAX_FACES_PER_PHOTO),
+});
+export type SaveFacesInput = z.infer<typeof saveFacesSchema>;
+
+/** A guest opts in with the faceprint of their selfie (the selfie stays on the phone). */
+export const faceProfileSchema = z.object({
+  model: z.literal(FACE_MODEL),
+  embedding,
+  /** They agreed to the Find my photos terms. */
+  consent: z.literal(true),
+});
+export type FaceProfileInput = z.infer<typeof faceProfileSchema>;
+
+/** A photo still waiting for its faces to be looked for (the host's phone does older ones). */
+export type PendingFaceScan = { id: string; url: string };

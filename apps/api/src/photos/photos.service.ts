@@ -20,12 +20,13 @@ import {
   type UpdatePhotoInput,
   type UploadTicket,
 } from '@eventshare/shared';
-import { and, count, desc, eq, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
 import sharp from 'sharp';
 
 import { DB, type Db } from '../db/db.module.js';
 import { eventMembers, photoLikes, photos, users } from '../db/schema.js';
 import { albumOpen, EventsService, visibleTo } from '../events/events.service.js';
+import { FacesService } from '../faces/faces.service.js';
 import { mediaDurationMs } from '../media/duration.js';
 import { StorageService } from '../storage/storage.service.js';
 
@@ -77,6 +78,7 @@ export class PhotosService {
     @Inject(DB) private readonly db: Db,
     private readonly events: EventsService,
     private readonly storage: StorageService,
+    private readonly faces: FacesService,
   ) {}
 
   /**
@@ -228,6 +230,12 @@ export class PhotosService {
     if (filter === 'photographers') conditions.push(eq(eventMembers.role, 'photographer'));
     if (filter === 'guests') conditions.push(eq(eventMembers.role, 'member'));
     if (filter === 'mine') conditions.push(eq(photos.uploaderId, userId));
+    if (filter === 'me') {
+      // Photos with a face matching this person's opted-in selfie.
+      const ids = await this.faces.matchingPhotoIds(eventId, userId);
+      if (ids.length === 0) return { items: [], nextCursor: null };
+      conditions.push(inArray(photos.id, ids));
+    }
     if (filter === 'review') conditions.push(eq(photos.pendingReview, true));
     if (filter === 'hidden') conditions.push(eq(photos.visibility, 'hidden'));
     if (cursor) {

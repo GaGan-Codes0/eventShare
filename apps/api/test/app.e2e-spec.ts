@@ -546,6 +546,76 @@ describe('core flow (e2e)', () => {
     expect(album.body.items.map((p: { kind: string }) => p.kind).sort()).toEqual(['video', 'voice']);
   });
 
+  it('finds my photos from faceprints the phones made, only with consent and the host switch on', async () => {
+    const http = () => request(app.getHttpServer());
+    const MODEL = 'sface-2021dec-int8';
+    // Stand-ins for faceprints: one direction per person, a little noise per photo.
+    const rand = (seed: number) => () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648) * 2 - 1;
+    const person = (seed: number) => Array.from({ length: 128 }, rand(seed));
+    const noisy = (v: number[], n: number) => {
+      const r = rand(1000 + n);
+      return v.map((x) => x + r() * 0.3);
+    };
+    const asha = person(1);
+    const dev = person(2);
+
+    const created = await http().post('/events').set(as(host)).send({ name: 'Faces test', location: 'Delhi' }).expect(201);
+    const { id: eventId, joinCode } = created.body as { id: string; joinCode: string };
+    const g = `face${run}`;
+    await http().post('/join').set(as(g)).send({ code: joinCode }).expect(201);
+
+    const upload = async (who: string) => {
+      const t = await http()
+        .post(`/events/${eventId}/photos/uploads`)
+        .set(as(who))
+        .send({ clientUploadId: randomUUID(), contentType: 'image/jpeg', byteSize: original.length, thumbByteSize: thumb.length })
+        .expect(201);
+      for (const [target, bytes] of [
+        [t.body.original, original],
+        [t.body.thumb, thumb],
+      ] as const)
+        await fetch(target.url, { method: 'PUT', headers: target.headers, body: new Uint8Array(bytes) });
+      await http().post(`/photos/${t.body.photoId}/complete`).set(as(who)).expect(201);
+      return t.body.photoId as string;
+    };
+    const both = await upload(host); // Asha and Dev
+    const devOnly = await upload(host); // Dev
+    const ashaOnly = await upload(g); // Asha, taken by the guest
+    const older = await upload(host); // no faces sent yet
+
+    const faces = (prints: number[][]) => ({ model: MODEL, faces: prints.map((embedding, i) => ({ box: [0.1 * i, 0.1, 0.2, 0.3], embedding })) });
+    await http().put(`/photos/${both}/faces`).set(as(host)).send(faces([noisy(asha, 1), noisy(dev, 2)])).expect(200);
+    await http().put(`/photos/${devOnly}/faces`).set(as(host)).send(faces([noisy(dev, 3)])).expect(200);
+    await http().put(`/photos/${ashaOnly}/faces`).set(as(g)).send(faces([noisy(asha, 4)])).expect(200);
+    // Only the uploader (or the host) can say what's in a photo; prints must be the right size.
+    await http().put(`/photos/${both}/faces`).set(as(g)).send(faces([asha])).expect(403);
+    await http().put(`/photos/${both}/faces`).set(as(host)).send({ model: MODEL, faces: [{ box: [0, 0, 1, 1], embedding: [1, 2, 3] }] }).expect(400);
+
+    // On by default; while the host has it off, nobody can opt in.
+    expect((await http().get(`/events/${eventId}`).set(as(g)).expect(200)).body.findMyPhotos).toBe(true);
+    await http().patch(`/events/${eventId}`).set(as(host)).send({ findMyPhotos: false }).expect(200);
+    await http().put(`/events/${eventId}/face-profile`).set(as(g)).send({ model: MODEL, embedding: asha, consent: true }).expect(403);
+    await http().patch(`/events/${eventId}`).set(as(host)).send({ findMyPhotos: true }).expect(200);
+    // The host's phone is handed the older photos to look at.
+    const pending = await http().get(`/events/${eventId}/faces/pending`).set(as(host)).expect(200);
+    expect(pending.body.map((p: { id: string }) => p.id)).toEqual([older]);
+    await http().get(`/events/${eventId}/faces/pending`).set(as(g)).expect(403);
+
+    // Consent is required; then the guest's selfie finds the photos Asha is in, and not Dev's.
+    await http().put(`/events/${eventId}/face-profile`).set(as(g)).send({ model: MODEL, embedding: asha }).expect(400);
+    await http().put(`/events/${eventId}/face-profile`).set(as(g)).send({ model: MODEL, embedding: noisy(asha, 9), consent: true }).expect(204);
+    expect((await http().get(`/events/${eventId}`).set(as(g)).expect(200)).body.hasFaceProfile).toBe(true);
+    const mine = await http().get(`/events/${eventId}/photos?filter=me`).set(as(g)).expect(200);
+    expect(mine.body.items.map((p: { id: string }) => p.id).sort()).toEqual([both, ashaOnly].sort());
+
+    // Opting out, or the host switching it off, deletes the print.
+    await http().delete(`/events/${eventId}/face-profile`).set(as(g)).expect(204);
+    expect((await http().get(`/events/${eventId}/photos?filter=me`).set(as(g)).expect(200)).body.items).toEqual([]);
+    await http().put(`/events/${eventId}/face-profile`).set(as(g)).send({ model: MODEL, embedding: asha, consent: true }).expect(204);
+    await http().patch(`/events/${eventId}`).set(as(host)).send({ findMyPhotos: false }).expect(200);
+    expect((await http().get(`/events/${eventId}`).set(as(g)).expect(200)).body.hasFaceProfile).toBe(false);
+  });
+
   it('rejects bad input and missing auth', async () => {
     await request(app.getHttpServer()).post('/events').set(as(host)).send({ name: 'x' }).expect(400);
     await request(app.getHttpServer()).get('/events').expect(401);

@@ -5,6 +5,7 @@
  *  - every event they host, with everything in it: all photos, videos and voice notes (anyone's),
  *    guests' memberships, likes, photographer invites, Download-all ZIPs, logo and poster
  *  - everything they uploaded or liked in other people's events, and their memberships there
+ *  - faceprints: of every deleted photo, and their own Find my photos selfie prints
  *  - the files in S3 for all of the above
  *
  * Runs inside the API container, using its own database and S3 settings. Dry run by default:
@@ -108,6 +109,9 @@ if (!confirm) {
 await db.query('BEGIN');
 try {
   await db.query('DELETE FROM photo_likes WHERE photo_id = ANY($1) OR user_id = ANY($2)', [photoIds, ids]);
+  // Faceprints (Find my photos): of the photos going, of their events, and their own selfie prints.
+  await db.query('DELETE FROM photo_faces WHERE photo_id = ANY($1) OR event_id = ANY($2)', [photoIds, hostedIds]);
+  await db.query('DELETE FROM face_profiles WHERE event_id = ANY($1) OR user_id = ANY($2)', [hostedIds, ids]);
   await db.query('DELETE FROM photos WHERE id = ANY($1)', [photoIds]);
   await db.query('DELETE FROM event_archives WHERE event_id = ANY($1)', [archiveEventIds]);
   await db.query('DELETE FROM photographer_invites WHERE event_id = ANY($1) OR invited_by = ANY($2) OR accepted_by = ANY($2)', [

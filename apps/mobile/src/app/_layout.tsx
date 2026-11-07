@@ -23,7 +23,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 
 import { Toaster } from '@/components/toast';
 import { radius } from '@/constants/theme';
-import { initUploadQueue, onPhotoUploaded, onSlotReserved } from '@/features/uploads/queue';
+import { initUploadQueue, onPhotoUploaded, onSlotReserved, setAfterUpload } from '@/features/uploads/queue';
 import { keys } from '@/services/api/hooks';
 import { getSessionUser, loadSession, subscribeSession } from '@/services/api/session';
 import { loadCurrentEvent } from '@/store/current-event';
@@ -53,6 +53,16 @@ function UploadSync() {
   );
   // A queued photo just took one of your slots: refresh how many shots you have left.
   useEffect(() => onSlotReserved((eventId) => void qc.invalidateQueries({ queryKey: keys.event(eventId) })), [qc]);
+  // Find my photos: each photo's faces are found on this phone, right after it's uploaded.
+  useEffect(() => {
+    setAfterUpload(async (item, photo, uri) => {
+      if (photo.kind !== 'photo') return;
+      // Loaded on first use, so the face models never slow the app's start.
+      const { scanPhoto, scanningOn } = await import('@/features/faces/scan');
+      if (scanningOn(qc, item.eventId)) await scanPhoto(photo.id, uri);
+    });
+    return () => setAfterUpload(null);
+  }, [qc]);
   return null;
 }
 
@@ -154,6 +164,7 @@ function AppStack() {
         {/* As tall as its contents, like the prototype's profile sheet. */}
         <Stack.Screen name="profile" options={{ ...sheet, sheetAllowedDetents: 'fitToContents' }} />
         <Stack.Screen name="download" options={sheet} />
+        <Stack.Screen name="find-me" options={{ ...sheet, sheetAllowedDetents: 'fitToContents' }} />
         <Stack.Screen
           name="photo/[id]"
           options={{ presentation: 'fullScreenModal', animation: 'fade', contentStyle: { backgroundColor: colors.inkDeep } }}

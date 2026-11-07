@@ -41,7 +41,7 @@ import { and, count, desc, eq, isNotNull, isNull, ne, or, sql, type SQL } from '
 import sharp from 'sharp';
 
 import { DB, type Db } from '../db/db.module.js';
-import { eventMembers, events, photographerInvites, photos, users } from '../db/schema.js';
+import { eventMembers, events, faceProfiles, photographerInvites, photos, users } from '../db/schema.js';
 import { MailService } from '../mail/mail.service.js';
 import { StorageService } from '../storage/storage.service.js';
 
@@ -254,6 +254,8 @@ export class EventsService {
         name: displayName(next),
       })
       .where(eq(events.id, eventId));
+    // Find my photos switched off: every guest's selfie faceprint for the event is deleted.
+    if (input.findMyPhotos === false) await this.db.delete(faceProfiles).where(eq(faceProfiles.eventId, eventId));
     // The old picture isn't used anywhere once replaced or removed: delete it, without making the host wait.
     for (const [old, now] of [
       [event.logoKey, input.logoKey],
@@ -542,6 +544,15 @@ export class EventsService {
     return this.detail(eventId, hostId);
   }
 
+  private async hasFaceProfile(eventId: string, userId: string) {
+    const [row] = await this.db
+      .select({ userId: faceProfiles.userId })
+      .from(faceProfiles)
+      .where(and(eq(faceProfiles.eventId, eventId), eq(faceProfiles.userId, userId)))
+      .limit(1);
+    return Boolean(row);
+  }
+
   /** A 6-digit code no event is using (a million codes: check rather than hope). */
   private async freshJoinCode(conn: Conn) {
     for (let i = 0; i < 20; i++) {
@@ -593,6 +604,8 @@ export class EventsService {
       allowDownloads: event.allowDownloads,
       allowLibraryUploads: event.allowLibraryUploads,
       dateStamp: event.dateStamp,
+      findMyPhotos: event.findMyPhotos,
+      hasFaceProfile: false, // filled in per person by toSummary
       filter: event.filter,
       prompts: event.prompts,
     };
@@ -637,6 +650,7 @@ export class EventsService {
       photographerCount: slots,
       photoCount: p?.n ?? 0,
       pendingReviewCount: pending?.n ?? 0,
+      hasFaceProfile: event.findMyPhotos ? await this.hasFaceProfile(event.id, member.userId) : false,
       photoLimit: photoLimitFor(member.role, event.guestPhotoLimit),
       photosUsed: member.photosUsed,
       videoLimitMs: VIDEO_LIMIT_MS,

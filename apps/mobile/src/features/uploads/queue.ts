@@ -58,6 +58,8 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<() => void>();
 const uploadedListeners = new Set<(photo: Photo) => void>();
 const reservedListeners = new Set<(eventId: string) => void>();
+/** Runs after each upload, with the photo still on the phone (Find my photos reads it). */
+let afterUpload: ((item: QueueItem, photo: Photo, uri: string) => Promise<unknown>) | null = null;
 
 const EXT: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -104,6 +106,11 @@ export function onPhotoUploaded(listener: (photo: Photo) => void) {
 }
 
 /** Fires when the server counts a queued photo against its owner's allowance. */
+/** Something to do with each photo once it's uploaded, before the phone's copy is deleted. */
+export function setAfterUpload(fn: typeof afterUpload) {
+  afterUpload = fn;
+}
+
 export function onSlotReserved(listener: (eventId: string) => void) {
   reservedListeners.add(listener);
   return () => {
@@ -258,7 +265,10 @@ export function kick() {
         if (!next) break;
         try {
           const photo = await uploadOne(next);
-          removeFiles(next);
+          // Not awaited: the next upload starts while this one's faces are being found.
+          const after = afterUpload?.(next, photo, new File(dir, next.fileName).uri);
+          if (after) void after.catch(() => undefined).finally(() => removeFiles(next));
+          else removeFiles(next);
           items = items.filter((i) => i.id !== next.id);
           uploadedListeners.forEach((l) => l(photo));
         } catch (err) {

@@ -1,0 +1,8 @@
+{
+  "name": "face-runtime",
+  "version": "1.0.0",
+  "description": "Runs eventShare's face models (ONNX) on the phone",
+  "main": "index.ts",
+  "license": "UNLICENSED",
+  "private": true
+}

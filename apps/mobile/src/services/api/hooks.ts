@@ -19,7 +19,7 @@ import type {
   UpdateMemberInput,
   User,
 } from '@eventshare/shared';
-import { JOIN_CODE_LENGTH } from '@eventshare/shared';
+import { FACE_MODEL, JOIN_CODE_LENGTH } from '@eventshare/shared';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 
 import { api } from './client';
@@ -240,6 +240,31 @@ export function useLikePhoto(eventId: string) {
       if (ctx?.before) patch(photoId, () => ctx.before!);
     },
     onSuccess: (likes, { photoId }) => patch(photoId, () => likes),
+  });
+}
+
+/** Find my photos: opt in with your selfie's faceprint (the selfie itself never leaves the phone). */
+export function useSetFaceProfile(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (embedding: number[]) =>
+      api<void>(`/events/${eventId}/face-profile`, { method: 'PUT', body: { model: FACE_MODEL, embedding, consent: true } }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.event(eventId) });
+      void qc.invalidateQueries({ queryKey: keys.photoList(eventId, 'me') });
+    },
+  });
+}
+
+/** Opt out: your faceprint is deleted. */
+export function useDeleteFaceProfile(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<void>(`/events/${eventId}/face-profile`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.event(eventId) });
+      void qc.invalidateQueries({ queryKey: keys.photoList(eventId, 'me') });
+    },
   });
 }
 
