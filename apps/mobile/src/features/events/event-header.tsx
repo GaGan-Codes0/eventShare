@@ -12,7 +12,7 @@ import { makeStyles, useTheme } from '@/theme';
 
 import { EventBadge } from './event-card';
 
-/** Host screens: back to Your events, the event's name over the screen title, and its QR. */
+/** Host screens: back to My events, the event's name over the screen title, and its QR. */
 export function HostHeader({ event, title, right }: { event: EventDetail | null; title: string; right?: ReactNode }) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
@@ -20,7 +20,7 @@ export function HostHeader({ event, title, right }: { event: EventDetail | null;
   return (
     <View style={[styles.bar, { paddingTop: insets.top }]}>
       <View style={styles.row}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Your events" hitSlop={10} onPress={() => router.navigate('/events')}>
+        <Pressable accessibilityRole="button" accessibilityLabel="My events" hitSlop={10} onPress={() => router.navigate('/events')}>
           <ChevronLeft size={icon.lg} color={colors.ink} strokeWidth={icon.stroke} />
         </Pressable>
         <View style={styles.titles}>

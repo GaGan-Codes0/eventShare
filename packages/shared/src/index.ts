@@ -78,7 +78,6 @@ export const GUEST_PHOTO_LIMITS = [10, 24, 36, 50] as const;
 export type GuestPhotoLimit = (typeof GUEST_PHOTO_LIMITS)[number];
 export const DEFAULT_GUEST_PHOTO_LIMIT: GuestPhotoLimit = 36;
 export const PHOTOGRAPHER_PHOTO_LIMIT = 1000;
-export const HOST_PHOTO_LIMIT = 500;
 export const MAX_PHOTOGRAPHERS = 3;
 
 /**
@@ -86,7 +85,8 @@ export const MAX_PHOTOGRAPHERS = 3;
  * Events made before the 10/24/36/50 choices may still have 20, 40 or 60 for guests.
  */
 export function photoLimitFor(role: EventRole, guestPhotoLimit: number | null): number | null {
-  if (role === 'host') return HOST_PHOTO_LIMIT;
+  // The host's pass: no limit and no review ("You're the host. No limit, no review").
+  if (role === 'host') return null;
   if (role === 'photographer') return PHOTOGRAPHER_PHOTO_LIMIT;
   return guestPhotoLimit;
 }

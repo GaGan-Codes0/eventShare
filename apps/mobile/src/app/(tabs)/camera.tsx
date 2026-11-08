@@ -20,7 +20,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withSequence, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, interpolate, useAnimatedStyle, useSharedValue, withDelay, withSequence, withTiming } from 'react-native-reanimated';
 
 import { toast } from '@/components/toast';
 import { Button, Text } from '@/components/ui';
@@ -38,8 +38,10 @@ import { clock, plural } from '@/utils/format';
 
 /** How long a photo just taken stays on the viewfinder before it fades. */
 const SHOT_HOLD_MS = 1500;
-/** Then it drifts back and dissolves into the live viewfinder over this long. */
-const SHOT_FADE_MS = 700;
+/** Then it goes soft and dissolves into the live viewfinder over this long. */
+const SHOT_FADE_MS = 800;
+/** How soft the shot goes as it dissolves ("Blur away"). */
+const SHOT_BLUR = 24;
 
 const TYPE_BY_EXT: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', heic: 'image/heic', heif: 'image/heif', png: 'image/png', webp: 'image/webp' };
 
@@ -421,7 +423,9 @@ export default function CameraScreen() {
       : [];
 
   const note =
-    event?.role !== 'member'
+    event?.role === 'host'
+      ? 'You’re the host. No limit, no review'
+      : event?.role !== 'member'
       ? 'Your shots skip review and go live instantly'
       : event.requireReview
         ? 'The hosts review guest photos before they go live'
@@ -694,8 +698,11 @@ const ShotPreview = memo(function ShotPreview({ shot }: { shot: { uri: string; n
   const styles = useStyles();
   // Animated on the UI thread, so the fade stays smooth while the phone is busy uploading and
   // finding faces in the shot.
+  // 1 = the shot fully there, 0 = gone. On the way out it goes soft (the sharp copy fades off the
+  // blurred one) and dissolves into the live view.
   const level = useSharedValue(0);
-  const style = useAnimatedStyle(() => ({ opacity: level.get(), transform: [{ scale: 0.94 + 0.06 * level.get() }] }));
+  const style = useAnimatedStyle(() => ({ opacity: interpolate(1 - level.get(), [0, 0.35, 1], [1, 0.9, 0]) }));
+  const sharp = useAnimatedStyle(() => ({ opacity: interpolate(1 - level.get(), [0, 0.5], [1, 0], 'clamp') }));
   // The shot whose fade has finished: once it matches, the layer is emptied.
   const [doneN, setDoneN] = useState(0);
   const uri = shot && shot.n !== doneN ? shot.uri : null;
@@ -711,11 +718,13 @@ const ShotPreview = memo(function ShotPreview({ shot }: { shot: { uri: string; n
     return () => clearTimeout(clear);
   }, [shot, level]);
   return (
-    // On the way out it fades and settles back a little, as if it's leaving.
     <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, uri ? styles.justTaken : null, style]}>
       {uri && (
         <>
-          <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={0} />
+          <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={0} blurRadius={SHOT_BLUR} />
+          <Animated.View style={[StyleSheet.absoluteFill, sharp]}>
+            <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={0} />
+          </Animated.View>
           <View style={styles.uploadingTag}>
             <CloudUpload size={14} color={LIGHT} />
             <Text style={styles.uploadingText}>Uploading</Text>

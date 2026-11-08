@@ -1,9 +1,9 @@
 import { Camera } from 'lucide-react-native';
 import type { ReactNode } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { icon, radius, screenPadding, space } from '@/constants/theme';
+import { icon, screenPadding, space } from '@/constants/theme';
 import { makeStyles, useTheme } from '@/theme';
 
 import { Text } from './text';
@@ -14,7 +14,7 @@ export function Wordmark() {
   return (
     <View style={styles.wordmark} accessibilityRole="header" accessibilityLabel="eventShare">
       <View style={styles.symbol}>
-        <Camera size={16} color={colors.ink} strokeWidth={icon.stroke} />
+        <Camera size={14} color={colors.ink} strokeWidth={icon.stroke} />
       </View>
       <Text style={styles.wordmarkText}>eventShare</Text>
     </View>
@@ -42,13 +42,10 @@ export function Header({ title, right }: { title?: string; right?: ReactNode }) 
 }
 
 const useStyles = makeStyles(({ colors, fonts }) => ({
-  bar: {
-    backgroundColor: colors.paper,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.lineStrong,
-  },
+  // As in the prototype's app bar: 56 tall, no rule under it.
+  bar: { backgroundColor: colors.paper },
   inner: {
-    height: 60,
+    height: 56,
     paddingHorizontal: screenPadding,
     flexDirection: 'row',
     alignItems: 'center',
@@ -57,14 +54,14 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
   actions: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   wordmark: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   symbol: {
-    width: 30,
-    height: 27,
+    width: 26,
+    height: 23,
     borderWidth: 1.5,
     borderColor: colors.ink,
-    borderRadius: radius.sm - 1,
+    borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
     transform: [{ rotate: '-7deg' }],
   },
-  wordmarkText: { fontFamily: fonts.serif, fontSize: 26, lineHeight: 30, letterSpacing: -1.2 },
+  wordmarkText: { fontFamily: fonts.serif, fontSize: 22, lineHeight: 26, letterSpacing: -0.88 },
 }));

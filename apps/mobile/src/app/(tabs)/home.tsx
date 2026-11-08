@@ -28,6 +28,8 @@ export default function EventHome() {
   if (!event) return <View style={styles.screen} />;
 
   const photographer = event.role === 'photographer';
+  // The host in guest view shoots on a Host pass: no limit, no review.
+  const host = event.role === 'host';
   const limit = event.photoLimit;
   const used = event.photosUsed + queue.unreserved;
   const left = limit === null ? null : Math.max(0, limit - used);
@@ -83,9 +85,9 @@ export default function EventHome() {
           <View style={styles.rollTop}>
             <View style={styles.rollLeft}>
               <View style={styles.row}>
-                {photographer && <Aperture size={13} color={colors.primaryText} />}
+                {(photographer || host) && <Aperture size={13} color={colors.primaryText} />}
                 <Text variant="eyebrow" style={{ color: colors.primaryText }}>
-                  {photographer ? 'Photographer pass' : 'Your roll'}
+                  {host ? 'Host pass' : photographer ? 'Photographer pass' : 'Your roll'}
                 </Text>
               </View>
               <View style={styles.leftRow}>

@@ -122,7 +122,7 @@ describe('core flow (e2e)', () => {
     await http().post('/events').set(as(host2)).send({ name: 'Sangeet', guestPhotoLimit: 30 }).expect(400);
     const created = await http().post('/events').set(as(host2)).send({ name: 'Sangeet', guestPhotoLimit: 24 }).expect(201);
     eventId = created.body.id;
-    expect(created.body).toMatchObject({ guestPhotoLimit: 24, photoLimit: 500, photosUsed: 0 });
+    expect(created.body).toMatchObject({ guestPhotoLimit: 24, photoLimit: null, photosUsed: 0 });
 
     // Only the host changes the guest allowance, and only to 10, 24, 36, 50 or no limit.
     const joined = await http().post('/join').set(as(shooter)).send({ code: created.body.joinCode }).expect(201);

@@ -1,6 +1,6 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { Calendar, Camera, ChevronRight, Download, MapPin, QrCode, ShieldCheck } from 'lucide-react-native';
+import { Calendar, ChevronRight, Download, Eye, MapPin, QrCode, ShieldCheck } from 'lucide-react-native';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Button, LoadingState, Text } from '@/components/ui';
@@ -11,6 +11,7 @@ import { HostHeader } from '@/features/events/event-header';
 import { longDate } from '@/features/events/identity';
 import { NoEventYet } from '@/features/events/no-event';
 import { useCurrentEvent } from '@/features/events/use-current-event';
+import { openGuestView } from '@/features/events/open-event';
 import { openPhoto } from '@/features/gallery/album-view';
 import { FilteredImage } from '@/features/gallery/photo-filters';
 import { PhotoCell } from '@/features/gallery/photo-grid';
@@ -94,7 +95,17 @@ export default function Overview() {
             <Button label="Download all" leadingIcon={Download} variant="secondary" fullWidth onPress={() => router.push('/download')} />
           </View>
         </View>
-        <Button label="Open camera" leadingIcon={Camera} variant="ghost" fullWidth onPress={() => router.navigate('/(tabs)/camera')} />
+        {/* As in the prototype: the host sees and shoots as guests do, with no shot limit. */}
+        <Pressable accessibilityRole="button" onPress={openGuestView} style={({ pressed }) => [styles.guestView, pressed && { backgroundColor: colors.field }]}>
+          <View style={styles.guestViewIcon}>
+            <Eye size={18} color={colors.ink} />
+          </View>
+          <View style={styles.flex}>
+            <Text style={styles.guestViewTitle}>Open guest view</Text>
+            <Text style={styles.guestViewCaption}>See it and shoot as your guests do. No shot limit for hosts.</Text>
+          </View>
+          <ChevronRight size={16} color={colors.ink} />
+        </Pressable>
 
         {event.pendingReviewCount > 0 && (
           <Pressable accessibilityRole="button" onPress={() => router.navigate('/(tabs)/gallery')} style={styles.review}>
@@ -237,6 +248,10 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
   liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accent },
   feed: { gap: space.xs },
   feedRow: { flexDirection: 'row', gap: space.xs },
+  guestView: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 14, borderRadius: 16, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line },
+  guestViewIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: colors.sage, alignItems: 'center', justifyContent: 'center' },
+  guestViewTitle: { fontFamily: fonts.sansSemiBold, fontSize: 14, lineHeight: 18, color: colors.ink },
+  guestViewCaption: { fontFamily: fonts.sans, fontSize: 12, lineHeight: 16, color: colors.muted },
   // The prototype's card: 18 round, hairline edge, 14/16 padding, rows 12 apart.
   phCard: { borderRadius: 18, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, paddingVertical: 14, paddingHorizontal: 16, gap: 12 },
   phHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

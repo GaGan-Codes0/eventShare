@@ -4,6 +4,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { Button, EmptyState, Header } from '@/components/ui';
 import { space } from '@/constants/theme';
+import { setShellTab } from '@/store/shell';
 
 /** Shown on the event tabs before you've joined or created any event. */
 export function NoEventYet({ title }: { title: string }) {
@@ -17,7 +18,10 @@ export function NoEventYet({ title }: { title: string }) {
           message="Join an event with a code from your host, or create your own."
           action={
             <View style={styles.actions}>
-              <Button label="Join an event" leadingIcon={ScanLine} fullWidth onPress={() => router.push('/join')} />
+              <Button label="Join an event" leadingIcon={ScanLine} fullWidth onPress={() => {
+                  setShellTab('join');
+                  router.navigate('/events');
+                }} />
               <Button label="Create an event" leadingIcon={Plus} variant="secondary" fullWidth onPress={() => router.push('/create-event')} />
             </View>
           }

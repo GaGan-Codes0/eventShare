@@ -10,7 +10,6 @@ import {
 } from '@nestjs/common';
 import {
   DEFAULT_GUEST_PHOTO_LIMIT,
-  HOST_PHOTO_LIMIT,
   JOIN_CODE_ALPHABET,
   JOIN_CODE_LENGTH,
   MAX_EVENT_IMAGE_BYTES,
@@ -462,7 +461,7 @@ export class EventsService {
    */
   async reservePhotoSlot(conn: Conn, eventId: string, userId: string) {
     const limit = sql`CASE ${eventMembers.role}
-      WHEN 'host' THEN ${HOST_PHOTO_LIMIT}::int
+      WHEN 'host' THEN 2147483647
       WHEN 'photographer' THEN ${PHOTOGRAPHER_PHOTO_LIMIT}::int
       ELSE coalesce((SELECT ${events.guestPhotoLimit} FROM ${events} WHERE ${events.id} = ${eventId}), 2147483647)
     END`;

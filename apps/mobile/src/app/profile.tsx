@@ -5,7 +5,9 @@ import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 
 import { initialsOf, Text } from '@/components/ui';
 import { radius, space } from '@/constants/theme';
+import { backToDashboard, backToMyEvents } from '@/features/events/open-event';
 import { useCurrentEvent } from '@/features/events/use-current-event';
+import { setGuestView, setShellTab, useGuestView } from '@/store/shell';
 import { useMe } from '@/services/api/hooks';
 import { setSession } from '@/services/api/session';
 import { setCurrentEvent } from '@/store/current-event';
@@ -24,21 +26,21 @@ function Profile() {
   const me = useMe();
   const prefs = usePreferences();
   const { event } = useCurrentEvent();
+  const guestView = useGuestView();
   // Opened from inside an event (?from=event), or from Your events.
   const fromEvent = useLocalSearchParams<{ from?: string }>().from === 'event';
   const name = me.data?.name ?? '';
 
   async function signOut() {
     setCurrentEvent(null);
+    setGuestView(false);
+    setShellTab('join');
     await setSession(null); // SessionWatch clears the data; the signed-in screens drop away.
   }
 
-  /** Out of this event, back to the start (as the prototype does). You stay a member and can come back. */
-  function leaveEvent() {
-    setCurrentEvent(null);
-    router.dismissAll();
-    router.replace('/events');
-  }
+  // Out of the event to My events (you stay a member and can come back). A host looking at
+  // their event as a guest goes back to running it instead.
+  const hostGuestView = event?.role === 'host' && guestView;
 
   const used = event && (event.photoLimit === null ? `${event.photosUsed} shots taken` : `${event.photosUsed} of ${event.photoLimit} used`);
 
@@ -97,9 +99,16 @@ function Profile() {
               />
             </View>
           )}
-          <Pressable accessibilityRole="button" onPress={leaveEvent} style={({ pressed }) => [styles.leave, pressed && { opacity: 0.85 }]}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              router.back();
+              if (hostGuestView) backToDashboard();
+              else backToMyEvents();
+            }}
+            style={({ pressed }) => [styles.leave, pressed && { opacity: 0.85 }]}>
             <LogOut size={17} color={colors.ink} />
-            <Text style={styles.leaveText}>Leave event</Text>
+            <Text style={styles.leaveText}>{hostGuestView ? 'Back to the dashboard' : 'Back to my events'}</Text>
           </Pressable>
         </View>
       )}
