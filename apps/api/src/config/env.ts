@@ -7,6 +7,12 @@ const envSchema = z
     /** Set when the API sits behind our reverse proxy (Caddy on EC2), so rate limits see each phone's real IP. */
     TRUST_PROXY: z.stringbool().default(false),
     DATABASE_URL: z.url(),
+    /** Connections to Postgres from each API process. */
+    DB_POOL_MAX: z.coerce.number().int().positive().default(20),
+    /** Cache, background jobs and live updates. Without it everything still works, just slower. */
+    REDIS_URL: z.url().optional(),
+    /** Run background jobs in this process. Turn off on web servers once jobs run on their own machine. */
+    RUN_WORKERS: z.stringbool().default(true),
 
     /** Signs our login tokens (HS256). Generate with `openssl rand -base64 48`; never commit it. */
     JWT_SECRET: z.string().min(32, 'must be at least 32 characters'),

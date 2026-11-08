@@ -5,27 +5,19 @@ import {
   type PendingFaceScan,
   type SaveFacesInput,
 } from '@eventshare/shared';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, cosineDistance, eq, isNull, lte, sql } from 'drizzle-orm';
 
 import { DB, type Db } from '../db/db.module.js';
 import { faceProfiles, photoFaces, photos } from '../db/schema.js';
 import { EventsService } from '../events/events.service.js';
+import { RedisService } from '../redis/redis.service.js';
 import { StorageService } from '../storage/storage.service.js';
 
 /** How many older photos the host's phone is handed at a time to look for faces in. */
 const PENDING_BATCH = 20;
 
-function cosine(a: number[], b: number[]) {
-  let dot = 0;
-  let na = 0;
-  let nb = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i]! * b[i]!;
-    na += a[i]! * a[i]!;
-    nb += b[i]! * b[i]!;
-  }
-  return na && nb ? dot / Math.sqrt(na * nb) : 0;
-}
+/** A guest's matches are reused this long: "Me" reloads often, and matching is the costly part. */
+const MATCH_CACHE_SECONDS = 20;
 
 /**
  * "Find my photos", the hybrid way: phones make the faceprints (no face model runs here),
@@ -37,6 +29,7 @@ export class FacesService {
     @Inject(DB) private readonly db: Db,
     private readonly events: EventsService,
     private readonly storage: StorageService,
+    private readonly redis: RedisService,
   ) {}
 
   /**
@@ -119,13 +112,25 @@ export class FacesService {
       where: and(eq(faceProfiles.eventId, eventId), eq(faceProfiles.userId, userId)),
     });
     if (!profile) return [];
-    const faces = await this.db
-      .select({ photoId: photoFaces.photoId, embedding: photoFaces.embedding })
+    // A new selfie changes the key, so it never gets the old selfie's matches.
+    const cacheKey = `faces:${eventId}:${userId}:${profile.consentedAt.getTime()}`;
+    const cached = await this.redis.getJson<string[]>(cacheKey);
+    if (cached) return cached;
+
+    // Compared inside Postgres (pgvector), so faceprints never have to be loaded into the API.
+    const rows = await this.db
+      .selectDistinct({ photoId: photoFaces.photoId })
       .from(photoFaces)
-      .where(and(eq(photoFaces.eventId, eventId), eq(photoFaces.model, profile.model)));
-    const ids = new Set<string>();
-    for (const f of faces) if (cosine(profile.embedding, f.embedding) >= FACE_MATCH_THRESHOLD) ids.add(f.photoId);
-    return [...ids];
+      .where(
+        and(
+          eq(photoFaces.eventId, eventId),
+          eq(photoFaces.model, profile.model),
+          lte(cosineDistance(photoFaces.embedding, profile.embedding), 1 - FACE_MATCH_THRESHOLD),
+        ),
+      );
+    const ids = rows.map((r) => r.photoId);
+    await this.redis.setJson(cacheKey, ids, MATCH_CACHE_SECONDS);
+    return ids;
   }
 
   /** The host turned Find my photos off: every guest's faceprint for the event goes. */

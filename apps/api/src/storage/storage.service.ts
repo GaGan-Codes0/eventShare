@@ -12,6 +12,7 @@ import type { Readable } from 'node:stream';
 import { Inject, Injectable } from '@nestjs/common';
 
 import { ENV, type Env } from '../config/env.js';
+import { RedisService } from '../redis/redis.service.js';
 
 /**
  * Private bucket. The app never sees credentials: it gets short-lived signed URLs to
@@ -22,7 +23,10 @@ export class StorageService {
   private readonly s3: S3Client;
   private readonly bucket: string;
 
-  constructor(@Inject(ENV) private readonly env: Env) {
+  constructor(
+    @Inject(ENV) private readonly env: Env,
+    private readonly redis: RedisService,
+  ) {
     this.bucket = env.S3_BUCKET;
     this.s3 = new S3Client({
       region: env.S3_REGION,
@@ -58,6 +62,29 @@ export class StorageService {
       }),
       { expiresIn: this.env.SIGNED_URL_TTL_SECONDS },
     );
+  }
+
+  /**
+   * View links for many files at once, reused from Redis. Signing costs CPU and a gallery needs
+   * 120 links a page; a reused link also means phones cache the image instead of downloading it
+   * again. Kept for half their life, so a link handed out always has at least that long left.
+   */
+  async signedUrls(keys: string[]): Promise<Map<string, string>> {
+    const unique = [...new Set(keys)];
+    const cached = await this.redis.mget(unique.map((k) => `signed:${k}`));
+    const urls = new Map<string, string>();
+    const fresh: [string, string][] = [];
+    await Promise.all(
+      unique.map(async (key, i) => {
+        const hit = cached[i];
+        if (hit) return void urls.set(key, hit);
+        const url = await this.presignDownload(key);
+        urls.set(key, url);
+        fresh.push([`signed:${key}`, url]);
+      }),
+    );
+    await this.redis.msetEx(fresh, Math.floor(this.env.SIGNED_URL_TTL_SECONDS / 2));
+    return urls;
   }
 
   /** Size + type of an uploaded object, or null if it isn't there (yet). */

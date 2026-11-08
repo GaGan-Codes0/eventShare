@@ -3,7 +3,7 @@
  *
  * 1. A captured/picked photo is first COPIED into the app's documents folder (original bytes,
  *    untouched) and written to queue.json, before any network call.
- * 2. A worker uploads items one by one: ask the API for signed URLs → PUT original + thumbnail
+ * 2. Uploads run a few at a time: ask the API for signed URLs → PUT original + thumbnail
  *    straight to storage → tell the API it's complete.
  * 3. Failures retry with backoff (offline, server errors). Files are deleted only after the API
  *    confirms the photo is ready. Each item's clientUploadId makes retries idempotent.
@@ -53,7 +53,9 @@ const queueFile = new File(dir, 'queue.json');
 
 let items: QueueItem[] = [];
 let loaded = false;
-let running = false;
+/** A few at a time: much faster on good connections, still gentle on venue Wi-Fi. */
+const MAX_PARALLEL_UPLOADS = 3;
+const inFlight = new Set<string>();
 let timer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<() => void>();
 const uploadedListeners = new Set<(photo: Photo) => void>();
@@ -253,41 +255,43 @@ async function uploadOne(item: QueueItem) {
   return api<Photo>(`/photos/${ticket.photoId}/complete`, { method: 'POST' });
 }
 
-/** Starts the worker if it isn't running. Safe to call any time. */
+/** Starts uploads up to the limit. Safe to call any time. */
 export function kick() {
-  if (!loaded || running) return;
-  running = true;
-  void (async () => {
-    try {
-      for (;;) {
-        const now = Date.now();
-        const next = items.find((i) => !i.permanent && i.nextAttemptAt <= now);
-        if (!next) break;
-        try {
-          const photo = await uploadOne(next);
-          // Not awaited: the next upload starts while this one's faces are being found.
-          const after = afterUpload?.(next, photo, new File(dir, next.fileName).uri);
-          if (after) void after.catch(() => undefined).finally(() => removeFiles(next));
-          else removeFiles(next);
-          items = items.filter((i) => i.id !== next.id);
-          uploadedListeners.forEach((l) => l(photo));
-        } catch (err) {
-          next.attempts += 1;
-          next.error = err instanceof Error ? err.message : String(err);
-          if (isRetryable(err)) {
-            next.nextAttemptAt = Date.now() + Math.min(2 ** next.attempts * 2000, 5 * 60_000);
-          } else {
-            next.permanent = true;
-          }
-        }
-        persist();
-        emit();
-      }
-    } finally {
-      running = false;
-      scheduleRetry();
+  if (!loaded) return;
+  const now = Date.now();
+  for (const item of items) {
+    if (inFlight.size >= MAX_PARALLEL_UPLOADS) break;
+    if (item.permanent || item.nextAttemptAt > now || inFlight.has(item.id)) continue;
+    inFlight.add(item.id);
+    void runOne(item).finally(() => {
+      inFlight.delete(item.id);
+      kick();
+      if (inFlight.size === 0) scheduleRetry();
+    });
+  }
+}
+
+async function runOne(next: QueueItem) {
+  try {
+    const photo = await uploadOne(next);
+    // Not awaited: the next upload starts while this one's faces are being found.
+    const after = afterUpload?.(next, photo, new File(dir, next.fileName).uri);
+    if (after) void after.catch(() => undefined).finally(() => removeFiles(next));
+    else removeFiles(next);
+    items = items.filter((i) => i.id !== next.id);
+    uploadedListeners.forEach((l) => l(photo));
+  } catch (err) {
+    next.attempts += 1;
+    next.error = err instanceof Error ? err.message : String(err);
+    if (isRetryable(err)) {
+      // Randomised, so phones that lost the venue Wi-Fi together don't all come back together.
+      next.nextAttemptAt = Date.now() + Math.min(2 ** next.attempts * 2000, 5 * 60_000) * (0.5 + Math.random());
+    } else {
+      next.permanent = true;
     }
-  })();
+  }
+  persist();
+  emit();
 }
 
 function scheduleRetry() {

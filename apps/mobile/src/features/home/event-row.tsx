@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Text } from '@/components/ui';
 import { monogram, shortDate } from '@/features/events/identity';
+import { stableSource } from '@/features/gallery/stable-image';
 import { plural } from '@/utils/format';
 import { defaultTheme, makeStyles, themeFor, ThemeProvider, useTheme } from '@/theme';
 
@@ -42,7 +43,7 @@ function Row({ event, onPress }: { event: EventSummary; onPress: () => void }) {
       style={({ pressed }) => [styles.row, pressed && { backgroundColor: base.field }]}>
       <View style={[styles.thumb, { backgroundColor: colors.sage }]}>
         {event.coverUrl ? (
-          <Image source={{ uri: event.coverUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+          <Image source={stableSource(event.coverUrl)} style={StyleSheet.absoluteFill} contentFit="cover" />
         ) : (
           <Text variant="h3" style={[styles.mono, { color: colors.accent }]}>
             {monogram(event)}

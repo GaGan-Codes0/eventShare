@@ -3,6 +3,7 @@ import { Tabs } from 'expo-router/js-tabs';
 import { FocusStatusBar } from '@/components/focus-status-bar';
 import { TabBar } from '@/components/tab-bar';
 import { useCurrentEvent } from '@/features/events/use-current-event';
+import { useLiveEvent } from '@/features/gallery/live';
 import { ThemeProvider, useCurrentEventTheme } from '@/theme';
 
 /**
@@ -11,7 +12,8 @@ import { ThemeProvider, useCurrentEventTheme } from '@/theme';
  */
 export default function EventTabs() {
   const theme = useCurrentEventTheme();
-  const { managing } = useCurrentEvent();
+  const { id, event, managing } = useCurrentEvent();
+  useLiveEvent(id, event?.memberCount ?? 0);
   return (
     <ThemeProvider theme={theme}>
       {/* Light status bar text on dark event themes. */}

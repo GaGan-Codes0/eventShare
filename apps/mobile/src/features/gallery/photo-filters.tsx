@@ -6,6 +6,8 @@ import { Image } from 'expo-image';
 import { useEffect, useState } from 'react';
 import { StyleSheet, View, type ImageStyle, type StyleProp, type ViewStyle } from 'react-native';
 
+import { stableSource } from './stable-image';
+
 /**
  * The event's photo look. Originals are always stored untouched: the look is drawn on screen,
  * and only copies someone saves have it baked in.
@@ -76,7 +78,7 @@ export function FilteredImage({ uri, filter, fit = 'cover', style, onLoad }: Pro
   if (filter === 'natural') {
     return (
       <Image
-        source={{ uri }}
+        source={stableSource(uri)}
         style={style}
         contentFit={fit}
         transition={200}

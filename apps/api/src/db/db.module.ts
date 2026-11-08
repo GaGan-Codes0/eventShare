@@ -15,7 +15,7 @@ const POOL = Symbol('POOL');
     {
       provide: POOL,
       inject: [ENV],
-      useFactory: (env: Env) => new pg.Pool({ connectionString: env.DATABASE_URL, max: 10 }),
+      useFactory: (env: Env) => new pg.Pool({ connectionString: env.DATABASE_URL, max: env.DB_POOL_MAX }),
     },
     {
       provide: DB,

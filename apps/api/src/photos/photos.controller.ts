@@ -16,6 +16,7 @@ import {
   createArchiveSchema,
   createUploadSchema,
   PHOTO_LIST_FILTERS,
+  PHOTO_PAGE_SIZE,
   updatePhotoSchema,
   type CreateArchiveInput,
   type PhotoListFilter,
@@ -58,8 +59,10 @@ export class PhotosController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query('cursor') cursor?: string,
     @Query('filter', new ZodPipe(z.enum(PHOTO_LIST_FILTERS).optional())) filter?: PhotoListFilter,
+    // Live updates ask for just the newest few.
+    @Query('limit', new ZodPipe(z.coerce.number().int().min(1).max(PHOTO_PAGE_SIZE).optional())) limit?: number,
   ) {
-    return this.photos.list(id, user.id, cursor, filter);
+    return this.photos.list(id, user.id, cursor, filter, limit);
   }
 
   @Post('events/:id/photos/uploads')

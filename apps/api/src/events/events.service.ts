@@ -42,6 +42,7 @@ import sharp from 'sharp';
 import { DB, type Db } from '../db/db.module.js';
 import { eventMembers, events, faceProfiles, photographerInvites, photos, users } from '../db/schema.js';
 import { MailService } from '../mail/mail.service.js';
+import { RealtimeService } from '../realtime/realtime.service.js';
 import { StorageService } from '../storage/storage.service.js';
 
 type EventRow = typeof events.$inferSelect;
@@ -89,6 +90,7 @@ export class EventsService {
     @Inject(DB) private readonly db: Db,
     private readonly storage: StorageService,
     private readonly mail: MailService,
+    private readonly realtime: RealtimeService,
   ) {}
 
   /**
@@ -255,6 +257,7 @@ export class EventsService {
       .where(eq(events.id, eventId));
     // Find my photos switched off: every guest's selfie faceprint for the event is deleted.
     if (input.findMyPhotos === false) await this.db.delete(faceProfiles).where(eq(faceProfiles.eventId, eventId));
+    await this.realtime.touch(eventId, 'rev');
     // The old picture isn't used anywhere once replaced or removed: delete it, without making the host wait.
     for (const [old, now] of [
       [event.logoKey, input.logoKey],

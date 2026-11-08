@@ -15,6 +15,7 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  vector,
 } from 'drizzle-orm/pg-core';
 
 const timestamps = {
@@ -217,7 +218,7 @@ export const photoFaces = pgTable(
       .references(() => events.id),
     /** Which model made it: only faceprints from the same model can be compared. */
     model: text('model').notNull(),
-    embedding: real('embedding').array().notNull(),
+    embedding: vector('embedding', { dimensions: 128 }).notNull(),
     /** Where the face is, as fractions of the picture: [x, y, width, height]. */
     box: real('box').array().notNull(),
   },
@@ -238,7 +239,7 @@ export const faceProfiles = pgTable(
       .notNull()
       .references(() => users.id),
     model: text('model').notNull(),
-    embedding: real('embedding').array().notNull(),
+    embedding: vector('embedding', { dimensions: 128 }).notNull(),
     consentedAt: timestamp('consented_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.eventId, t.userId] })],

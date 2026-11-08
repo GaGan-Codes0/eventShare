@@ -6,6 +6,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  type OnModuleInit,
 } from '@nestjs/common';
 import {
   PHOTO_PAGE_SIZE,
@@ -28,6 +29,8 @@ import { eventMembers, photoLikes, photos, users } from '../db/schema.js';
 import { albumOpen, EventsService, visibleTo } from '../events/events.service.js';
 import { FacesService } from '../faces/faces.service.js';
 import { mediaDurationMs } from '../media/duration.js';
+import { RealtimeService } from '../realtime/realtime.service.js';
+import { QueueService } from '../redis/queue.service.js';
 import { StorageService } from '../storage/storage.service.js';
 
 type PhotoRow = typeof photos.$inferSelect;
@@ -53,6 +56,8 @@ const EXTENSIONS: Record<string, string> = {
   'audio/aac': 'aac',
 };
 
+const VERIFY_QUEUE = 'verify-thumbnail';
+
 /** The phone's own measurement may be off by a frame or two; past this the file's length wins. */
 const DURATION_SLACK_MS = 1000;
 
@@ -71,7 +76,7 @@ function decodeCursor(cursor: string): { createdAt: Date; id: string } {
 class LostRace extends Error {}
 
 @Injectable()
-export class PhotosService {
+export class PhotosService implements OnModuleInit {
   private readonly log = new Logger(PhotosService.name);
 
   constructor(
@@ -79,7 +84,13 @@ export class PhotosService {
     private readonly events: EventsService,
     private readonly storage: StorageService,
     private readonly faces: FacesService,
+    private readonly queue: QueueService,
+    private readonly realtime: RealtimeService,
   ) {}
+
+  onModuleInit() {
+    this.queue.register<{ photoId: string }>(VERIFY_QUEUE, async ({ photoId }) => void (await this.verifyThumbnail(photoId)), 2);
+  }
 
   /**
    * Step 1 of an upload. Idempotent per (uploader, clientUploadId): a retry gets the same
@@ -173,21 +184,34 @@ export class PhotosService {
       throw new BadRequestException('Uploaded file size does not match');
     }
 
-    // The thumbnail is small: decode it to make sure it really is an image.
-    if (row.thumbKey) {
-      try {
-        const meta = await sharp(await this.storage.read(row.thumbKey)).metadata();
-        if (!meta.width || !meta.height) throw new Error('no dimensions');
-      } catch (err) {
-        this.log.warn(`Invalid thumbnail for photo ${row.id}: ${String(err)}`);
-        await this.setStatus(row.id, 'failed');
-        throw new BadRequestException('Preview image is invalid');
-      }
-    }
-
     const durationMs = row.kind === 'photo' ? null : await this.checkDuration(row);
     const [ready] = await this.db.update(photos).set({ status: 'ready', durationMs }).where(eq(photos.id, row.id)).returning();
+
+    // Decoding images is the heavy part, so it happens on the queue and the phone doesn't wait.
+    // A file that turns out not to be an image is pulled moments later.
+    if (ready.thumbKey) {
+      const queued = await this.queue.add(VERIFY_QUEUE, { photoId: ready.id }, { attempts: 3, backoff: { type: 'exponential', delay: 2000 } });
+      if (!queued && !(await this.verifyThumbnail(ready.id))) throw new BadRequestException('Preview image is invalid');
+    }
+    await this.realtime.touch(ready.eventId, 'new');
     return this.dtoFor(ready, userId);
+  }
+
+  /** Makes sure a thumbnail really is an image; if not, takes the photo down. False when it was bad. */
+  private async verifyThumbnail(photoId: string): Promise<boolean> {
+    const row = await this.db.query.photos.findFirst({ where: eq(photos.id, photoId) });
+    if (!row?.thumbKey) return true;
+    const bytes = await this.storage.read(row.thumbKey); // A storage hiccup throws, and the job is retried.
+    try {
+      const meta = await sharp(bytes).metadata();
+      if (!meta.width || !meta.height) throw new Error('no dimensions');
+      return true;
+    } catch (err) {
+      this.log.warn(`Invalid thumbnail for photo ${row.id}: ${String(err)}`);
+      await this.setStatus(row.id, 'failed');
+      await this.realtime.touch(row.eventId, 'rev');
+      return false;
+    }
   }
 
   /**
@@ -222,7 +246,7 @@ export class PhotosService {
    * Newest first, cursor-paginated. Guests see the shared album once it opens (approved, visible
    * photos) plus their own; the host sees everything, and can list the review queue and hidden ones.
    */
-  async list(eventId: string, userId: string, cursor?: string, filter: PhotoListFilter = 'all'): Promise<Page<Photo>> {
+  async list(eventId: string, userId: string, cursor?: string, filter: PhotoListFilter = 'all', limit = PHOTO_PAGE_SIZE): Promise<Page<Photo>> {
     const { event, role } = await this.events.requireMember(eventId, userId);
     if ((filter === 'review' || filter === 'hidden') && role !== 'host') throw new ForbiddenException('Only the host can do that');
 
@@ -246,13 +270,14 @@ export class PhotosService {
     const rows = await this.withExtras(userId)
       .where(and(...conditions))
       .orderBy(desc(photos.createdAt), desc(photos.id))
-      .limit(PHOTO_PAGE_SIZE + 1);
+      .limit(limit + 1);
 
-    const page = rows.slice(0, PHOTO_PAGE_SIZE);
+    const page = rows.slice(0, limit);
     const last = page.at(-1);
+    const urls = await this.storage.signedUrls(page.flatMap(({ p }) => (p.status === 'ready' ? [p.storageKey, ...(p.thumbKey ? [p.thumbKey] : [])] : [])));
     return {
-      items: await Promise.all(page.map(({ p, ...extras }) => this.toDto(p, extras))),
-      nextCursor: rows.length > PHOTO_PAGE_SIZE && last ? encodeCursor(last.p) : null,
+      items: page.map(({ p, ...extras }) => this.toDto(p, extras, urls)),
+      nextCursor: rows.length > limit && last ? encodeCursor(last.p) : null,
     };
   }
 
@@ -275,7 +300,8 @@ export class PhotosService {
     const [found] = await this.withExtras(viewerId).where(eq(photos.id, row.id)).limit(1);
     if (!found) throw new NotFoundException('Photo not found');
     const { p, ...extras } = found;
-    return this.toDto(p, extras);
+    const urls = await this.storage.signedUrls(p.status === 'ready' ? [p.storageKey, ...(p.thumbKey ? [p.thumbKey] : [])] : []);
+    return this.toDto(p, extras, urls);
   }
 
   /** Uploader can delete their own photo; the host can delete any. Soft delete, purged later. */
@@ -284,6 +310,7 @@ export class PhotosService {
     const { role } = await this.events.requireMember(row.eventId, userId);
     if (row.uploaderId !== userId && role !== 'host') throw new ForbiddenException('You can only delete your own photos');
     await this.db.update(photos).set({ deletedAt: new Date() }).where(eq(photos.id, row.id));
+    await this.realtime.touch(row.eventId, 'rev');
   }
 
   /** Host only: hide or unhide a photo, or approve a guest photo waiting for review. */
@@ -298,6 +325,7 @@ export class PhotosService {
       })
       .where(eq(photos.id, row.id))
       .returning();
+    await this.realtime.touch(row.eventId, 'rev');
     return this.dtoFor(updated, userId);
   }
 
@@ -348,11 +376,10 @@ export class PhotosService {
     await this.db.update(photos).set({ status }).where(eq(photos.id, id));
   }
 
-  private async toDto(row: PhotoRow, extras: PhotoExtras): Promise<Photo> {
+  private toDto(row: PhotoRow, extras: PhotoExtras, urls: Map<string, string>): Photo {
     const ready = row.status === 'ready';
-    const [thumbUrl, url] = ready
-      ? await Promise.all([row.thumbKey ? this.storage.presignDownload(row.thumbKey) : null, this.storage.presignDownload(row.storageKey)])
-      : [null, null];
+    const thumbUrl = ready && row.thumbKey ? (urls.get(row.thumbKey) ?? null) : null;
+    const url = ready ? (urls.get(row.storageKey) ?? null) : null;
     return {
       id: row.id,
       eventId: row.eventId,

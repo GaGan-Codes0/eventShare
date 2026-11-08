@@ -85,6 +85,13 @@
       "when": 1794042391575,
       "tag": "0011_find_my_photos",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794158733355,
+      "tag": "0012_faces_pgvector",
+      "breakpoints": true
     }
   ]
 }

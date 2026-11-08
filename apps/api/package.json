@@ -39,12 +39,15 @@
     "@nestjs/throttler": "^6.7.1",
     "@node-rs/argon2": "^2.2.2",
     "archiver": "^7.0.1",
+    "bullmq": "^6.7.2",
     "drizzle-orm": "^0.45.4",
+    "ioredis": "^6.0.0",
     "jose": "^6.2.15",
     "pg": "^8.23.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "sharp": "^0.35.5",
+    "ws": "^8.22.2",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -57,6 +60,7 @@
     "@types/node": "^24.0.0",
     "@types/pg": "^8.23.1",
     "@types/supertest": "^7.0.0",
+    "@types/ws": "^8.18.2",
     "@vitest/coverage-v8": "^4.1.2",
     "drizzle-kit": "^0.31.11",
     "oxlint": "^1.58.0",

@@ -8,6 +8,7 @@ import { and, desc, eq, isNull, lt, or, sql } from 'drizzle-orm';
 import { DB, type Db } from '../db/db.module.js';
 import { eventArchives, eventMembers, photos, users } from '../db/schema.js';
 import { EventsService } from '../events/events.service.js';
+import { QueueService } from '../redis/queue.service.js';
 import { StorageService } from '../storage/storage.service.js';
 
 type ArchiveRow = typeof eventArchives.$inferSelect;
@@ -15,6 +16,7 @@ type ArchiveRow = typeof eventArchives.$inferSelect;
 /** Folder and file names that work on every computer. */
 const safe = (s: string) => s.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').trim().slice(0, 60) || 'Someone';
 
+const ARCHIVE_QUEUE = 'build-archive';
 const DAY = 24 * 60 * 60 * 1000;
 /** A build that hasn't finished by then died with a restarted server: start over. */
 const STALE_BUILD_MS = 30 * 60 * 1000;
@@ -39,9 +41,11 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
     @Inject(DB) private readonly db: Db,
     private readonly events: EventsService,
     private readonly storage: StorageService,
+    private readonly queue: QueueService,
   ) {}
 
   onModuleInit() {
+    this.queue.register<{ archiveId: string }>(ARCHIVE_QUEUE, ({ archiveId }) => this.runJob(archiveId), 1);
     this.sweep = setInterval(() => void this.deleteExpired(), 60 * 60 * 1000);
     this.sweep.unref();
   }
@@ -110,8 +114,9 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
       .insert(eventArchives)
       .values({ id, eventId, scope, key: `archives/${eventId}/${id}.zip`, fingerprint, photoCount: list.length, byteSize: bytes })
       .returning();
-    // Not awaited: the build carries on after this request has answered.
-    void this.build(row, list).then(() => this.deleteReplaced(row));
+    // On the queue, one at a time: a restart doesn't lose it and big ZIPs can't pile up on the server.
+    const queued = await this.queue.add(ARCHIVE_QUEUE, { archiveId: id }, { removeOnFail: true });
+    if (!queued) void this.buildAndTidy(row, list);
     return this.toStatus(row, event.name);
   }
 
@@ -120,6 +125,17 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
     if (row.status !== 'ready') return { status: row.status, ...base };
     const filename = `${safe(eventName)} - ${row.scope === 'all' ? 'all photos' : row.scope}.zip`;
     return { status: 'ready', url: await this.storage.presignDownload(row.key, filename), ...base };
+  }
+
+  private async runJob(archiveId: string) {
+    const row = await this.db.query.eventArchives.findFirst({ where: eq(eventArchives.id, archiveId) });
+    if (row?.status !== 'building') return;
+    await this.buildAndTidy(row, await this.rows(row.eventId, row.scope));
+  }
+
+  private async buildAndTidy(row: ArchiveRow, list: Awaited<ReturnType<ArchiveService['rows']>>) {
+    await this.build(row, list);
+    await this.deleteReplaced(row);
   }
 
   private async build(row: ArchiveRow, list: Awaited<ReturnType<ArchiveService['rows']>>) {

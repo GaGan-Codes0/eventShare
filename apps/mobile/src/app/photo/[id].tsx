@@ -19,6 +19,7 @@ import { stampText } from '@/features/events/identity';
 import { ROLE_LABEL } from '@/features/events/roles';
 import { VoicePlayer } from '@/features/capture/voice-player';
 import { FilteredImage } from '@/features/gallery/photo-filters';
+import { stableSource } from '@/features/gallery/stable-image';
 import { SaveSheet } from '@/features/gallery/save-sheet';
 import { usePreferences } from '@/store/preferences';
 import { getDownloadUrl, keys, useApprovePhoto, useDeletePhoto, useEvent, useLikePhoto, useMe, useSetPhotoVisibility } from '@/services/api/hooks';
@@ -201,8 +202,8 @@ function PhotoViewer() {
           <FilteredImage uri={photo.url} filter={ev.filter} fit="contain" style={StyleSheet.absoluteFill} onLoad={onPhotoLoad} />
         ) : (
           <Image
-            source={{ uri: photo.url ?? undefined }}
-            placeholder={{ uri: photo.thumbUrl ?? undefined }}
+            source={photo.url ? stableSource(photo.url) : undefined}
+            placeholder={photo.thumbUrl ? stableSource(photo.thumbUrl) : undefined}
             style={StyleSheet.absoluteFill}
             contentFit="contain"
             transition={200}

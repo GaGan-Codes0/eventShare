@@ -295,6 +295,14 @@ export type EventIdentity = {
   logoUrl: string | null;
 };
 
+/** An event's change counters: a phone compares them to know when to refresh. */
+export type EventLive = {
+  /** Moves when new photos go live. */
+  new: number;
+  /** Moves on anything else: a hide, delete, approval or rule change. */
+  rev: number;
+};
+
 /** The host's rules for the event. */
 export type EventRules = {
   /** Every guest's allowance; null is no limit. Photographers and the host get more. */

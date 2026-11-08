@@ -3,14 +3,18 @@
  * AUTH_DEV_BYPASS=true): create → join → upload → gallery → permissions.
  */
 import { randomUUID } from 'node:crypto';
+import type { Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import sharp from 'sharp';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
+import { WebSocket } from 'ws';
 
 import { AppModule } from './../src/app.module.js';
+import { RealtimeGateway } from './../src/realtime/realtime.gateway.js';
 import { StorageService } from './../src/storage/storage.service.js';
 
 describe('core flow (e2e)', () => {
@@ -27,7 +31,8 @@ describe('core flow (e2e)', () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
-    await app.init();
+    app.get(RealtimeGateway).attach(app.getHttpServer() as unknown as Server);
+    await app.listen(0);
     original = await sharp({ create: { width: 2000, height: 1500, channels: 3, background: '#385447' } })
       .jpeg({ quality: 95 })
       .toBuffer();
@@ -615,6 +620,76 @@ describe('core flow (e2e)', () => {
     await http().patch(`/events/${eventId}`).set(as(host)).send({ findMyPhotos: false }).expect(200);
     expect((await http().get(`/events/${eventId}`).set(as(g)).expect(200)).body.hasFaceProfile).toBe(false);
   });
+
+  it('pushes live updates, serves just the newest photos, and takes down a fake thumbnail', async () => {
+    const http = () => request(app.getHttpServer());
+    const email = `live${run}@example.com`;
+    const signup = await http().post('/auth/signup').send({ name: 'Live Host', email, password: 'correct-horse-battery' }).expect(201);
+    const auth = { Authorization: `Bearer ${signup.body.token}` };
+    const created = await http().post('/events').set(auth).send({ name: 'Live test', location: 'Delhi' }).expect(201);
+    const eventId = created.body.id as string;
+    const before = (await http().get(`/events/${eventId}/live`).set(auth).expect(200)).body as { new: number; rev: number };
+
+    const port = ((app.getHttpServer() as unknown as Server).address() as AddressInfo).port;
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/realtime`);
+    const messages: { t: string; eventId: string; live: { new: number; rev: number } }[] = [];
+    ws.on('message', (m) => messages.push(JSON.parse(m.toString())));
+    await new Promise((resolve) => ws.once('open', resolve));
+    ws.send(JSON.stringify({ t: 'auth', token: signup.body.token }));
+    await new Promise((r) => setTimeout(r, 150));
+    ws.send(JSON.stringify({ t: 'watch', eventId }));
+    await vi.waitFor(() => expect(messages.length).toBe(1));
+    expect(messages[0]).toMatchObject({ t: 'live', eventId, live: before });
+
+    const upload = async (thumbBytes: Buffer) => {
+      const t = await http()
+        .post(`/events/${eventId}/photos/uploads`)
+        .set(auth)
+        .send({ clientUploadId: randomUUID(), contentType: 'image/jpeg', byteSize: original.length, thumbByteSize: thumbBytes.length })
+        .expect(201);
+      for (const [target, bytes] of [
+        [t.body.original, original],
+        [t.body.thumb, thumbBytes],
+      ] as const)
+        await fetch(target.url, { method: 'PUT', headers: target.headers, body: new Uint8Array(bytes) });
+      await http().post(`/photos/${t.body.photoId}/complete`).set(auth).expect(201);
+      return t.body.photoId as string;
+    };
+
+    // A burst of photos: one push, carrying the new total.
+    const ids = [await upload(thumb), await upload(thumb), await upload(thumb)];
+    await vi.waitFor(() => expect(messages.at(-1)?.live.new).toBe(before.new + 3), { timeout: 8000, interval: 100 });
+    expect(messages.length).toBeLessThanOrEqual(3);
+
+    // Just the newest, for a live refresh; and the same signed link each time, so phones can cache it.
+    const head = await http().get(`/events/${eventId}/photos?limit=2`).set(auth).expect(200);
+    expect(head.body.items).toHaveLength(2);
+    expect(head.body.nextCursor).toBeTruthy();
+    const again = await http().get(`/events/${eventId}/photos?limit=2`).set(auth).expect(200);
+    expect(again.body.items[0].thumbUrl).toBe(head.body.items[0].thumbUrl);
+
+    // Not an image: accepted at once, then taken down by the background check.
+    const fake = await upload(Buffer.from('this is not an image'));
+    await vi.waitFor(
+      async () => {
+        const list = await http().get(`/events/${eventId}/photos`).set(auth).expect(200);
+        expect(list.body.items.map((p: { id: string }) => p.id).sort()).toEqual([...ids].sort());
+      },
+      { timeout: 8000, interval: 200 },
+    );
+    expect(fake).toBeTruthy();
+
+    // Outsiders can't watch an event.
+    const other = await http().post('/auth/signup').send({ name: 'Outsider', email: `out${run}@example.com`, password: 'correct-horse-battery' }).expect(201);
+    const ws2 = new WebSocket(`ws://127.0.0.1:${port}/realtime`);
+    await new Promise((resolve) => ws2.once('open', resolve));
+    ws2.send(JSON.stringify({ t: 'auth', token: other.body.token }));
+    await new Promise((r) => setTimeout(r, 150));
+    const closed = new Promise<number>((resolve) => ws2.once('close', resolve));
+    ws2.send(JSON.stringify({ t: 'watch', eventId }));
+    expect(await closed).toBe(4403);
+    ws.close();
+  }, 30_000);
 
   it('rejects bad input and missing auth', async () => {
     await request(app.getHttpServer()).post('/events').set(as(host)).send({ name: 'x' }).expect(400);

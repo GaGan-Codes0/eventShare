@@ -3,6 +3,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 
 import { AppModule } from './app.module.js';
 import { ENV, type Env } from './config/env.js';
+import { RealtimeGateway } from './realtime/realtime.gateway.js';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -13,6 +14,7 @@ async function bootstrap() {
   const env = app.get<Env>(ENV);
   // Only the proxy on the private Docker network can reach the API, so trust its X-Forwarded-For.
   if (env.TRUST_PROXY) app.set('trust proxy', 'uniquelocal');
+  app.get(RealtimeGateway).attach(app.getHttpServer());
   await app.listen(env.PORT, '0.0.0.0');
 }
 await bootstrap();

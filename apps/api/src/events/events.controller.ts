@@ -16,12 +16,16 @@ import {
 
 import { AuthGuard, CurrentUser, type AuthUser } from '../auth/auth.guard.js';
 import { ZodPipe } from '../common/zod.pipe.js';
+import { RealtimeService } from '../realtime/realtime.service.js';
 import { EventsService } from './events.service.js';
 
 @UseGuards(AuthGuard)
 @Controller()
 export class EventsController {
-  constructor(private readonly events: EventsService) {}
+  constructor(
+    private readonly events: EventsService,
+    private readonly realtime: RealtimeService,
+  ) {}
 
   @Get('events')
   list(@CurrentUser() user: AuthUser) {
@@ -31,6 +35,13 @@ export class EventsController {
   @Post('events')
   create(@CurrentUser() user: AuthUser, @Body(new ZodPipe(createEventSchema)) body: CreateEventData) {
     return this.events.create(user.id, body);
+  }
+
+  /** The event's change counters. Phones use this if their live connection is down. */
+  @Get('events/:id/live')
+  async live(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.events.requireMember(id, user.id);
+    return this.realtime.current(id);
   }
 
   @Get('events/:id')

@@ -23,6 +23,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 
 import { Toaster } from '@/components/toast';
 import { radius } from '@/constants/theme';
+import { refreshNewest } from '@/features/gallery/live';
 import { initUploadQueue, onPhotoUploaded, onSlotReserved, setAfterUpload } from '@/features/uploads/queue';
 import { keys } from '@/services/api/hooks';
 import { getSessionUser, loadSession, subscribeSession } from '@/services/api/session';
@@ -46,8 +47,9 @@ function UploadSync() {
   useEffect(
     () =>
       onPhotoUploaded((photo) => {
-        void qc.invalidateQueries({ queryKey: keys.photos(photo.eventId) });
-        void qc.invalidateQueries({ queryKey: keys.event(photo.eventId) });
+        // Just the newest photos and the totals, not every page of every gallery.
+        refreshNewest(qc, photo.eventId).catch(() => undefined);
+        void qc.invalidateQueries({ queryKey: keys.event(photo.eventId), exact: true });
       }),
     [qc],
   );

@@ -15,6 +15,10 @@ import { MailService } from './mail/mail.service.js';
 import { PhotosController } from './photos/photos.controller.js';
 import { ArchiveService } from './photos/archive.service.js';
 import { PhotosService } from './photos/photos.service.js';
+import { RealtimeGateway } from './realtime/realtime.gateway.js';
+import { RealtimeService } from './realtime/realtime.service.js';
+import { QueueService } from './redis/queue.service.js';
+import { RedisService } from './redis/redis.service.js';
 import { StorageService } from './storage/storage.service.js';
 import { UsersController } from './users/users.controller.js';
 import { UsersService } from './users/users.service.js';
@@ -27,6 +31,20 @@ import { UsersService } from './users/users.service.js';
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 10 }]),
   ],
   controllers: [HealthController, AuthController, UsersController, EventsController, PhotosController, FacesController],
-  providers: [AuthService, AuthGuard, UsersService, EventsService, PhotosService, ArchiveService, StorageService, MailService, FacesService],
+  providers: [
+    AuthService,
+    AuthGuard,
+    UsersService,
+    EventsService,
+    PhotosService,
+    ArchiveService,
+    StorageService,
+    MailService,
+    FacesService,
+    RedisService,
+    QueueService,
+    RealtimeService,
+    RealtimeGateway,
+  ],
 })
 export class AppModule {}

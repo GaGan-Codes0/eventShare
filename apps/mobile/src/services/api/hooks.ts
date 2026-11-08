@@ -59,7 +59,10 @@ export function useMembers(id: string | null) {
   });
 }
 
-/** Gallery, newest first. Refreshes every 15 s so everyone's photos show up during the event. */
+/**
+ * Gallery, newest first. New photos arrive through useLiveEvent; the slow full refresh only
+ * keeps the signed links of older photos from expiring in a long session.
+ */
 export function usePhotos(id: string | null, filter: PhotoListFilter = 'all') {
   return useInfiniteQuery({
     queryKey: keys.photoList(id ?? '', filter),
@@ -68,7 +71,7 @@ export function usePhotos(id: string | null, filter: PhotoListFilter = 'all') {
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.nextCursor,
     enabled: Boolean(id),
-    refetchInterval: 15_000,
+    refetchInterval: 20 * 60_000,
   });
 }
 

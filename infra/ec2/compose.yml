@@ -4,13 +4,27 @@ name: eventshare
 
 services:
   postgres:
-    image: postgres:16
+    # Postgres 16 with pgvector, for matching faces inside the database. Same data format as postgres:16.
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     env_file: /opt/eventshare/.env.db
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U eventshare']
+      interval: 5s
+      retries: 10
+
+  # Cache, background jobs and live updates. Private to this Docker network (no published port).
+  # noeviction: queued jobs must never be dropped (every cache entry has its own expiry).
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --maxmemory 128mb --maxmemory-policy noeviction --appendonly yes
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       retries: 10
 
@@ -21,8 +35,12 @@ services:
     image: eventshare-api:current
     restart: unless-stopped
     env_file: /opt/eventshare/.env
+    environment:
+      REDIS_URL: redis://redis:6379
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   # HTTPS in front of the API: fetches and renews a free Let's Encrypt certificate.
@@ -44,5 +62,6 @@ services:
 
 volumes:
   pgdata:
+  redisdata:
   caddy_data:
   caddy_config:
