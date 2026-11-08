@@ -67,10 +67,6 @@ export default function Home() {
         {tab === 'events' && (
           <>
             <Intro eyebrow="All in one place" lead="My" emphasis="events." line="Everything you’ve joined, and everything you’re hosting." />
-            <View style={styles.quick}>
-              <QuickAction icon={ScanLine} label="Join an event" onPress={() => setShellTab('join')} />
-              <QuickAction icon={Plus} label="Create an event" onPress={() => router.push('/create-event')} />
-            </View>
             <Text variant="eyebrow">Attending</Text>
             {attending.length ? (
               <View style={styles.list}>
@@ -138,20 +134,6 @@ function Intro({ eyebrow, lead, emphasis, line }: { eyebrow: string; lead: strin
         {line}
       </Text>
     </View>
-  );
-}
-
-/** A compact action at the top of My events. */
-function QuickAction({ icon: Icon, label, onPress }: { icon: LucideIcon; label: string; onPress: () => void }) {
-  const { colors } = useTheme();
-  const styles = useStyles();
-  return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.quickAction, pressed && { backgroundColor: colors.field }]}>
-      <Icon size={17} color={colors.ink} />
-      <Text variant="label" style={styles.quickLabel}>
-        {label}
-      </Text>
-    </Pressable>
   );
 }
 
@@ -255,20 +237,6 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
   hostLink: { paddingVertical: 4, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
   hostLinkText: { fontSize: 13.5, lineHeight: 18 },
   hostLinkStrong: { fontFamily: fonts.sansSemiBold, color: colors.primary },
-  quick: { flexDirection: 'row', gap: space.sm },
-  quickAction: {
-    flex: 1,
-    height: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 7,
-    borderRadius: 14,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.line,
-  },
-  quickLabel: { fontFamily: fonts.sansSemiBold, color: colors.ink },
   dashed: {
     flexDirection: 'row',
     alignItems: 'center',
