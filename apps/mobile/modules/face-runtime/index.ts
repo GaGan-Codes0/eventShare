@@ -6,7 +6,7 @@ import { requireNativeModule } from 'expo-modules-core';
  */
 type Native = {
   load(path: string): Promise<number>;
-  run(session: number, input: Float32Array, shape: number[]): Promise<Record<string, Uint8Array>>;
+  run(session: number, input: Uint8Array, shape: number[]): Promise<Record<string, Uint8Array>>;
 };
 
 const native = requireNativeModule<Native>('FaceRuntime');
@@ -17,7 +17,8 @@ export async function loadModel(path: string): Promise<Session> {
   const id = await native.load(path.replace(/^file:\/\//, ''));
   return {
     async run(input, shape) {
-      const out = await native.run(id, input, shape);
+      // Handed over as bytes: the native side copies them before leaving the JS thread.
+      const out = await native.run(id, new Uint8Array(input.buffer, input.byteOffset, input.byteLength), shape);
       const floats: Record<string, Float32Array> = {};
       for (const [name, bytes] of Object.entries(out)) {
         // Copied so the floats start on a 4-byte boundary whatever the bytes' offset.

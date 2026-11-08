@@ -1,8 +1,8 @@
 import { PASSWORD_MIN_LENGTH, type AuthSession } from '@eventshare/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { ArrowRight, Eye, EyeOff } from 'lucide-react-native';
+import { ArrowRight, Camera, Eye, EyeOff } from 'lucide-react-native';
 import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
@@ -13,23 +13,51 @@ import { screenPadding, space } from '@/constants/theme';
 import { api } from '@/services/api/client';
 import { setSession } from '@/services/api/session';
 import { setCurrentEvent } from '@/store/current-event';
-import { useTheme } from '@/theme';
+import { defaultTheme, useTheme } from '@/theme';
 
 type Mode = 'login' | 'signup';
 
-/** Three tilted prints, like the prototype's welcome: the idea of a shared roll before any photos exist. */
+/**
+ * The prototype's welcome: three tilted prints of its own scenes (string lights, marigold
+ * garlands, petals), drawn at the prototype's sizes on its 360-wide phone and centred here.
+ */
+const WELCOME = [
+  require('../../assets/images/welcome/welcome-1.jpg'),
+  require('../../assets/images/welcome/welcome-2.jpg'),
+  require('../../assets/images/welcome/welcome-3.jpg'),
+];
+
 function Collage() {
   return (
     <View style={styles.collage} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <LinearGradient colors={['#2B3A4A', '#7A6A55', '#D9B97A']} style={[styles.print, styles.printLeft]} />
-      <LinearGradient colors={['#E4C77E', '#B98A3E', '#6E4F22']} style={[styles.print, styles.printRight]} />
-      <LinearGradient colors={['#F6E3DF', '#E2B4AE', '#C98A86']} style={[styles.print, styles.printFront]}>
-        <View style={styles.shared}>
-          <Text variant="caption" style={styles.sharedText}>
-            Shared by every guest
-          </Text>
+      <View style={styles.stage}>
+        <View style={[styles.print, styles.printLeft]}>
+          <Image source={WELCOME[0]} style={styles.printImage} contentFit="cover" />
         </View>
-      </LinearGradient>
+        <View style={[styles.print, styles.printRight]}>
+          <Image source={WELCOME[1]} style={styles.printImage} contentFit="cover" />
+        </View>
+        <View style={[styles.print, styles.printFront]}>
+          <Image source={WELCOME[2]} style={styles.printImage} contentFit="cover" />
+          <View style={styles.shared}>
+            <Text style={styles.sharedText} numberOfLines={1}>
+              Shared by 38 guests
+            </Text>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+/** The prototype's sign-in wordmark: a little tilted camera and "eventShare", a size up from the app bar's. */
+function WelcomeMark() {
+  return (
+    <View style={styles.mark} accessibilityRole="header" accessibilityLabel="eventShare">
+      <View style={styles.markSymbol}>
+        <Camera size={15} color={INK} strokeWidth={1.75} />
+      </View>
+      <Text style={styles.markText}>eventShare</Text>
     </View>
   );
 }
@@ -79,26 +107,34 @@ export default function SignIn() {
     <SafeAreaView style={styles.safe}>
       {/* The field being typed in always scrolls above the keyboard, on iPhone and Android. */}
       <View style={styles.flex}>
-        <KeyboardAwareScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" bottomOffset={24}>
+        <KeyboardAwareScrollView
+          contentContainerStyle={styles.body}
+          keyboardShouldPersistTaps="handled"
+          bottomOffset={24}
+          showsVerticalScrollIndicator={false}>
           {!isSignup && <Collage />}
-          <Wordmark />
-          <View style={styles.hero}>
-            <Text variant="eyebrow">{isSignup ? 'Create your account' : 'Welcome back'}</Text>
-            {isSignup ? (
-              <Text variant="h1">
-                Join the <Text variant="h1" emphasis>roll.</Text>
+          {isSignup ? (
+            <>
+              <Wordmark />
+              <View style={styles.hero}>
+                <Text variant="eyebrow">Create your account</Text>
+                <Text variant="h1">
+                  Join the <Text variant="h1" emphasis>roll.</Text>
+                </Text>
+                <Text color="muted">Your name appears on the photos you share with an event.</Text>
+              </View>
+            </>
+          ) : (
+            // As in the prototype: wordmark, then the headline over two lines and the line under it.
+            <View style={styles.welcome}>
+              <WelcomeMark />
+              <Text style={styles.headline}>
+                {'Every photo,\n'}
+                <Text style={styles.headlineItalic}>everyone’s.</Text>
               </Text>
-            ) : (
-              <Text variant="h1">
-                Every photo, <Text variant="h1" emphasis>everyone’s.</Text>
-              </Text>
-            )}
-            <Text color="muted">
-              {isSignup
-                ? 'Your name appears on the photos you share with an event.'
-                : 'Join an event with its QR code or 6-digit code. Every guest’s shots land in one shared album.'}
-            </Text>
-          </View>
+              <Text style={styles.lede}>Join an event with its QR code or 6-digit code. Every guest’s shots land in one shared album.</Text>
+            </View>
+          )}
 
           {isSignup && (
             <TextField
@@ -168,29 +204,58 @@ export default function SignIn() {
   );
 }
 
+/** Sign-in is always in eventShare's own look. */
+const { fonts } = defaultTheme;
+/** The prototype's ink. */
+const INK = '#273C32';
+
 const styles = StyleSheet.create({
-  safe: { flex: 1 },
+  safe: { flex: 1, backgroundColor: '#FAF9F5' },
   flex: { flex: 1 },
   body: { paddingHorizontal: screenPadding, paddingTop: space.xl, paddingBottom: space['3xl'], gap: space.lg },
   hero: { gap: space.md, marginTop: space.lg, marginBottom: space.sm },
-  collage: { height: 250, marginHorizontal: -space.sm },
+  // The prototype's collage: 312 tall, cards placed on a 360-wide phone (centred on wider ones).
+  collage: { height: 312, marginHorizontal: -screenPadding, marginTop: -space.xl, alignItems: 'center' },
+  stage: { width: 360, height: 312 },
   print: {
     position: 'absolute',
-    width: 130,
-    height: 163,
+    width: 146,
+    height: 183,
     borderRadius: 14,
-    borderWidth: 4,
-    borderColor: '#FFFEFA',
-    shadowColor: '#1C2420',
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 14 },
+    backgroundColor: '#E9EDDF',
+    // A white print border outside the photo, and a soft drop shadow under it.
+    boxShadow: '0px 18px 30px -16px rgba(28,36,32,0.5), 0px 0px 0px 4px #FFFEFA',
   },
-  printLeft: { left: 10, top: 18, transform: [{ rotate: '-8deg' }] },
-  printRight: { right: 10, top: 8, transform: [{ rotate: '7deg' }] },
-  printFront: { alignSelf: 'center', top: 74, width: 140, height: 175, transform: [{ rotate: '-1.5deg' }], justifyContent: 'flex-end', padding: space.sm },
-  shared: { alignSelf: 'flex-start', paddingHorizontal: space.sm, paddingVertical: 3, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.92)' },
-  sharedText: { fontSize: 10, lineHeight: 14, color: '#273C32' },
+  printImage: { width: '100%', height: '100%', borderRadius: 14 },
+  printLeft: { left: 26, top: 34, transform: [{ rotate: '-8deg' }] },
+  printRight: { right: 26, top: 22, backgroundColor: '#F0EADD', transform: [{ rotate: '7deg' }] },
+  printFront: {
+    left: 104,
+    top: 108,
+    width: 152,
+    height: 190,
+    transform: [{ rotate: '-1.5deg' }],
+    boxShadow: '0px 22px 34px -16px rgba(28,36,32,0.55), 0px 0px 0px 4px #FFFEFA',
+  },
+  shared: { position: 'absolute', left: 8, bottom: 8, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.92)' },
+  sharedText: { fontFamily: fonts.sansSemiBold, fontSize: 10, lineHeight: 14, color: INK },
+  welcome: { gap: 12, paddingTop: 6, marginBottom: space.sm },
+  mark: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  markSymbol: {
+    width: 28,
+    height: 25,
+    borderWidth: 1.5,
+    borderColor: INK,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    transform: [{ rotate: '-7deg' }],
+  },
+  markText: { fontFamily: fonts.serif, fontSize: 24, lineHeight: 28, letterSpacing: -0.96, color: INK },
+  headline: { fontFamily: fonts.serif, fontSize: 34, lineHeight: 37, letterSpacing: -0.85, color: INK },
+  headlineItalic: { fontFamily: fonts.serifItalic, fontSize: 34, lineHeight: 37, letterSpacing: -0.85, color: '#748063' },
+  // The prototype's line is 312 wide (360 less its margins), so it breaks into the same three lines.
+  lede: { fontFamily: fonts.sans, fontSize: 14.5, lineHeight: 21, color: '#7E8378', maxWidth: 312 },
   passwordInput: { paddingRight: 48 },
   // Centred in the input box, below the field's label.
   eye: { position: 'absolute', right: space.md, top: 54 },

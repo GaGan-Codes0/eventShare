@@ -24,8 +24,9 @@ public class FaceRuntimeModule: Module {
       return id
     }
 
-    AsyncFunction("run") { (id: Int, input: Float32Array, shape: [Int]) -> [String: Data] in
-      let bytes = NSMutableData(bytes: input.rawPointer, length: input.byteLength)
+    // The input arrives as bytes (copied by Expo on the JS thread, so safe to use here off it).
+    AsyncFunction("run") { (id: Int, input: Data, shape: [Int]) -> [String: Data] in
+      let bytes = NSMutableData(data: input)
       self.lock.lock()
       let session = self.sessions[id]
       self.lock.unlock()

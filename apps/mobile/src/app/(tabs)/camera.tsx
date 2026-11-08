@@ -8,11 +8,19 @@ import { requestPermissionsAsync as requestLibraryAccess } from 'expo-media-libr
 import { router, useIsFocused } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Aperture, ArrowUpRight, Camera, CloudUpload, Film, Frame, Grid3x3, Images, Mic, SwitchCamera, Zap, ZapOff } from 'lucide-react-native';
-import { useEffect, useRef, useState } from 'react';
-import { Alert, Linking, Platform, Pressable, StyleSheet, View, type GestureResponderEvent } from 'react-native';
+import { memo, useEffect, useRef, useState } from 'react';
+import {
+  Alert,
+  Linking,
+  Platform,
+  Pressable,
+  StyleSheet,
+  View,
+  type GestureResponderEvent,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
-import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withDelay, withSequence, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withSequence, withTiming } from 'react-native-reanimated';
 
 import { toast } from '@/components/toast';
 import { Button, Text } from '@/components/ui';
@@ -29,7 +37,9 @@ import { setPreference, usePreferences } from '@/store/preferences';
 import { clock, plural } from '@/utils/format';
 
 /** How long a photo just taken stays on the viewfinder before it fades. */
-const SHOT_HOLD_MS = 2000;
+const SHOT_HOLD_MS = 1500;
+/** Then it drifts back and dissolves into the live viewfinder over this long. */
+const SHOT_FADE_MS = 700;
 
 const TYPE_BY_EXT: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', heic: 'image/heic', heif: 'image/heif', png: 'image/png', webp: 'image/webp' };
 
@@ -119,23 +129,10 @@ export default function CameraScreen() {
   const queue = useUploadQueue(id);
   const flash = useSharedValue(0);
   const flashStyle = useAnimatedStyle(() => ({ opacity: flash.get() }));
-  // The shot just taken stays on screen for 2 seconds, then fades as it uploads.
-  const [justTaken, setJustTaken] = useState<string | null>(null);
-  const shown = useSharedValue(0);
-  const shownStyle = useAnimatedStyle(() => ({ opacity: shown.get() }));
+  // The shot just taken stays on screen for 1.5 seconds, then fades away as it uploads.
+  const [justTaken, setJustTaken] = useState<{ uri: string; n: number } | null>(null);
   function showShot(uri: string) {
-    setJustTaken(uri);
-    shown.set(
-      withSequence(
-        withTiming(1, { duration: 120 }),
-        withDelay(
-          SHOT_HOLD_MS,
-          withTiming(0, { duration: 450 }, (done) => {
-            if (done) runOnJS(setJustTaken)(null);
-          }),
-        ),
-      ),
-    );
+    setJustTaken((prev) => ({ uri, n: (prev?.n ?? 0) + 1 }));
   }
 
   const granted = permission?.granted ?? false;
@@ -601,15 +598,7 @@ export default function CameraScreen() {
             )}
           </View>
         )}
-        {justTaken && (
-          <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, shownStyle]}>
-            <Image source={{ uri: justTaken }} style={StyleSheet.absoluteFill} contentFit="cover" transition={0} />
-            <View style={styles.uploadingTag}>
-              <CloudUpload size={14} color={LIGHT} />
-              <Text style={styles.uploadingText}>Uploading</Text>
-            </View>
-          </Animated.View>
-        )}
+        <ShotPreview shot={justTaken} />
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.flash, flashStyle]} />
       </View>
 
@@ -695,6 +684,48 @@ const LIGHT = '#F4F2DF';
 const SAGE = '#CDD7AB';
 const REC = '#E5484D';
 
+/**
+ * The photo just taken, over the viewfinder for 1.5 seconds, then fading and settling back
+ * until the live camera shows again. Its own component (memoised) so the camera screen's
+ * re-renders never reset the fade part-way, and always mounted so it stays above the
+ * Android camera preview.
+ */
+const ShotPreview = memo(function ShotPreview({ shot }: { shot: { uri: string; n: number } | null }) {
+  const styles = useStyles();
+  // Animated on the UI thread, so the fade stays smooth while the phone is busy uploading and
+  // finding faces in the shot.
+  const level = useSharedValue(0);
+  const style = useAnimatedStyle(() => ({ opacity: level.get(), transform: [{ scale: 0.94 + 0.06 * level.get() }] }));
+  // The shot whose fade has finished: once it matches, the layer is emptied.
+  const [doneN, setDoneN] = useState(0);
+  const uri = shot && shot.n !== doneN ? shot.uri : null;
+  useEffect(() => {
+    if (!shot) return;
+    level.set(
+      withSequence(
+        withTiming(1, { duration: 0 }),
+        withDelay(SHOT_HOLD_MS, withTiming(0, { duration: SHOT_FADE_MS, easing: Easing.inOut(Easing.cubic) })),
+      ),
+    );
+    const clear = setTimeout(() => setDoneN(shot.n), SHOT_HOLD_MS + SHOT_FADE_MS + 50);
+    return () => clearTimeout(clear);
+  }, [shot, level]);
+  return (
+    // On the way out it fades and settles back a little, as if it's leaving.
+    <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, uri ? styles.justTaken : null, style]}>
+      {uri && (
+        <>
+          <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={0} />
+          <View style={styles.uploadingTag}>
+            <CloudUpload size={14} color={LIGHT} />
+            <Text style={styles.uploadingText}>Uploading</Text>
+          </View>
+        </>
+      )}
+    </Animated.View>
+  );
+});
+
 const useStyles = makeStyles(({ colors, fonts }) => ({
   screen: { flex: 1, backgroundColor: DARK },
   top: { height: 54, paddingHorizontal: screenPadding - 4, flexDirection: 'row', alignItems: 'center', gap: space.md - 2 },
@@ -739,6 +770,8 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
     borderColor: 'rgba(205,215,171,0.45)',
   },
   flash: { backgroundColor: colors.white },
+  // Shown the instant the shot is taken; the photo paints over it a moment later.
+  justTaken: { backgroundColor: '#1A221E' },
   uploadingTag: {
     position: 'absolute',
     left: 14,

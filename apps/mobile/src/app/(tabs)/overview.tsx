@@ -4,7 +4,7 @@ import { Calendar, Camera, ChevronRight, Download, MapPin, QrCode, ShieldCheck }
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Button, LoadingState, Text } from '@/components/ui';
-import { MAX_PHOTOGRAPHERS } from '@eventshare/shared';
+import { MAX_PHOTOGRAPHERS, PHOTOGRAPHER_PHOTO_LIMIT } from '@eventshare/shared';
 import { radius, screenPadding, space } from '@/constants/theme';
 import { EventBadge } from '@/features/events/event-card';
 import { HostHeader } from '@/features/events/event-header';
@@ -14,7 +14,7 @@ import { useCurrentEvent } from '@/features/events/use-current-event';
 import { openPhoto } from '@/features/gallery/album-view';
 import { FilteredImage } from '@/features/gallery/photo-filters';
 import { PhotoCell } from '@/features/gallery/photo-grid';
-import { usePhotos } from '@/services/api/hooks';
+import { useMembers, usePhotographerInvites, usePhotos } from '@/services/api/hooks';
 import { makeStyles, ThemeProvider, useEventLook, useTheme } from '@/theme';
 
 /** The host's dashboard: the event, how it's going, invite, shoot, review, and the live feed. */
@@ -134,7 +134,54 @@ export default function Overview() {
             Photos show up here as soon as guests start shooting.
           </Text>
         )}
+
+        <PhotographersCard eventId={event.id} />
       </ScrollView>
+    </View>
+  );
+}
+
+/**
+ * As in the prototype: each designated photographer (joined or still invited) with their
+ * uploads out of 1,000, and Manage to go to People.
+ */
+function PhotographersCard({ eventId }: { eventId: string }) {
+  const styles = useStyles();
+  const members = useMembers(eventId);
+  const invites = usePhotographerInvites(eventId);
+  const rows = [
+    ...(members.data ?? []).filter((m) => m.role === 'photographer').map((m) => ({ key: m.userId, name: m.name, uploads: m.photosUsed })),
+    ...(invites.data ?? []).map((i) => ({ key: i.id, name: i.name || i.email, uploads: 0 })),
+  ];
+  return (
+    <View style={styles.phCard}>
+      <View style={styles.phHead}>
+        <Text style={styles.phTitle}>Designated photographers</Text>
+        <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.navigate('/(tabs)/people')}>
+          <Text style={styles.phManage}>Manage</Text>
+        </Pressable>
+      </View>
+      {rows.length === 0 ? (
+        <Text style={styles.phEmpty}>
+          None yet. Add up to {MAX_PHOTOGRAPHERS} people with {PHOTOGRAPHER_PHOTO_LIMIT.toLocaleString('en-US')} uploads each.
+        </Text>
+      ) : (
+        rows.map((r) => (
+          <View key={r.key} style={styles.phRow}>
+            <View style={styles.phLine}>
+              <Text style={styles.phName} numberOfLines={1}>
+                {r.name}
+              </Text>
+              <Text style={styles.phCount}>
+                {r.uploads.toLocaleString('en-US')} / {PHOTOGRAPHER_PHOTO_LIMIT.toLocaleString('en-US')}
+              </Text>
+            </View>
+            <View style={styles.phTrack}>
+              <View style={[styles.phFill, { width: `${Math.min(100, (r.uploads / PHOTOGRAPHER_PHOTO_LIMIT) * 100)}%` }]} />
+            </View>
+          </View>
+        ))
+      )}
     </View>
   );
 }
@@ -151,7 +198,7 @@ function Stat({ value, label }: { value: string; label: string }) {
   );
 }
 
-const useStyles = makeStyles(({ colors }) => ({
+const useStyles = makeStyles(({ colors, fonts }) => ({
   screen: { flex: 1, backgroundColor: colors.paper },
   body: { padding: screenPadding - 4, paddingBottom: space['3xl'], gap: space.md + 2 },
   flex: { flex: 1 },
@@ -190,4 +237,16 @@ const useStyles = makeStyles(({ colors }) => ({
   liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accent },
   feed: { gap: space.xs },
   feedRow: { flexDirection: 'row', gap: space.xs },
+  // The prototype's card: 18 round, hairline edge, 14/16 padding, rows 12 apart.
+  phCard: { borderRadius: 18, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, paddingVertical: 14, paddingHorizontal: 16, gap: 12 },
+  phHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  phTitle: { fontFamily: fonts.sansSemiBold, fontSize: 14, lineHeight: 18, color: colors.ink },
+  phManage: { fontFamily: fonts.sansSemiBold, fontSize: 13, lineHeight: 18, color: colors.primary },
+  phEmpty: { fontFamily: fonts.sans, fontSize: 13, lineHeight: 18, color: colors.muted },
+  phRow: { gap: 6 },
+  phLine: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
+  phName: { flex: 1, fontFamily: fonts.sansMedium, fontSize: 13, lineHeight: 18, color: colors.ink },
+  phCount: { fontFamily: fonts.mono, fontSize: 12, lineHeight: 18, color: colors.muted },
+  phTrack: { height: 5, borderRadius: 3, backgroundColor: colors.field, overflow: 'hidden' },
+  phFill: { height: '100%', borderRadius: 3, backgroundColor: colors.primary },
 }));
