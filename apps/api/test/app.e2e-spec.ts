@@ -14,6 +14,7 @@ import type { App } from 'supertest/types.js';
 import { WebSocket } from 'ws';
 
 import { AppModule } from './../src/app.module.js';
+import { PhotosService } from './../src/photos/photos.service.js';
 import { RealtimeGateway } from './../src/realtime/realtime.gateway.js';
 import { StorageService } from './../src/storage/storage.service.js';
 
@@ -690,6 +691,179 @@ describe('core flow (e2e)', () => {
     expect(await closed).toBe(4403);
     ws.close();
   }, 30_000);
+
+  it('lets a guest out of shots ask for more, and the hosts give them', async () => {
+    const http = () => request(app.getHttpServer());
+    const created = await http().post('/events').set(as(host)).send({ name: 'Refill test', location: 'Delhi' }).expect(201);
+    const { id: eventId, joinCode } = created.body as { id: string; joinCode: string };
+    await http().patch(`/events/${eventId}`).set(as(host)).send({ guestPhotoLimit: 10 }).expect(200);
+    const g = `refill${run}`;
+    await http().post('/join').set(as(g)).send({ code: joinCode }).expect(201);
+    const detail = async () => (await http().get(`/events/${eventId}`).set(as(g)).expect(200)).body as { refillStatus: string | null; photoLimit: number };
+    const ticket = () =>
+      http().post(`/events/${eventId}/photos/uploads`).set(as(g)).send({ clientUploadId: randomUUID(), contentType: 'image/jpeg', byteSize: original.length, thumbByteSize: thumb.length });
+
+    for (let i = 0; i < 10; i++) await ticket().expect(201);
+    await ticket().expect(403);
+
+    // The host and other people can't use a guest's route or see the list.
+    await http().post(`/events/${eventId}/refill-requests`).set(as(host)).expect(400);
+    await http().get(`/events/${eventId}/refill-requests`).set(as(g)).expect(403);
+
+    // Asking twice is one request; the host sees it.
+    await http().post(`/events/${eventId}/refill-requests`).set(as(g)).expect(204);
+    await http().post(`/events/${eventId}/refill-requests`).set(as(g)).expect(204);
+    expect((await detail()).refillStatus).toBe('pending');
+    expect((await http().get(`/events/${eventId}`).set(as(host)).expect(200)).body.pendingRefillCount).toBe(1);
+    const list = await http().get(`/events/${eventId}/refill-requests`).set(as(host)).expect(200);
+    expect(list.body).toHaveLength(1);
+    expect(list.body[0]).toMatchObject({ photosUsed: 10, photoLimit: 10 });
+    const requestId = list.body[0].id as string;
+
+    // Guests can't approve themselves, only the offered amounts work, and answering twice gives once.
+    await http().post(`/events/${eventId}/refill-requests/${requestId}/approve`).set(as(g)).send({ shots: 24 }).expect(403);
+    await http().post(`/events/${eventId}/refill-requests/${requestId}/approve`).set(as(host)).send({ shots: 7 }).expect(400);
+    await http().post(`/events/${eventId}/refill-requests/${requestId}/approve`).set(as(host)).send({ shots: 5 }).expect(204);
+    await http().post(`/events/${eventId}/refill-requests/${requestId}/approve`).set(as(host)).send({ shots: 5 }).expect(404);
+    expect(await detail()).toMatchObject({ refillStatus: null, photoLimit: 15 });
+    for (let i = 0; i < 5; i++) await ticket().expect(201);
+    await ticket().expect(403);
+
+    // "Not now": they have to wait before asking again.
+    await http().post(`/events/${eventId}/refill-requests`).set(as(g)).expect(204);
+    const again = await http().get(`/events/${eventId}/refill-requests`).set(as(host)).expect(200);
+    await http().post(`/events/${eventId}/refill-requests/${again.body[0].id}/decline`).set(as(host)).expect(204);
+    expect(await detail()).toMatchObject({ refillStatus: 'declined', photoLimit: 15 });
+    await http().post(`/events/${eventId}/refill-requests`).set(as(g)).expect(409);
+  }, 30_000);
+
+  it('only takes new shots from the event day until 48 hours after it', async () => {
+    const http = () => request(app.getHttpServer());
+    const hours = (n: number) => new Date(Date.now() + n * 3_600_000).toISOString();
+    const created = await http().post('/events').set(as(host)).send({ name: 'Window test', location: 'Delhi', startsAt: hours(72) }).expect(201);
+    const { id: eventId, joinCode } = created.body as { id: string; joinCode: string };
+    const g = `window${run}`;
+    await http().post('/join').set(as(g)).send({ code: joinCode }).expect(201);
+    const shoot = (user: string, extra: Record<string, unknown> = {}) =>
+      http()
+        .post(`/events/${eventId}/photos/uploads`)
+        .set(as(user))
+        .send({ clientUploadId: randomUUID(), contentType: 'image/jpeg', byteSize: original.length, thumbByteSize: thumb.length, ...extra });
+    const moveTo = (n: number) => http().patch(`/events/${eventId}`).set(as(host)).send({ startsAt: hours(n) }).expect(200);
+
+    // Before the event day: guests wait, the host can try it out.
+    expect((await shoot(g).expect(403)).body.code).toBe('SHOOTING_NOT_OPEN');
+    await shoot(host).expect(201);
+
+    await moveTo(0);
+    await shoot(g).expect(201);
+    await moveTo(-59); // an hour before closing
+    const stuck = { clientUploadId: randomUUID(), takenAt: hours(-2) };
+    await shoot(g).expect(201);
+
+    await moveTo(-61); // closed an hour ago, for the host too
+    expect((await shoot(g).expect(403)).body.code).toBe('SHOOTING_CLOSED');
+    expect((await shoot(host).expect(403)).body.code).toBe('SHOOTING_CLOSED');
+    await shoot(g, { takenAt: hours(-0.5) }).expect(403); // taken after closing
+    await shoot(g, stuck).expect(201); // taken in time, arrived late
+    await shoot(g, stuck).expect(201); // and a retry of it is fine
+    await http().post(`/events/${eventId}/refill-requests`).set(as(g)).expect(400);
+
+    await moveTo(-86); // closed a day and more ago: even a stuck photo is too late
+    await shoot(g, { takenAt: hours(-30) }).expect(403);
+  });
+
+  it('limits password guessing per account, not per Wi-Fi network', async () => {
+    const http = () => request(app.getHttpServer());
+    // A whole wedding on one IP: many different people can all sign in.
+    for (let i = 0; i < 15; i++) {
+      await http().post('/auth/login').send({ email: `door${i}-${run}@example.com`, password: 'wrong-password-here' }).expect(401);
+    }
+    // Guessing one person's password is stopped.
+    const victim = `victim-${run}@example.com`;
+    for (let i = 0; i < 10; i++) await http().post('/auth/login').send({ email: victim, password: 'wrong-password-here' }).expect(401);
+    await http().post('/auth/login').send({ email: victim.toUpperCase(), password: 'wrong-password-here' }).expect(429);
+  }, 30_000);
+
+  it('serves a preview, finishes a sleeping phone\'s photo, and takes big files in pieces', async () => {
+    const http = () => request(app.getHttpServer());
+    const created = await http().post('/events').set(as(host)).send({ name: 'Pieces test', location: 'Delhi' }).expect(201);
+    const eventId = created.body.id as string;
+    const preview = await sharp(original).resize(1600).jpeg({ quality: 82 }).toBuffer();
+    const put = (target: { url: string; headers: Record<string, string> }, bytes: Buffer) =>
+      fetch(target.url, { method: 'PUT', headers: target.headers, body: new Uint8Array(bytes) });
+
+    // The phone sends its files, then goes to sleep without saying it's done.
+    const ticket = await http()
+      .post(`/events/${eventId}/photos/uploads`)
+      .set(as(host))
+      .send({ clientUploadId: randomUUID(), contentType: 'image/jpeg', byteSize: original.length, thumbByteSize: thumb.length, previewByteSize: preview.length })
+      .expect(201);
+    expect(ticket.body.preview).toBeTruthy();
+    await Promise.all([put(ticket.body.original, original), put(ticket.body.thumb, thumb), put(ticket.body.preview, preview)]);
+    const svc = app.get(PhotosService) as unknown as { finishInBackground(id: string): Promise<void> };
+    await svc.finishInBackground(ticket.body.photoId);
+    const list = await http().get(`/events/${eventId}/photos`).set(as(host)).expect(200);
+    expect(list.body.items).toHaveLength(1);
+    const size = async (url: string) => (await (await fetch(url)).arrayBuffer()).byteLength;
+    expect(await size(list.body.items[0].previewUrl)).toBe(preview.length);
+    expect(await size(list.body.items[0].url)).toBe(original.length);
+    // When it wakes up and says it's done, nothing changes.
+    await http().post(`/photos/${ticket.body.photoId}/complete`).set(as(host)).expect(201);
+
+    // Files still missing: the background check leaves the photo alone and tries again later.
+    const early = await http()
+      .post(`/events/${eventId}/photos/uploads`)
+      .set(as(host))
+      .send({ clientUploadId: randomUUID(), contentType: 'image/jpeg', byteSize: original.length, thumbByteSize: thumb.length })
+      .expect(201);
+    await expect(svc.finishInBackground(early.body.photoId)).rejects.toThrow('still uploading');
+
+    // A big file: in pieces, and a retry keeps the pieces already sent.
+    const big = Buffer.alloc(25 * 1024 * 1024, 7);
+    const video = { clientUploadId: randomUUID(), kind: 'video', contentType: 'video/mp4', byteSize: big.length, durationMs: 1000, thumbByteSize: thumb.length, multipart: true };
+    const first = await http().post(`/events/${eventId}/photos/uploads`).set(as(host)).send(video).expect(201);
+    expect(first.body.original).toBeNull();
+    expect(first.body.multipart.parts).toHaveLength(3);
+    const again = await http().post(`/events/${eventId}/photos/uploads`).set(as(host)).send(video).expect(201);
+    expect(again.body.multipart.uploadId).toBe(first.body.multipart.uploadId);
+
+    const { partBytes, parts: links } = again.body.multipart as { partBytes: number; parts: { number: number; url: string }[] };
+    await put(again.body.thumb, thumb);
+    const parts = [];
+    for (const link of links) {
+      const res = await fetch(link.url, { method: 'PUT', body: new Uint8Array(big.subarray((link.number - 1) * partBytes, link.number * partBytes)) });
+      expect(res.status).toBe(200);
+      parts.push({ number: link.number, etag: res.headers.get('etag')! });
+    }
+    // Missing a piece: refused, nothing lost.
+    await http().post(`/photos/${first.body.photoId}/complete`).set(as(host)).send({ parts: parts.slice(1) }).expect(400);
+    await http().post(`/photos/${first.body.photoId}/complete`).set(as(host)).send({ parts }).expect(201);
+    const after = await http().get(`/events/${eventId}/photos`).set(as(host)).expect(200);
+    const item = after.body.items.find((p: { id: string }) => p.id === first.body.photoId);
+    expect(await size(item.url)).toBe(big.length);
+
+    // A phone asleep with every piece delivered: the server joins them and puts the video live.
+    const asleepTicket = await http().post(`/events/${eventId}/photos/uploads`).set(as(host)).send({ ...video, clientUploadId: randomUUID() }).expect(201);
+    await put(asleepTicket.body.thumb, thumb);
+    const pieces = asleepTicket.body.multipart.parts as { number: number; url: string }[];
+    const send = (link: { number: number; url: string }) =>
+      fetch(link.url, { method: 'PUT', body: new Uint8Array(big.subarray((link.number - 1) * partBytes, link.number * partBytes)) });
+    await send(pieces[0]!);
+    await expect(svc.finishInBackground(asleepTicket.body.photoId)).rejects.toThrow('still uploading');
+    await Promise.all(pieces.slice(1).map(send));
+    await svc.finishInBackground(asleepTicket.body.photoId);
+    const live = await http().get(`/events/${eventId}/photos`).set(as(host)).expect(200);
+    const asleep = live.body.items.find((p: { id: string }) => p.id === asleepTicket.body.photoId);
+    expect(await size(asleep.url)).toBe(big.length);
+    // Waking up afterwards changes nothing.
+    await http().post(`/photos/${asleepTicket.body.photoId}/complete`).set(as(host)).send({ parts: [] }).expect(201);
+
+    // Older app builds, which can't send pieces, still get one link.
+    const old = await http().post(`/events/${eventId}/photos/uploads`).set(as(host)).send({ ...video, clientUploadId: randomUUID(), multipart: undefined }).expect(201);
+    expect(old.body.original).toBeTruthy();
+    expect(old.body.multipart).toBeNull();
+  }, 60_000);
 
   it('rejects bad input and missing auth', async () => {
     await request(app.getHttpServer()).post('/events').set(as(host)).send({ name: 'x' }).expect(400);

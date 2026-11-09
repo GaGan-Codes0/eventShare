@@ -4,8 +4,9 @@ name: eventshare
 
 services:
   postgres:
-    # Postgres 16 with pgvector, for matching faces inside the database. Same data format as postgres:16.
-    image: pgvector/pgvector:pg16
+    # Postgres 16 with pgvector, for matching faces inside the database. Trixie: same system libraries as
+    # postgres:16, so text indexes stay valid when switching images.
+    image: pgvector/pgvector:pg16-trixie
     restart: unless-stopped
     env_file: /opt/eventshare/.env.db
     volumes:

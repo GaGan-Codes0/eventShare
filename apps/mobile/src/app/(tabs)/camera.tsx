@@ -7,33 +7,27 @@ import * as LegacyLibrary from 'expo-media-library/legacy';
 import { requestPermissionsAsync as requestLibraryAccess } from 'expo-media-library';
 import { router, useIsFocused } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Aperture, ArrowUpRight, Camera, CloudUpload, Film, Frame, Grid3x3, Images, Mic, SwitchCamera, Zap, ZapOff } from 'lucide-react-native';
+import { Aperture, ArrowUpRight, Camera, CloudUpload, Film, Images, Mic, SwitchCamera, Zap, ZapOff } from 'lucide-react-native';
 import { memo, useEffect, useRef, useState } from 'react';
-import {
-  Alert,
-  Linking,
-  Platform,
-  Pressable,
-  StyleSheet,
-  View,
-  type GestureResponderEvent,
-} from 'react-native';
+import { Alert, Linking, Platform, Pressable, StyleSheet, View, type GestureResponderEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import Animated, { Easing, interpolate, useAnimatedStyle, useSharedValue, withDelay, withSequence, withTiming } from 'react-native-reanimated';
 
 import { toast } from '@/components/toast';
 import { Button, Text } from '@/components/ui';
-import { icon, radius, screenPadding, space } from '@/constants/theme';
+import { icon, radius, space } from '@/constants/theme';
 import { defaultTheme, makeStyles } from '@/theme';
 import { useVoiceNote, VoicePanel } from '@/features/capture/voice-recorder';
-import { ViewfinderFrame } from '@/features/events/event-frame';
 import { NoEventYet } from '@/features/events/no-event';
+import { longDate, shortDate } from '@/features/events/identity';
+import { RefillAction } from '@/features/events/refill-action';
+import { useShootingPhase } from '@/features/events/shooting-window';
 import { lockText } from '@/features/gallery/album-view';
 import { useCurrentEvent } from '@/features/events/use-current-event';
-import { enqueuePhoto } from '@/features/uploads/queue';
+import { endPreparing, enqueuePhoto, startPreparing } from '@/features/uploads/queue';
 import { useUploadQueue } from '@/features/uploads/use-upload-queue';
-import { setPreference, usePreferences } from '@/store/preferences';
+import { usePreferences } from '@/store/preferences';
 import { clock, plural } from '@/utils/format';
 
 /** How long a photo just taken stays on the viewfinder before it fades. */
@@ -87,11 +81,7 @@ const MODES: { value: MediaKind; label: string }[] = [
 const MIN_CLIP_MS = 1000;
 
 // iPhone lenses we offer as one-tap buttons, in order. Other lens types stay reachable by zooming.
-const LENS_LABEL: Record<string, string> = {
-  AVCaptureDeviceTypeBuiltInUltraWideCamera: '0.5×',
-  AVCaptureDeviceTypeBuiltInWideAngleCamera: '1×',
-  AVCaptureDeviceTypeBuiltInTelephotoCamera: 'Tele',
-};
+const LENS_LABEL: Record<string, string> = { AVCaptureDeviceTypeBuiltInUltraWideCamera: '0.5×', AVCaptureDeviceTypeBuiltInWideAngleCamera: '1×', AVCaptureDeviceTypeBuiltInTelephotoCamera: 'Tele' };
 const WIDE = 'AVCaptureDeviceTypeBuiltInWideAngleCamera';
 const NEXT_FLASH: Record<FlashMode, FlashMode> = { off: 'auto', auto: 'on', on: 'off', screen: 'off' };
 const FLASH_LABEL: Record<FlashMode, string> = { off: 'Flash off', auto: 'Flash auto', on: 'Flash on', screen: 'Flash on' };
@@ -107,6 +97,7 @@ export default function CameraScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>('back');
   const [ready, setReady] = useState(false);
+  const [area, setArea] = useState<{ width: number; height: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<MediaKind>('photo');
   // Video recording: when it started, and a clock that ticks while it runs.
@@ -138,6 +129,7 @@ export default function CameraScreen() {
   }
 
   const granted = permission?.granted ?? false;
+  const phase = useShootingPhase(event);
   // Photos still on this phone count too, until the server has counted them itself.
   const limit = event?.photoLimit ?? 0;
   // No limit for this person: Infinity keeps the arithmetic simple; it's shown as ∞.
@@ -148,6 +140,8 @@ export default function CameraScreen() {
   const videoLeft = event ? Math.max(0, event.videoLimitMs - event.videoMsUsed - queue.unreservedVideoMs) : 0;
   const voiceLeft = event ? Math.max(0, event.voiceLimitMs - event.voiceMsUsed - queue.unreservedVoiceMs) : 0;
   const recording = recStart !== null || voice.recording;
+  // A recording under way when the window closes is allowed to finish.
+  const shut = phase !== 'open' && !recording;
   // "That's a wrap" for whichever allowance this mode uses; the other modes may still have some.
   const out = Boolean(event) && (mode === 'photo' ? outOfShots : (mode === 'video' ? videoLeft : voiceLeft) < MIN_CLIP_MS);
 
@@ -287,7 +281,6 @@ export default function CameraScreen() {
     }
   }
 
-
   function flip() {
     setFacing((f) => (f === 'back' ? 'front' : 'back'));
     setZoom(0);
@@ -336,8 +329,18 @@ export default function CameraScreen() {
     }, 1200);
   }
 
+  /** Holds on to background time from the start, in case they pocket the phone straight after choosing. */
   async function pickFromLibrary() {
-    if (!id || !event) return;
+    startPreparing();
+    try {
+      await addFromLibrary();
+    } finally {
+      endPreparing();
+    }
+  }
+
+  async function addFromLibrary() {
+    if (!id || !event || shut) return;
     if (!rollAllowed) {
       toast('Camera-roll uploads are off for this event');
       return;
@@ -397,14 +400,7 @@ export default function CameraScreen() {
         Alert.alert("Couldn't add a photo", 'This phone couldn’t read one of the photos (it may be a RAW file). Try saving it as JPEG first.');
         continue;
       }
-      await enqueuePhoto({
-        eventId: id,
-        uri: original.uri,
-        contentType: original.contentType,
-        width: asset.width,
-        height: asset.height,
-        source: 'library',
-      });
+      await enqueuePhoto({ eventId: id, uri: original.uri, contentType: original.contentType, width: asset.width, height: asset.height, source: 'library' });
     }
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }
@@ -412,7 +408,7 @@ export default function CameraScreen() {
   if (!id) return <NoEventYet title="Your camera" />;
 
   // The live camera: Photo and Video modes, while there's something left to take.
-  const live = granted && focused && !out && mode !== 'voice';
+  const live = granted && focused && !out && !shut && mode !== 'voice';
   const elapsed = recStart !== null ? Math.max(0, now - recStart) : 0;
   // iPhone only: the back lenses this phone has, as 0.5× / 1× / Tele buttons.
   const lensChips =
@@ -422,188 +418,197 @@ export default function CameraScreen() {
           .filter((l): l is LensInfo => Boolean(l))
       : [];
 
-  const note =
-    event?.role === 'host'
+  const note = shut
+    ? phase === 'closed'
+      ? 'Uploads are closed for this event'
+      : 'Open on the day of the event'
+    : event?.role === 'host'
       ? 'You’re the host. No limit, no review'
       : event?.role !== 'member'
-      ? 'Your shots skip review and go live instantly'
-      : event.requireReview
-        ? 'The hosts review guest photos before they go live'
-        : !event.albumOpen
-          ? lockText(event)
-          : 'Photos appear live for everyone';
+        ? 'Your shots skip review and go live instantly'
+        : event.requireReview
+          ? 'The hosts review guest photos before they go live'
+          : !event.albumOpen
+            ? lockText(event)
+            : 'Photos appear live for everyone';
+  const frameWidth = area ? Math.round(Math.min(area.width, (area.height * 3) / 4)) : 0;
+  const frame = area ? { width: frameWidth, height: Math.round((frameWidth * 4) / 3) } : styles.frameUnmeasured;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       {focused && <StatusBar style="light" />}
       <View style={styles.top}>
-        <View style={styles.flex}>
-          <Text variant="eyebrow" style={styles.topEyebrow}>
-            Shooting for
-          </Text>
-          <Text variant="h3" numberOfLines={1} style={styles.light}>
-            {event?.name ?? ''}
-          </Text>
-        </View>
-        {event && (
-          <View
-            style={styles.pill}
-            accessibilityLabel={
-              mode === 'video'
-                ? `${clock(videoLeft)} of video time left`
-                : mode === 'voice'
-                  ? `${clock(voiceLeft)} of voice-note time left`
-                  : Number.isFinite(left)
-                    ? `${left} of ${limit} photos left`
-                    : 'No photo limit'
-            }>
-            {event.role === 'photographer' && <Aperture size={13} color={LIGHT} />}
-            <Text style={styles.pillText}>
-              {mode === 'video' ? `${clock(videoLeft)} LEFT` : mode === 'voice' ? `${clock(voiceLeft)} LEFT` : Number.isFinite(left) ? `${leftLabel} LEFT` : 'NO LIMIT'}
-            </Text>
-          </View>
+        {live ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={FLASH_LABEL[flashMode]}
+            accessibilityHint="Changes the flash: off, auto or on"
+            hitSlop={6}
+            onPress={() => {
+              void Haptics.selectionAsync();
+              setFlashMode((f) => NEXT_FLASH[f]);
+            }}
+            style={[styles.tool, flashMode === 'on' && styles.toolOn]}>
+            {flashMode === 'off' ? <ZapOff size={icon.sm} color={LIGHT} /> : <Zap size={icon.sm} color={flashMode === 'on' ? DARK : LIGHT} />}
+            {flashMode === 'auto' && <Text style={styles.toolBadge}>A</Text>}
+          </Pressable>
+        ) : (
+          <View />
         )}
+        <View pointerEvents="none" style={styles.row}>
+          {event && (
+            <View
+              style={styles.pill}
+              accessibilityLabel={
+                shut
+                  ? phase === 'closed'
+                    ? 'The camera has closed'
+                    : `The camera opens on ${longDate(event.startsAt)}`
+                  : mode === 'video'
+                    ? `${clock(videoLeft)} of video time left`
+                    : mode === 'voice'
+                      ? `${clock(voiceLeft)} of voice-note time left`
+                      : Number.isFinite(left)
+                        ? `${left} of ${limit} photos left`
+                        : 'No photo limit'
+              }>
+              {event.role === 'photographer' && <Aperture size={13} color={LIGHT} />}
+              <Text style={styles.pillText}>
+                {shut
+                  ? phase === 'closed'
+                    ? 'CLOSED'
+                    : `OPENS ${shortDate(event.startsAt).toUpperCase()}`
+                  : mode === 'video'
+                    ? `${clock(videoLeft)} LEFT`
+                    : mode === 'voice'
+                      ? `${clock(voiceLeft)} LEFT`
+                      : Number.isFinite(left)
+                        ? `${leftLabel} LEFT`
+                        : 'NO LIMIT'}
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
 
-
-      <View style={styles.viewfinder}>
-        {out ? (
-          <View style={styles.idle}>
-            <View style={styles.lens}>
-              {mode === 'voice' ? <Mic size={25} color={SAGE} strokeWidth={icon.stroke} /> : <Film size={25} color={SAGE} strokeWidth={icon.stroke} />}
+      {/* A true 4:3 picture, the shape of the photo: what's on screen is what gets saved. */}
+      <View style={styles.viewfinderArea} onLayout={(e) => setArea(e.nativeEvent.layout)}>
+        <View style={[styles.viewfinder, frame]}>
+          {shut ? (
+            <View style={styles.idle}>
+              <View style={styles.lens}>
+                <Film size={25} color={SAGE} strokeWidth={icon.stroke} />
+              </View>
+              <Text style={styles.wrapTitle}>
+                {phase === 'closed' ? 'That’s a ' : 'Almost '}
+                <Text style={[styles.wrapTitle, styles.wrapItalic]}>{phase === 'closed' ? 'wrap.' : 'time.'}</Text>
+              </Text>
+              <Text variant="caption" align="center" style={styles.wrapText}>
+                {phase === 'closed' ? 'The camera closed 48 hours after the event day. Thank you for shooting.' : `The camera opens on ${longDate(event?.startsAt ?? null)}.`}
+              </Text>
+              {phase === 'closed' && <Button label="See the album" onPress={() => router.navigate('/(tabs)/album')} />}
             </View>
-            <Text style={styles.wrapTitle}>
-              That’s a <Text style={[styles.wrapTitle, styles.wrapItalic]}>wrap.</Text>
-            </Text>
-            <Text variant="caption" align="center" style={styles.wrapText}>
-              {mode === 'photo'
-                ? `All ${limit} shots on your roll are in the album. Thank you for shooting.`
-                : mode === 'video'
-                  ? `You've used all ${clock(event?.videoLimitMs ?? 0)} of your video time. Thank you for filming.`
-                  : `You've used your ${clock(event?.voiceLimitMs ?? 0)} of voice notes. Thank you for the kind words.`}
-            </Text>
-            <Button label="See the album" onPress={() => router.navigate('/(tabs)/album')} />
-          </View>
-        ) : mode === 'voice' ? (
-          <VoicePanel recording={voice.recording} elapsedMs={voice.elapsedMs} leftMs={voiceLeft} />
-        ) : granted && focused ? (
-          <CameraView
-            ref={camera}
-            style={StyleSheet.absoluteFill}
-            mode={mode === 'video' ? 'video' : 'picture'}
-            facing={facing}
-            flash={facing === 'front' && flashMode === 'on' ? 'screen' : flashMode}
-            zoom={zoom}
-            autofocus={autofocus}
-            selectedLens={facing === 'back' ? lens : undefined}
-            onAvailableLensesChanged={(e) => setLenses(e.lenses)}
-            onCameraReady={() => setReady(true)}
-          />
-        ) : (
-          <View style={styles.idle}>
-            <View style={styles.lens}>
-              <Camera size={25} color={SAGE} strokeWidth={icon.stroke} />
+          ) : out ? (
+            <View style={styles.idle}>
+              <View style={styles.lens}>{mode === 'voice' ? <Mic size={25} color={SAGE} strokeWidth={icon.stroke} /> : <Film size={25} color={SAGE} strokeWidth={icon.stroke} />}</View>
+              <Text style={styles.wrapTitle}>
+                That’s a <Text style={[styles.wrapTitle, styles.wrapItalic]}>wrap.</Text>
+              </Text>
+              <Text variant="caption" align="center" style={styles.wrapText}>
+                {mode === 'photo'
+                  ? `All ${limit} shots on your roll are in the album. Thank you for shooting.`
+                  : mode === 'video'
+                    ? `You've used all ${clock(event?.videoLimitMs ?? 0)} of your video time. Thank you for filming.`
+                    : `You've used your ${clock(event?.voiceLimitMs ?? 0)} of voice notes. Thank you for the kind words.`}
+              </Text>
+              {mode === 'photo' && event?.role === 'member' && <RefillAction event={event} textStyle={styles.wrapText} variant="secondary" />}
+              <Button label="See the album" onPress={() => router.navigate('/(tabs)/album')} />
             </View>
-            <Text style={styles.wrapTitle} accessibilityRole="header">
-              Be here.{'\n'}
-              <Text style={[styles.wrapTitle, styles.wrapItalic]}>Keep a little of it.</Text>
-            </Text>
-            {!granted && (
-              <Pressable accessibilityRole="button" onPress={enableCamera} style={styles.enable}>
-                <Text variant="label" style={styles.light}>
-                  Enable camera
-                </Text>
-                <ArrowUpRight size={16} color={LIGHT} />
-              </Pressable>
-            )}
-          </View>
-        )}
-        {live && prefs.viewfinderFrame && <ViewfinderFrame logoUrl={event?.logoUrl ?? null} />}
-        {live && prefs.cameraGrid && (
-          <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-            {[1, 2].map((i) => (
-              <View key={`v${i}`} style={[styles.gridLine, { left: `${(i * 100) / 3}%`, top: 0, bottom: 0, width: StyleSheet.hairlineWidth }]} />
-            ))}
-            {[1, 2].map((i) => (
-              <View key={`h${i}`} style={[styles.gridLine, { top: `${(i * 100) / 3}%`, left: 0, right: 0, height: StyleSheet.hairlineWidth }]} />
-            ))}
-          </View>
-        )}
-        {live && (
-          <View style={StyleSheet.absoluteFill} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}>
-            {focusAt && <View pointerEvents="none" style={[styles.focusRing, { left: focusAt.x - 32, top: focusAt.y - 32 }]} />}
-          </View>
-        )}
-        {recStart !== null && (
-          <View style={styles.recBadge} accessibilityLiveRegion="polite">
-            <View style={styles.recDot} />
-            <Text style={styles.recText}>
-              {clock(elapsed)} / {clock(videoLeft)}
-            </Text>
-          </View>
-        )}
-        {granted && !outOfShots && (
-          <View style={styles.tools}>
-            <Pressable
-              accessibilityRole="switch"
-              accessibilityLabel="Show the event frame on screen"
-              accessibilityState={{ checked: prefs.viewfinderFrame }}
-              hitSlop={6}
-              onPress={() => setPreference('viewfinderFrame', !prefs.viewfinderFrame)}
-              style={[styles.tool, prefs.viewfinderFrame && styles.toolOn]}>
-              <Frame size={icon.sm} color={prefs.viewfinderFrame ? DARK : LIGHT} />
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={FLASH_LABEL[flashMode]}
-              accessibilityHint="Changes the flash: off, auto or on"
-              hitSlop={6}
-              onPress={() => {
-                void Haptics.selectionAsync();
-                setFlashMode((f) => NEXT_FLASH[f]);
-              }}
-              style={[styles.tool, flashMode === 'on' && styles.toolOn]}>
-              {flashMode === 'off' ? <ZapOff size={icon.sm} color={LIGHT} /> : <Zap size={icon.sm} color={flashMode === 'on' ? DARK : LIGHT} />}
-              {flashMode === 'auto' && <Text style={styles.toolBadge}>A</Text>}
-            </Pressable>
-            <Pressable
-              accessibilityRole="switch"
-              accessibilityLabel="Grid lines"
-              accessibilityState={{ checked: prefs.cameraGrid }}
-              hitSlop={6}
-              onPress={() => setPreference('cameraGrid', !prefs.cameraGrid)}
-              style={[styles.tool, prefs.cameraGrid && styles.toolOn]}>
-              <Grid3x3 size={icon.sm} color={prefs.cameraGrid ? DARK : LIGHT} />
-            </Pressable>
-          </View>
-        )}
-        {live && (lensChips.length > 1 || zoom > 0.005) && (
-          <View style={styles.zoomRow}>
-            {lensChips.length > 1 ? (
-              lensChips.map((l) => {
-                const on = lens === l.deviceType;
-                return (
-                  <Pressable
-                    key={l.deviceType}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: on }}
-                    accessibilityLabel={l.localizedName}
-                    hitSlop={4}
-                    onPress={() => chooseLens(l.deviceType)}
-                    style={[styles.zoomChip, on && styles.zoomChipOn]}>
-                    <Text style={[styles.zoomText, on && styles.zoomTextOn]}>{on && zoom > 0.005 ? 'Zoom' : LENS_LABEL[l.deviceType]}</Text>
-                  </Pressable>
-                );
-              })
-            ) : (
-              <Pressable accessibilityRole="button" accessibilityLabel="Reset zoom" hitSlop={4} onPress={() => setZoom(0)} style={[styles.zoomChip, styles.zoomChipOn]}>
-                <Text style={[styles.zoomText, styles.zoomTextOn]}>1×</Text>
-              </Pressable>
-            )}
-          </View>
-        )}
-        <ShotPreview shot={justTaken} />
-        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.flash, flashStyle]} />
+          ) : mode === 'voice' ? (
+            <VoicePanel recording={voice.recording} elapsedMs={voice.elapsedMs} leftMs={voiceLeft} />
+          ) : granted && focused ? (
+            <CameraView
+              ref={camera}
+              style={StyleSheet.absoluteFill}
+              mode={mode === 'video' ? 'video' : 'picture'}
+              facing={facing}
+              flash={facing === 'front' && flashMode === 'on' ? 'screen' : flashMode}
+              zoom={zoom}
+              autofocus={autofocus}
+              selectedLens={facing === 'back' ? lens : undefined}
+              onAvailableLensesChanged={(e) => setLenses(e.lenses)}
+              onCameraReady={() => setReady(true)}
+            />
+          ) : (
+            <View style={styles.idle}>
+              <View style={styles.lens}>
+                <Camera size={25} color={SAGE} strokeWidth={icon.stroke} />
+              </View>
+              <Text style={styles.wrapTitle} accessibilityRole="header">
+                Be here.{'\n'}
+                <Text style={[styles.wrapTitle, styles.wrapItalic]}>Keep a little of it.</Text>
+              </Text>
+              {!granted && (
+                <Pressable accessibilityRole="button" onPress={enableCamera} style={styles.enable}>
+                  <Text variant="label" style={styles.light}>
+                    Enable camera
+                  </Text>
+                  <ArrowUpRight size={16} color={LIGHT} />
+                </Pressable>
+              )}
+            </View>
+          )}
+          {live && prefs.cameraGrid && (
+            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+              {[1, 2].map((i) => (
+                <View key={`v${i}`} style={[styles.gridLine, { left: `${(i * 100) / 3}%`, top: 0, bottom: 0, width: StyleSheet.hairlineWidth }]} />
+              ))}
+              {[1, 2].map((i) => (
+                <View key={`h${i}`} style={[styles.gridLine, { top: `${(i * 100) / 3}%`, left: 0, right: 0, height: StyleSheet.hairlineWidth }]} />
+              ))}
+            </View>
+          )}
+          {live && (
+            <View style={StyleSheet.absoluteFill} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}>
+              {focusAt && <View pointerEvents="none" style={[styles.focusRing, { left: focusAt.x - 32, top: focusAt.y - 32 }]} />}
+            </View>
+          )}
+          {recStart !== null && (
+            <View style={styles.recBadge} accessibilityLiveRegion="polite">
+              <View style={styles.recDot} />
+              <Text style={styles.recText}>
+                {clock(elapsed)} / {clock(videoLeft)}
+              </Text>
+            </View>
+          )}
+          {live && (lensChips.length > 1 || zoom > 0.005) && (
+            <View style={styles.zoomRow}>
+              {lensChips.length > 1 ? (
+                lensChips.map((l) => {
+                  const on = lens === l.deviceType;
+                  return (
+                    <Pressable
+                      key={l.deviceType}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: on }}
+                      accessibilityLabel={l.localizedName}
+                      hitSlop={4}
+                      onPress={() => chooseLens(l.deviceType)}
+                      style={[styles.zoomChip, on && styles.zoomChipOn]}>
+                      <Text style={[styles.zoomText, on && styles.zoomTextOn]}>{on && zoom > 0.005 ? 'Zoom' : LENS_LABEL[l.deviceType]}</Text>
+                    </Pressable>
+                  );
+                })
+              ) : (
+                <Pressable accessibilityRole="button" accessibilityLabel="Reset zoom" hitSlop={4} onPress={() => setZoom(0)} style={[styles.zoomChip, styles.zoomChipOn]}>
+                  <Text style={[styles.zoomText, styles.zoomTextOn]}>1×</Text>
+                </Pressable>
+              )}
+            </View>
+          )}
+          <ShotPreview shot={justTaken} />
+          <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.flash, flashStyle]} />
+        </View>
       </View>
 
       <View style={styles.modes} accessibilityRole="tablist">
@@ -630,22 +635,17 @@ export default function CameraScreen() {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={rollAllowed ? 'Add from your photos' : 'Camera-roll uploads are off'}
-          onPress={pickFromLibrary}
-          style={[styles.round, !rollAllowed && styles.roundOff]}>
-          <Images size={22} color={rollAllowed ? LIGHT : 'rgba(244,242,223,0.35)'} />
+          disabled={shut}
+          onPress={() => void pickFromLibrary()}
+          style={[styles.round, (!rollAllowed || shut) && styles.roundOff]}>
+          <Images size={22} color={rollAllowed && !shut ? LIGHT : 'rgba(244,242,223,0.35)'} />
         </Pressable>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={
-            mode === 'photo' ? 'Take photo' : recording ? 'Stop recording' : mode === 'video' ? 'Record video' : 'Record a voice note'
-          }
-          disabled={busy || out || (mode !== 'voice' && (!granted || !ready))}
+          accessibilityLabel={mode === 'photo' ? 'Take photo' : recording ? 'Stop recording' : mode === 'video' ? 'Record video' : 'Record a voice note'}
+          disabled={busy || out || shut || (mode !== 'voice' && (!granted || !ready))}
           onPress={press}
-          style={({ pressed }) => [
-            styles.shutter,
-            (out || (mode !== 'voice' && (!granted || !ready))) && { opacity: 0.4 },
-            pressed && { transform: [{ scale: 0.94 }] },
-          ]}>
+          style={({ pressed }) => [styles.shutter, (out || shut || (mode !== 'voice' && (!granted || !ready))) && { opacity: 0.4 }, pressed && { transform: [{ scale: 0.94 }] }]}>
           {mode === 'photo' ? (
             <View style={styles.shutterInner} />
           ) : (
@@ -677,7 +677,6 @@ export default function CameraScreen() {
           </Text>
         )}
       </View>
-
     </View>
   );
 }
@@ -708,12 +707,7 @@ const ShotPreview = memo(function ShotPreview({ shot }: { shot: { uri: string; n
   const uri = shot && shot.n !== doneN ? shot.uri : null;
   useEffect(() => {
     if (!shot) return;
-    level.set(
-      withSequence(
-        withTiming(1, { duration: 0 }),
-        withDelay(SHOT_HOLD_MS, withTiming(0, { duration: SHOT_FADE_MS, easing: Easing.inOut(Easing.cubic) })),
-      ),
-    );
+    level.set(withSequence(withTiming(1, { duration: 0 }), withDelay(SHOT_HOLD_MS, withTiming(0, { duration: SHOT_FADE_MS, easing: Easing.inOut(Easing.cubic) }))));
     const clear = setTimeout(() => setDoneN(shot.n), SHOT_HOLD_MS + SHOT_FADE_MS + 50);
     return () => clearTimeout(clear);
   }, [shot, level]);
@@ -737,47 +731,22 @@ const ShotPreview = memo(function ShotPreview({ shot }: { shot: { uri: string; n
 
 const useStyles = makeStyles(({ colors, fonts }) => ({
   screen: { flex: 1, backgroundColor: DARK },
-  top: { height: 54, paddingHorizontal: screenPadding - 4, flexDirection: 'row', alignItems: 'center', gap: space.md - 2 },
-  topEyebrow: { color: 'rgba(244,242,223,0.6)', fontSize: 9.5, lineHeight: 13 },
+  top: { height: 34, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   light: { color: LIGHT },
   flex: { flex: 1, minWidth: 0 },
   row: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  pill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 11,
-    paddingVertical: 7,
-    borderRadius: radius.full,
-    borderWidth: 1.5,
-    borderColor: colors.primary,
-  },
+  pill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 11, paddingVertical: 5, borderRadius: radius.full, borderWidth: 1.5, borderColor: colors.primary },
   pillText: { fontFamily: fonts.mono, fontSize: 12, lineHeight: 14, letterSpacing: 0.7, color: LIGHT },
-  viewfinder: { flex: 1, marginHorizontal: 14, borderRadius: 24, overflow: 'hidden', backgroundColor: '#1A221E' },
+  viewfinderArea: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  viewfinder: { overflow: 'hidden', backgroundColor: '#1A221E' },
+  frameUnmeasured: { flex: 1, alignSelf: 'stretch' },
   idle: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.lg, padding: space['2xl'], backgroundColor: '#304538' },
-  lens: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    borderWidth: 1,
-    borderColor: 'rgba(205,215,171,0.35)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  lens: { width: 58, height: 58, borderRadius: 29, borderWidth: 1, borderColor: 'rgba(205,215,171,0.35)', alignItems: 'center', justifyContent: 'center' },
   // eventShare's own serif here, whatever the event's heading font (as in the design).
   wrapTitle: { fontFamily: defaultTheme.fonts.serif, fontSize: 30, lineHeight: 34, letterSpacing: -0.6, color: LIGHT, textAlign: 'center' },
   wrapItalic: { fontFamily: defaultTheme.fonts.serifItalic, color: SAGE },
   wrapText: { color: 'rgba(244,242,223,0.78)', maxWidth: 240 },
-  enable: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    minHeight: 44,
-    paddingHorizontal: space.lg,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(205,215,171,0.45)',
-  },
+  enable: { flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 44, paddingHorizontal: space.lg, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(205,215,171,0.45)' },
   flash: { backgroundColor: colors.white },
   // Shown the instant the shot is taken; the photo paints over it a moment later.
   justTaken: { backgroundColor: '#1A221E' },
@@ -794,8 +763,7 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
     backgroundColor: 'rgba(14,18,16,0.55)',
   },
   uploadingText: { fontFamily: fonts.sansSemiBold, fontSize: 12.5, lineHeight: 16, color: LIGHT },
-  tools: { position: 'absolute', top: space.md, right: space.md, gap: space.sm },
-  tool: { width: 36, height: 36, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.35)' },
+  tool: { width: 32, height: 32, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.1)' },
   toolOn: { backgroundColor: LIGHT },
   toolBadge: { position: 'absolute', right: 6, bottom: 4, fontFamily: fonts.mono, fontSize: 8, lineHeight: 9, color: LIGHT },
   gridLine: { position: 'absolute', backgroundColor: 'rgba(255,255,255,0.45)' },
@@ -805,14 +773,14 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
   zoomChipOn: { backgroundColor: 'rgba(0,0,0,0.5)' },
   zoomText: { fontFamily: fonts.mono, fontSize: 11, lineHeight: 13, color: LIGHT },
   zoomTextOn: { color: '#FFD60A' },
-  controls: { paddingTop: space.lg, paddingHorizontal: 30, paddingBottom: space.sm + 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  controls: { paddingTop: space.sm, paddingHorizontal: 30, paddingBottom: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   round: { width: 50, height: 50, borderRadius: 25, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' },
   roundSpacer: { width: 50, height: 50 },
   roundOff: { backgroundColor: 'rgba(255,255,255,0.06)' },
-  shutter: { width: 78, height: 78, borderRadius: 39, borderWidth: 2, borderColor: colors.primary, padding: 5 },
-  shutterInner: { flex: 1, borderRadius: 34, backgroundColor: LIGHT },
+  shutter: { width: 72, height: 72, borderRadius: 36, borderWidth: 2, borderColor: colors.primary, padding: 5 },
+  shutterInner: { flex: 1, borderRadius: 31, backgroundColor: LIGHT },
   recWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  recStart: { width: 58, height: 58, borderRadius: 29, backgroundColor: REC },
+  recStart: { width: 52, height: 52, borderRadius: 26, backgroundColor: REC },
   recStop: { width: 28, height: 28, borderRadius: 7, backgroundColor: REC },
   recBadge: {
     position: 'absolute',
@@ -828,9 +796,9 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
   },
   recDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: REC },
   recText: { fontFamily: fonts.mono, fontSize: 13, lineHeight: 16, color: '#FFFFFF' },
-  modes: { flexDirection: 'row', justifyContent: 'center', gap: space['2xl'], paddingTop: space.md },
+  modes: { flexDirection: 'row', justifyContent: 'center', gap: space['2xl'], paddingTop: space.sm },
   modeText: { fontFamily: fonts.mono, fontSize: 12, lineHeight: 16, letterSpacing: 1.4, color: 'rgba(244,242,223,0.55)' },
+  footnote: { alignItems: 'center', paddingHorizontal: space['2xl'], paddingBottom: 10 },
+  noteText: { fontSize: 12, lineHeight: 16, color: 'rgba(244,242,223,0.6)' },
   modeOn: { color: '#FFD60A' },
-  footnote: { alignItems: 'center', paddingHorizontal: space['2xl'], paddingBottom: space.md },
-  noteText: { color: 'rgba(244,242,223,0.6)' },
 }));

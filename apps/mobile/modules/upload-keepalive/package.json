@@ -1,0 +1,8 @@
+{
+  "name": "upload-keepalive",
+  "version": "1.0.0",
+  "description": "Keeps eventShare's uploads running when the phone goes in a pocket",
+  "main": "index.ts",
+  "license": "UNLICENSED",
+  "private": true
+}

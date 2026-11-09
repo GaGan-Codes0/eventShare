@@ -199,10 +199,10 @@ function PhotoViewer() {
         ) : photo.kind === 'voice' && photo.url ? (
           <VoicePlayer uri={photo.url} durationMs={photo.durationMs ?? 0} style={StyleSheet.absoluteFill} />
         ) : ev && ev.filter !== 'natural' ? (
-          <FilteredImage uri={photo.url} filter={ev.filter} fit="contain" style={StyleSheet.absoluteFill} onLoad={onPhotoLoad} />
+          <FilteredImage uri={photo.previewUrl ?? photo.url} filter={ev.filter} fit="contain" style={StyleSheet.absoluteFill} onLoad={onPhotoLoad} />
         ) : (
           <Image
-            source={photo.url ? stableSource(photo.url) : undefined}
+            source={photo.url ? stableSource(photo.previewUrl ?? photo.url) : undefined}
             placeholder={photo.thumbUrl ? stableSource(photo.thumbUrl) : undefined}
             style={StyleSheet.absoluteFill}
             contentFit="contain"

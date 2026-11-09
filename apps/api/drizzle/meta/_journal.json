@@ -92,6 +92,20 @@
       "when": 1794158733355,
       "tag": "0012_faces_pgvector",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794161270552,
+      "tag": "0013_photo_preview_multipart",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794202398511,
+      "tag": "0014_shot_refills",
+      "breakpoints": true
     }
   ]
 }

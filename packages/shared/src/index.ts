@@ -27,6 +27,12 @@ export const PHOTO_PAGE_SIZE = 60;
 export const MAX_THUMB_BYTES = 2 * 1024 * 1024;
 /** Long edge of the gallery preview the phone generates. */
 export const THUMB_MAX_EDGE = 720;
+/** The image shown when a photo is opened: sharp on any phone, a fraction of the original's size. */
+export const PREVIEW_MAX_EDGE = 1600;
+export const MAX_PREVIEW_BYTES = 5 * 1024 * 1024;
+/** Files this big go up in pieces, so a dropped connection only costs the current piece. */
+export const MULTIPART_THRESHOLD_BYTES = 20 * 1024 * 1024;
+export const MULTIPART_PART_BYTES = 10 * 1024 * 1024;
 
 // ---------- users ----------
 
@@ -84,11 +90,38 @@ export const MAX_PHOTOGRAPHERS = 3;
  * How many photos someone in this role may upload to one event; null means no limit.
  * Events made before the 10/24/36/50 choices may still have 20, 40 or 60 for guests.
  */
-export function photoLimitFor(role: EventRole, guestPhotoLimit: number | null): number | null {
+export function photoLimitFor(role: EventRole, guestPhotoLimit: number | null, bonusShots = 0): number | null {
   // The host's pass: no limit and no review ("You're the host. No limit, no review").
   if (role === 'host') return null;
   if (role === 'photographer') return PHOTOGRAPHER_PHOTO_LIMIT;
-  return guestPhotoLimit;
+  return guestPhotoLimit === null ? null : guestPhotoLimit + bonusShots;
+}
+
+const HOUR_MS = 60 * 60_000;
+/** How long the camera stays open after the event day ends. */
+export const SHOOTING_HOURS_AFTER_EVENT_DAY = 48;
+/** A shot taken in time but stuck on a phone with no signal can still arrive this long after closing. */
+export const LATE_UPLOAD_GRACE_MS = 24 * HOUR_MS;
+
+/**
+ * When shooting is possible: all of the event day and the 48 hours after it. An event's date is
+ * stored as midday on that day in the host's own time zone, so midnight is 12 hours either side.
+ * An event with no date has no window.
+ */
+export function shootingWindow(startsAt: string | Date | null): { opensAt: number; closesAt: number } | null {
+  if (!startsAt) return null;
+  const midday = new Date(startsAt).getTime();
+  return { opensAt: midday - 12 * HOUR_MS, closesAt: midday + (12 + SHOOTING_HOURS_AFTER_EVENT_DAY) * HOUR_MS };
+}
+
+export type ShootingPhase = 'early' | 'open' | 'closed';
+
+/** Guests wait for the event day; hosts and photographers can shoot before it. Nobody can after. */
+export function shootingPhase(role: EventRole, startsAt: string | Date | null, now = Date.now()): ShootingPhase {
+  const window = shootingWindow(startsAt);
+  if (!window) return 'open';
+  if (now >= window.closesAt) return 'closed';
+  return role === 'member' && now < window.opensAt ? 'early' : 'open';
 }
 
 const guestPhotoLimit = z.union([
@@ -301,6 +334,8 @@ export type EventLive = {
   new: number;
   /** Moves on anything else: a hide, delete, approval or rule change. */
   rev: number;
+  /** Moves when a guest asks for more shots, or the hosts answer. */
+  refill: number;
 };
 
 /** The host's rules for the event. */
@@ -323,9 +358,30 @@ export type EventRules = {
   prompts: string[];
 };
 
+/** How many extra shots the hosts can give a guest who asks. */
+export const REFILL_SHOTS = [5, 10, 24] as const;
+export const REFILL_RETRY_AFTER_MS = 10 * 60_000;
+export const approveRefillSchema = z.object({ shots: z.union([z.literal(5), z.literal(10), z.literal(24)]) });
+export type ApproveRefillInput = z.infer<typeof approveRefillSchema>;
+
+/** Host: a guest who has asked for more shots. */
+export type RefillRequest = {
+  id: string;
+  userId: string;
+  name: string;
+  avatarUrl: string | null;
+  photosUsed: number;
+  photoLimit: number | null;
+  requestedAt: string;
+};
+
 export type EventSummary = EventIdentity &
   EventRules & {
     id: string;
+    /** Guests: where your request for more shots stands (null: you can ask). */
+    refillStatus: 'pending' | 'declined' | null;
+    /** Host: guests waiting for more shots (0 for others). */
+    pendingRefillCount: number;
     /** The host's poster if there is one, else the newest photo you can see. */
     coverUrl: string | null;
     role: EventRole;
@@ -370,6 +426,8 @@ export type Member = {
   role: EventRole;
   joinedAt: string;
   photosUsed: number;
+  /** Extra shots the hosts have given this guest. */
+  bonusShots: number;
   /** Only the host sees members' emails. */
   email?: string | null;
 };
@@ -388,6 +446,10 @@ export const createUploadSchema = z
     byteSize: z.number().int().positive().max(MAX_VIDEO_BYTES),
     /** Small JPEG preview made on the phone (a video's first frame); voice notes have none. */
     thumbByteSize: z.number().int().positive().max(MAX_THUMB_BYTES).optional(),
+    /** Photos: a mid-size JPEG made on the phone, shown when the photo is opened. */
+    previewByteSize: z.number().int().positive().max(MAX_PREVIEW_BYTES).optional(),
+    /** This app can send big files in pieces (older builds can't). */
+    multipart: z.boolean().optional(),
     /** Videos and voice notes: their length as the phone measured it (the server checks the file). */
     durationMs: z.number().int().positive().max(VIDEO_LIMIT_MS).optional(),
     width: z.number().int().positive().optional(),
@@ -417,7 +479,16 @@ export type UploadTicket = {
   /** Both null when this clientUploadId was already completed — nothing left to send. */
   original: UploadTarget | null;
   thumb: UploadTarget | null;
+  preview: UploadTarget | null;
+  /** Set instead of `original` for big files. Send `parts` back when finishing. */
+  multipart: { uploadId: string; partBytes: number; parts: { number: number; url: string }[] } | null;
 };
+
+/** Finishing an upload: the pieces of a big file, with the tag storage returned for each. */
+export const completeUploadSchema = z
+  .object({ parts: z.array(z.object({ number: z.number().int().positive().max(10_000), etag: z.string().min(1).max(200) })).max(10_000).optional() })
+  .optional();
+export type CompleteUploadInput = z.infer<typeof completeUploadSchema>;
 
 /** Host only: hide/unhide, or approve a guest photo waiting for review (declining deletes it). */
 export const updatePhotoSchema = z
@@ -474,6 +545,8 @@ export type Photo = {
   durationMs: number | null;
   /** Short-lived signed URLs. Voice notes have no thumbnail. */
   thumbUrl: string | null;
+  /** What to show when it's opened; null for older photos (use `url`). */
+  previewUrl: string | null;
   url: string | null;
 };
 
@@ -490,6 +563,8 @@ export type ApiErrorCode =
   | 'VOICE_LIMIT_REACHED'
   | 'PHOTOGRAPHER_SLOTS_FULL'
   | 'LIBRARY_UPLOADS_OFF'
+  | 'SHOOTING_NOT_OPEN'
+  | 'SHOOTING_CLOSED'
   | 'DOWNLOADS_OFF';
 
 // ---------- find my photos ----------

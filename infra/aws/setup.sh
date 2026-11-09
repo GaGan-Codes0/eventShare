@@ -43,7 +43,7 @@ if ! aws iam get-role --role-name "$NAME" >/dev/null 2>&1; then
 fi
 aws iam put-role-policy --role-name "$NAME" --policy-name eventshare-access --policy-document "{
   \"Version\":\"2012-10-17\",\"Statement\":[
-    {\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":\"arn:aws:s3:::$PHOTOS/*\"},
+    {\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:DeleteObject\",\"s3:ListMultipartUploadParts\"],\"Resource\":\"arn:aws:s3:::$PHOTOS/*\"},
     {\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::$PHOTOS\"},
     {\"Effect\":\"Allow\",\"Action\":\"s3:PutObject\",\"Resource\":\"arn:aws:s3:::$BACKUPS/*\"}]}"
 

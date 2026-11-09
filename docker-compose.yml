@@ -2,7 +2,7 @@
 services:
   postgres:
     # Postgres 16 with pgvector, for matching faces inside the database.
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg16-trixie
     environment:
       POSTGRES_USER: eventshare
       POSTGRES_PASSWORD: eventshare

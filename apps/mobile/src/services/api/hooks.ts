@@ -1,4 +1,5 @@
 import type {
+  ApproveRefillInput,
   ArchiveStatus,
   ArchiveScope,
   ArchiveSummary,
@@ -15,6 +16,7 @@ import type {
   PhotographerInvite,
   PhotoListFilter,
   PhotoVisibility,
+  RefillRequest,
   UpdateEventInput,
   UpdateMemberInput,
   User,
@@ -30,6 +32,7 @@ export const keys = {
   event: (id: string) => ['events', id] as const,
   members: (id: string) => ['events', id, 'members'] as const,
   invites: (id: string) => ['events', id, 'photographer-invites'] as const,
+  refills: (id: string) => ['events', id, 'refill-requests'] as const,
   /** Every filtered list of an event's photos sits under this key, so one invalidation refreshes them all. */
   photos: (id: string) => ['events', id, 'photos'] as const,
   photoList: (id: string, filter: PhotoListFilter) => ['events', id, 'photos', filter] as const,
@@ -267,6 +270,40 @@ export function useDeleteFaceProfile(eventId: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keys.event(eventId) });
       void qc.invalidateQueries({ queryKey: keys.photoList(eventId, 'me') });
+    },
+  });
+}
+
+/** A guest asks the hosts for more shots. */
+export function useRequestRefill(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<void>(`/events/${eventId}/refill-requests`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.event(eventId), exact: true }),
+  });
+}
+
+/** Host: guests waiting for more shots. */
+export function useRefillRequests(eventId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: keys.refills(eventId ?? ''),
+    queryFn: () => api<RefillRequest[]>(`/events/${eventId}/refill-requests`),
+    enabled: Boolean(eventId) && enabled,
+  });
+}
+
+/** Host: gives a guest this many shots, or (null) says not now. */
+export function useDecideRefill(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ requestId, shots }: { requestId: string; shots: ApproveRefillInput['shots'] | null }) =>
+      shots === null
+        ? api<void>(`/events/${eventId}/refill-requests/${requestId}/decline`, { method: 'POST' })
+        : api<void>(`/events/${eventId}/refill-requests/${requestId}/approve`, { body: { shots } }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: keys.refills(eventId) });
+      void qc.invalidateQueries({ queryKey: keys.members(eventId) });
+      void qc.invalidateQueries({ queryKey: keys.event(eventId), exact: true });
     },
   });
 }

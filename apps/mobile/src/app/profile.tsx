@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { Aperture, CalendarClock, LogOut } from 'lucide-react-native';
+import { Aperture, CalendarClock, Grid3x3, LogOut } from 'lucide-react-native';
 import { Image } from 'expo-image';
 import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 
@@ -76,6 +76,25 @@ function Profile() {
                 {used}
               </Text>
             </View>
+          </View>
+          <View style={styles.card}>
+            <View style={styles.cardIcon}>
+              <Grid3x3 size={18} color={colors.accent} />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.cardTitle}>Camera grid</Text>
+              <Text variant="caption" color="muted">
+                Lines on the camera to help you frame a shot.
+              </Text>
+            </View>
+            <Switch
+              accessibilityLabel="Camera grid"
+              value={prefs.cameraGrid}
+              onValueChange={(on) => setPreference('cameraGrid', on)}
+              trackColor={{ true: colors.primary, false: colors.lineStrong }}
+              thumbColor={colors.surface}
+              ios_backgroundColor={colors.lineStrong}
+            />
           </View>
           {/* Your own choice: hide the host's date stamp on your phone (originals never have it). */}
           {event.dateStamp && (

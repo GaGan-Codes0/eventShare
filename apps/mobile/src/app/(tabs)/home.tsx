@@ -6,8 +6,10 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-n
 import { Text } from '@/components/ui';
 import { radius, screenPadding, space } from '@/constants/theme';
 import { GuestHeader } from '@/features/events/event-header';
+import { useShootingPhase } from '@/features/events/shooting-window';
 import { hostShort, longDate } from '@/features/events/identity';
 import { NoEventYet } from '@/features/events/no-event';
+import { RefillAction } from '@/features/events/refill-action';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { lockText, openPhoto } from '@/features/gallery/album-view';
 import { FilteredImage } from '@/features/gallery/photo-filters';
@@ -24,6 +26,7 @@ export default function EventHome() {
   const { id, event, query } = useCurrentEvent();
   const photos = usePhotos(id);
   const queue = useUploadQueue(id);
+  const phase = useShootingPhase(event);
   if (!id) return <NoEventYet title="Home" />;
   if (!event) return <View style={styles.screen} />;
 
@@ -119,15 +122,22 @@ export default function EventHome() {
               </Text>
             </View>
           </View>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.navigate('/(tabs)/camera')}
-            style={({ pressed }) => [styles.cta, pressed && { transform: [{ scale: 0.98 }] }]}>
-            <Camera size={18} color={colors.onPrimary} />
-            <Text variant="bodyStrong" style={{ color: colors.onPrimary }}>
-              Open camera
+          {phase === 'open' && left === 0 && event.role === 'member' && <RefillAction event={event} />}
+          {phase === 'open' ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.navigate('/(tabs)/camera')}
+              style={({ pressed }) => [styles.cta, pressed && { transform: [{ scale: 0.98 }] }]}>
+              <Camera size={18} color={colors.onPrimary} />
+              <Text variant="bodyStrong" style={{ color: colors.onPrimary }}>
+                Open camera
+              </Text>
+            </Pressable>
+          ) : (
+            <Text variant="caption" color="muted" align="center">
+              {phase === 'closed' ? 'The camera closed 48 hours after the event day.' : `The camera opens on ${longDate(event.startsAt)}.`}
             </Text>
-          </Pressable>
+          )}
         </View>
 
         <View style={styles.section}>
@@ -148,7 +158,7 @@ export default function EventHome() {
               <View style={styles.flex}>
                 <Text variant="bodyStrong">Developing…</Text>
                 <Text variant="caption" color="muted">
-                  {lockText(event)} Keep shooting, your photos are safe.
+                  {lockText(event)} {phase === 'open' ? 'Keep shooting, your photos are safe.' : 'Your photos are safe.'}
                 </Text>
               </View>
             </View>

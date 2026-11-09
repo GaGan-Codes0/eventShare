@@ -13,11 +13,13 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  completeUploadSchema,
   createArchiveSchema,
   createUploadSchema,
   PHOTO_LIST_FILTERS,
   PHOTO_PAGE_SIZE,
   updatePhotoSchema,
+  type CompleteUploadInput,
   type CreateArchiveInput,
   type PhotoListFilter,
   type UpdatePhotoInput,
@@ -75,8 +77,12 @@ export class PhotosController {
   }
 
   @Post('photos/:id/complete')
-  complete(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.photos.complete(id, user.id);
+  complete(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(completeUploadSchema)) body: CompleteUploadInput,
+  ) {
+    return this.photos.complete(id, user.id, body?.parts);
   }
 
   @Get('photos/:id/download')

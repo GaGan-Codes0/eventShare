@@ -59,8 +59,8 @@ export class RealtimeService implements OnModuleInit {
     if (counters === null) {
       // Redis is down: a value that moves on its own keeps phones refreshing slowly.
       const bucket = Math.floor(Date.now() / FALLBACK_BUCKET_MS);
-      return { new: bucket, rev: 0 };
+      return { new: bucket, rev: 0, refill: bucket };
     }
-    return { new: Number(counters.new ?? 0), rev: Number(counters.rev ?? 0) };
+    return { new: Number(counters.new ?? 0), rev: Number(counters.rev ?? 0), refill: Number(counters.refill ?? 0) };
   }
 }

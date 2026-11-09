@@ -1,6 +1,6 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { Calendar, ChevronRight, Download, Eye, MapPin, QrCode, ShieldCheck } from 'lucide-react-native';
+import { Calendar, ChevronRight, Download, Eye, MapPin, Plus, QrCode, ShieldCheck } from 'lucide-react-native';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Button, LoadingState, Text } from '@/components/ui';
@@ -9,6 +9,7 @@ import { radius, screenPadding, space } from '@/constants/theme';
 import { EventBadge } from '@/features/events/event-card';
 import { HostHeader } from '@/features/events/event-header';
 import { longDate } from '@/features/events/identity';
+import { useShootingPhase } from '@/features/events/shooting-window';
 import { NoEventYet } from '@/features/events/no-event';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { openGuestView } from '@/features/events/open-event';
@@ -25,11 +26,12 @@ export default function Overview() {
   const { id, event, query } = useCurrentEvent();
   const photos = usePhotos(id);
   const look = useEventLook();
+  const closed = useShootingPhase(event) === 'closed';
   if (!id) return <NoEventYet title="Overview" />;
   if (!event) return <LoadingState />;
 
   const latest = (photos.data?.pages[0]?.items ?? []).filter((p) => !p.pendingReview).slice(0, 6);
-  const live = event.memberCount > 1;
+  const live = event.memberCount > 1 && !closed;
 
   return (
     <View style={styles.screen}>
@@ -54,7 +56,7 @@ export default function Overview() {
               <View style={styles.status}>
                 <View style={[styles.statusDot, !live && { backgroundColor: colors.subtle }]} />
                 <Text variant="eyebrow" style={styles.statusText}>
-                  {live ? 'Live · uploads open' : 'Ready for guests'}
+                  {closed ? 'Uploads closed' : live ? 'Live · uploads open' : 'Ready for guests'}
                 </Text>
               </View>
               <View style={styles.badge}>
@@ -106,6 +108,16 @@ export default function Overview() {
           </View>
           <ChevronRight size={16} color={colors.ink} />
         </Pressable>
+
+        {event.pendingRefillCount > 0 && (
+          <Pressable accessibilityRole="button" onPress={() => router.navigate('/(tabs)/people')} style={styles.review}>
+            <Plus size={18} color={colors.notice} />
+            <Text variant="label" color="notice" style={styles.flex}>
+              {event.pendingRefillCount} guest{event.pendingRefillCount === 1 ? '' : 's'} asking for more shots
+            </Text>
+            <ChevronRight size={16} color={colors.notice} />
+          </Pressable>
+        )}
 
         {event.pendingReviewCount > 0 && (
           <Pressable accessibilityRole="button" onPress={() => router.navigate('/(tabs)/gallery')} style={styles.review}>

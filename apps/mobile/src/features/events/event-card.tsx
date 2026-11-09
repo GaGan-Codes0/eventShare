@@ -1,4 +1,4 @@
-import type { EventIdentity, EventSummary } from '@eventshare/shared';
+import { shootingPhase, type EventIdentity, type EventSummary } from '@eventshare/shared';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Pressable, StyleSheet, View } from 'react-native';
@@ -36,7 +36,8 @@ export function EventBadge({ event, size }: { event: BadgeEvent; size: number })
 export function EventCard({ event, onPress }: { event: EventSummary; onPress: () => void }) {
   const { colors, frame } = useTheme();
   const styles = useStyles();
-  const live = event.memberCount > 1;
+  const closed = shootingPhase('host', event.startsAt) === 'closed';
+  const live = event.memberCount > 1 && !closed;
   const meta = [
     shortDate(event.startsAt),
     plural(event.photoCount, 'photo'),
@@ -60,7 +61,7 @@ export function EventCard({ event, onPress }: { event: EventSummary; onPress: ()
           <View style={styles.status}>
             <View style={[styles.statusDot, !live && { backgroundColor: colors.subtle }]} />
             <Text variant="eyebrow" style={styles.statusText}>
-              {live ? 'Live now' : 'Ready for guests'}
+              {closed ? 'Uploads closed' : live ? 'Live now' : 'Ready for guests'}
             </Text>
           </View>
         </View>

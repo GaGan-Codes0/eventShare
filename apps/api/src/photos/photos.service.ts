@@ -6,12 +6,18 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
   type OnModuleInit,
 } from '@nestjs/common';
 import {
+  MULTIPART_PART_BYTES,
+  MULTIPART_THRESHOLD_BYTES,
   PHOTO_PAGE_SIZE,
   type ApiError,
   type CreateUploadInput,
+  LATE_UPLOAD_GRACE_MS,
+  shootingPhase,
+  shootingWindow,
   type EventRole,
   type MediaKind,
   type Page,
@@ -57,6 +63,20 @@ const EXTENSIONS: Record<string, string> = {
 };
 
 const VERIFY_QUEUE = 'verify-thumbnail';
+const FINISH_QUEUE = 'finish-upload';
+/** Checks 2, 4, 8… minutes apart: about an hour for a photo, about 8 hours for a big video. */
+const PHOTO_TRIES = 6;
+const BIG_FILE_TRIES = 9;
+const FINISH_JOB = (photoId: string, attempts: number) => ({
+  jobId: `finish-${photoId}`,
+  delay: 2 * 60_000,
+  attempts,
+  backoff: { type: 'exponential', delay: 2 * 60_000 },
+  removeOnFail: true,
+});
+
+/** Every stored file a finished photo links to. */
+const fileKeys = (p: PhotoRow) => (p.status === 'ready' ? [p.storageKey, p.thumbKey, p.previewKey].filter((k): k is string => Boolean(k)) : []);
 
 /** The phone's own measurement may be off by a frame or two; past this the file's length wins. */
 const DURATION_SLACK_MS = 1000;
@@ -90,6 +110,7 @@ export class PhotosService implements OnModuleInit {
 
   onModuleInit() {
     this.queue.register<{ photoId: string }>(VERIFY_QUEUE, async ({ photoId }) => void (await this.verifyThumbnail(photoId)), 2);
+    this.queue.register<{ photoId: string }>(FINISH_QUEUE, ({ photoId }) => this.finishInBackground(photoId), 5);
   }
 
   /**
@@ -108,6 +129,7 @@ export class PhotosService implements OnModuleInit {
     if (row && row.eventId !== eventId) throw new ConflictException('Upload id already used for another event');
 
     if (!row) {
+      this.requireShootingOpen(event.startsAt, role, input.takenAt);
       const id = crypto.randomUUID();
       const base = `events/${eventId}/photos/${id}`;
       // A new photo takes one slot of the uploader's allowance, a video or voice note its length
@@ -125,6 +147,7 @@ export class PhotosService implements OnModuleInit {
               clientUploadId: input.clientUploadId,
               storageKey: `${base}/original.${EXTENSIONS[input.contentType]}`,
               thumbKey: input.kind === 'voice' ? null : `${base}/thumb.jpg`,
+              previewKey: input.kind === 'photo' && input.previewByteSize ? `${base}/preview.jpg` : null,
               kind: input.kind,
               durationMs: input.kind === 'photo' ? null : (input.durationMs ?? null),
               contentType: input.contentType,
@@ -153,38 +176,135 @@ export class PhotosService implements OnModuleInit {
       if (!row) throw new ConflictException('Please retry');
     }
 
-    if (row.status === 'ready') return { photoId: row.id, status: row.status, original: null, thumb: null };
+    if (row.status === 'ready') return { photoId: row.id, status: row.status, original: null, thumb: null, preview: null, multipart: null };
 
-    const [originalUrl, thumbUrl] = await Promise.all([
-      this.storage.presignUpload(row.storageKey, row.contentType, row.byteSize),
+    const inPieces = input.multipart === true && row.byteSize >= MULTIPART_THRESHOLD_BYTES;
+    const jpeg = (url: string | null) => (url ? { url, headers: { 'Content-Type': 'image/jpeg' } } : null);
+    const [originalUrl, thumbUrl, previewUrl, multipart] = await Promise.all([
+      inPieces ? null : this.storage.presignUpload(row.storageKey, row.contentType, row.byteSize),
       row.thumbKey && input.thumbByteSize ? this.storage.presignUpload(row.thumbKey, 'image/jpeg', input.thumbByteSize) : null,
+      row.previewKey && input.previewByteSize ? this.storage.presignUpload(row.previewKey, 'image/jpeg', input.previewByteSize) : null,
+      inPieces ? this.partLinks(row) : null,
     ]);
+    // If the phone goes to sleep before it can say it's done, the server finishes the photo itself.
+    if (row.kind === 'photo' || inPieces) await this.queue.add(FINISH_QUEUE, { photoId: row.id }, FINISH_JOB(row.id, inPieces ? BIG_FILE_TRIES : PHOTO_TRIES));
     return {
       photoId: row.id,
       status: row.status,
-      original: { url: originalUrl, headers: { 'Content-Type': row.contentType } },
-      thumb: thumbUrl ? { url: thumbUrl, headers: { 'Content-Type': 'image/jpeg' } } : null,
+      original: originalUrl ? { url: originalUrl, headers: { 'Content-Type': row.contentType } } : null,
+      thumb: jpeg(thumbUrl),
+      preview: jpeg(previewUrl),
+      multipart,
     };
   }
 
+  /** One signed link per piece. A retry keeps the same upload, so finished pieces stay finished. */
+  /** New shots only: a photo whose upload already began can always finish. */
+  private requireShootingOpen(startsAt: Date | null, role: EventRole, takenAt: string | undefined) {
+    const phase = shootingPhase(role, startsAt);
+    if (phase === 'open') return;
+    if (phase === 'early') throw forbidden('SHOOTING_NOT_OPEN', 'The camera opens on the day of the event');
+    // Taken before closing on a phone that had no signal: it still gets in, for a while.
+    const closesAt = shootingWindow(startsAt)!.closesAt;
+    const takenInTime = takenAt !== undefined && new Date(takenAt).getTime() < closesAt;
+    if (!takenInTime || Date.now() > closesAt + LATE_UPLOAD_GRACE_MS) {
+      throw forbidden('SHOOTING_CLOSED', 'The camera closed 48 hours after the event day');
+    }
+  }
+
+  private async partLinks(row: PhotoRow) {
+    let uploadId = row.multipartUploadId;
+    if (!uploadId) {
+      uploadId = await this.storage.createMultipart(row.storageKey, row.contentType);
+      await this.db.update(photos).set({ multipartUploadId: uploadId }).where(eq(photos.id, row.id));
+    }
+    const count = Math.ceil(row.byteSize / MULTIPART_PART_BYTES);
+    const parts = await Promise.all(
+      Array.from({ length: count }, async (_, i) => {
+        const number = i + 1;
+        const size = number < count ? MULTIPART_PART_BYTES : row.byteSize - MULTIPART_PART_BYTES * (count - 1);
+        return { number, url: await this.storage.presignPart(row.storageKey, uploadId, number, size) };
+      }),
+    );
+    return { uploadId, partBytes: MULTIPART_PART_BYTES, parts };
+  }
+
+  /** Joins a big file's pieces. Safe to repeat if the phone never heard the answer last time. */
+  private async joinParts(row: PhotoRow, parts: { number: number; etag: string }[] | undefined) {
+    const uploadId = row.multipartUploadId!;
+    const count = Math.ceil(row.byteSize / MULTIPART_PART_BYTES);
+    if (new Set(parts?.map((p) => p.number)).size !== count || parts?.some((p) => p.number > count)) {
+      throw new BadRequestException('Some pieces are missing');
+    }
+    const joined = await this.storage.completeMultipart(row.storageKey, uploadId, parts!);
+    if (!joined && !(await this.storage.head(row.storageKey))) {
+      // Storage dropped an abandoned upload: start again (the phone sees a new upload id).
+      await this.db.update(photos).set({ multipartUploadId: null }).where(eq(photos.id, row.id));
+      throw new ServiceUnavailableException('Upload expired, starting again');
+    }
+    await this.db.update(photos).set({ multipartUploadId: null }).where(eq(photos.id, row.id));
+  }
+
   /** Step 2: the phone says both files are uploaded. We verify before showing it to anyone. */
-  async complete(photoId: string, userId: string): Promise<Photo> {
+  async complete(photoId: string, userId: string, parts?: { number: number; etag: string }[]): Promise<Photo> {
     const row = await this.db.query.photos.findFirst({ where: and(eq(photos.id, photoId), isNull(photos.deletedAt)) });
     if (!row || row.uploaderId !== userId) throw new NotFoundException('Photo not found');
     await this.events.requireMember(row.eventId, userId);
     if (row.status === 'ready') return this.dtoFor(row, userId);
+    if (row.multipartUploadId) await this.joinParts(row, parts);
 
-    const [original, thumb] = await Promise.all([
-      this.storage.head(row.storageKey),
-      row.thumbKey ? this.storage.head(row.thumbKey) : Promise.resolve(null),
-    ]);
-    if (!original || (row.thumbKey && !thumb)) throw new BadRequestException('Upload not finished');
-    if (original.size !== row.byteSize) {
+    if (!(await this.filesArrived(row))) throw new BadRequestException('Upload not finished');
+    return this.dtoFor(await this.markReady(row), userId);
+  }
+
+  private async filesArrived(row: PhotoRow) {
+    const files = await Promise.all([row.storageKey, row.thumbKey, row.previewKey].map((key) => (key ? this.storage.head(key) : 'none')));
+    return files.every(Boolean);
+  }
+
+  /** The phone went quiet: if its files arrived anyway, put the photo live. Retried for about an hour. */
+  private async finishInBackground(photoId: string) {
+    const row = await this.db.query.photos.findFirst({ where: and(eq(photos.id, photoId), isNull(photos.deletedAt)) });
+    if (row?.status !== 'pending') return;
+    if (row.multipartUploadId) {
+      const parts = await this.storage.listParts(row.storageKey, row.multipartUploadId);
+      if (parts.length < Math.ceil(row.byteSize / MULTIPART_PART_BYTES)) throw new Error('still uploading');
+      await this.joinParts(row, parts);
+    }
+    if (!(await this.filesArrived(row))) throw new Error('still uploading');
+    await this.markReady(row);
+  }
+
+  /** Checks the files are what was promised, and puts the photo live. */
+  private async markReady(row: PhotoRow): Promise<PhotoRow> {
+    const original = await this.storage.head(row.storageKey);
+    if (original?.size !== row.byteSize) {
       await this.setStatus(row.id, 'failed');
       throw new BadRequestException('Uploaded file size does not match');
     }
 
-    const durationMs = row.kind === 'photo' ? null : await this.checkDuration(row);
+    // A video can be finished by the phone and the server at the same moment: only one may
+    // adjust the person's video time.
+    if (row.kind !== 'photo') {
+      const [claimed] = await this.db
+        .update(photos)
+        .set({ status: 'processing' })
+        .where(and(eq(photos.id, row.id), eq(photos.status, 'pending')))
+        .returning({ id: photos.id });
+      if (!claimed) {
+        const now = await this.db.query.photos.findFirst({ where: eq(photos.id, row.id) });
+        if (now?.status === 'ready') return now;
+        throw new ServiceUnavailableException('Already being finished');
+      }
+    }
+    let durationMs: number | null = null;
+    try {
+      if (row.kind !== 'photo') durationMs = await this.checkDuration(row);
+    } catch (err) {
+      // checkDuration marks a refused file as failed itself; anything else can be tried again.
+      await this.db.update(photos).set({ status: 'pending' }).where(and(eq(photos.id, row.id), eq(photos.status, 'processing')));
+      throw err;
+    }
     const [ready] = await this.db.update(photos).set({ status: 'ready', durationMs }).where(eq(photos.id, row.id)).returning();
 
     // Decoding images is the heavy part, so it happens on the queue and the phone doesn't wait.
@@ -194,7 +314,7 @@ export class PhotosService implements OnModuleInit {
       if (!queued && !(await this.verifyThumbnail(ready.id))) throw new BadRequestException('Preview image is invalid');
     }
     await this.realtime.touch(ready.eventId, 'new');
-    return this.dtoFor(ready, userId);
+    return ready;
   }
 
   /** Makes sure a thumbnail really is an image; if not, takes the photo down. False when it was bad. */
@@ -274,7 +394,7 @@ export class PhotosService implements OnModuleInit {
 
     const page = rows.slice(0, limit);
     const last = page.at(-1);
-    const urls = await this.storage.signedUrls(page.flatMap(({ p }) => (p.status === 'ready' ? [p.storageKey, ...(p.thumbKey ? [p.thumbKey] : [])] : [])));
+    const urls = await this.storage.signedUrls(page.flatMap(({ p }) => fileKeys(p)));
     return {
       items: page.map(({ p, ...extras }) => this.toDto(p, extras, urls)),
       nextCursor: rows.length > limit && last ? encodeCursor(last.p) : null,
@@ -300,7 +420,7 @@ export class PhotosService implements OnModuleInit {
     const [found] = await this.withExtras(viewerId).where(eq(photos.id, row.id)).limit(1);
     if (!found) throw new NotFoundException('Photo not found');
     const { p, ...extras } = found;
-    const urls = await this.storage.signedUrls(p.status === 'ready' ? [p.storageKey, ...(p.thumbKey ? [p.thumbKey] : [])] : []);
+    const urls = await this.storage.signedUrls(fileKeys(p));
     return this.toDto(p, extras, urls);
   }
 
@@ -379,6 +499,7 @@ export class PhotosService implements OnModuleInit {
   private toDto(row: PhotoRow, extras: PhotoExtras, urls: Map<string, string>): Photo {
     const ready = row.status === 'ready';
     const thumbUrl = ready && row.thumbKey ? (urls.get(row.thumbKey) ?? null) : null;
+    const previewUrl = ready && row.previewKey ? (urls.get(row.previewKey) ?? null) : null;
     const url = ready ? (urls.get(row.storageKey) ?? null) : null;
     return {
       id: row.id,
@@ -397,6 +518,7 @@ export class PhotosService implements OnModuleInit {
       kind: row.kind,
       durationMs: row.durationMs,
       thumbUrl,
+      previewUrl,
       url,
     };
   }

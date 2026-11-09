@@ -49,7 +49,7 @@ const hosted = await q('SELECT id, name FROM events WHERE owner_id = ANY($1)', [
 const hostedIds = hosted.map((e) => e.id);
 // Photos to go: everything in their events, and whatever they uploaded anywhere else.
 const doomedPhotos = await q(
-  `SELECT id, event_id, storage_key, thumb_key, kind FROM photos WHERE event_id = ANY($1) OR uploader_id = ANY($2)`,
+  `SELECT id, event_id, storage_key, thumb_key, preview_key, kind FROM photos WHERE event_id = ANY($1) OR uploader_id = ANY($2)`,
   [hostedIds, ids],
 );
 const photoIds = doomedPhotos.map((p) => p.id);
@@ -74,6 +74,7 @@ const keys = new Set();
 for (const p of doomedPhotos) {
   keys.add(p.storage_key);
   if (p.thumb_key) keys.add(p.thumb_key);
+  if (p.preview_key) keys.add(p.preview_key);
 }
 for (const a of archives) keys.add(a.key);
 for (const i of images) for (const k of [i.logo_key, i.poster_key]) if (k) keys.add(k);
@@ -109,6 +110,7 @@ if (!confirm) {
 await db.query('BEGIN');
 try {
   await db.query('DELETE FROM photo_likes WHERE photo_id = ANY($1) OR user_id = ANY($2)', [photoIds, ids]);
+  await db.query('DELETE FROM shot_refill_requests WHERE event_id = ANY($1) OR user_id = ANY($2)', [hostedIds, ids]);
   // Faceprints (Find my photos): of the photos going, of their events, and their own selfie prints.
   await db.query('DELETE FROM photo_faces WHERE photo_id = ANY($1) OR event_id = ANY($2)', [photoIds, hostedIds]);
   await db.query('DELETE FROM face_profiles WHERE event_id = ANY($1) OR user_id = ANY($2)', [hostedIds, ids]);

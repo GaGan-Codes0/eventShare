@@ -119,6 +119,8 @@ export const eventMembers = pgTable(
      * limit, so concurrent uploads can't overshoot. Deleting a photo doesn't give the slot back.
      */
     photosUsed: integer('photos_used').notNull().default(0),
+    /** Extra shots the hosts gave this guest on top of the event's allowance. */
+    bonusShots: integer('bonus_shots').notNull().default(0),
     /** Video and voice time this person has used here, raised the same way (never past the limit). */
     videoMsUsed: integer('video_ms_used').notNull().default(0),
     voiceMsUsed: integer('voice_ms_used').notNull().default(0),
@@ -172,6 +174,10 @@ export const photos = pgTable(
     storageKey: text('storage_key').notNull(),
     /** Photos and videos have a preview; voice notes don't. */
     thumbKey: text('thumb_key'),
+    /** Photos: the mid-size image shown when one is opened. Older photos don't have it. */
+    previewKey: text('preview_key'),
+    /** Set while a big file is going up in pieces. */
+    multipartUploadId: text('multipart_upload_id'),
     /** A photo, a video or a voice note: all live in the album together. */
     kind: mediaKind('kind').notNull().default('photo'),
     /** Videos and voice notes, as read from the file itself. */
@@ -199,6 +205,30 @@ export const photos = pgTable(
     index('photos_event_gallery_idx')
       .on(t.eventId, t.createdAt.desc(), t.id.desc())
       .where(sql`${t.deletedAt} IS NULL`),
+  ],
+);
+
+export const refillStatus = pgEnum('refill_status', ['pending', 'approved', 'declined']);
+
+/** A guest out of shots asking the hosts for more. One open request per guest per event. */
+export const shotRefillRequests = pgTable(
+  'shot_refill_requests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => events.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    status: refillStatus('status').notNull().default('pending'),
+    shots: integer('shots'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('refill_open_uidx').on(t.eventId, t.userId).where(sql`${t.status} = 'pending'`),
+    index('refill_event_status_idx').on(t.eventId, t.status),
   ],
 );
 

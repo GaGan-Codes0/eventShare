@@ -16,6 +16,7 @@ import {
   MAX_PHOTOGRAPHERS,
   PHOTOGRAPHER_PHOTO_LIMIT,
   photoLimitFor,
+  REFILL_RETRY_AFTER_MS,
   VIDEO_LIMIT_MS,
   VOICE_LIMIT_MS,
   type ApiError,
@@ -31,6 +32,7 @@ import {
   type InvitePhotographerResult,
   type Member,
   type PhotographerInvite,
+  shootingPhase,
   type EventIdentity,
   type EventRules,
   type UpdateEventData,
@@ -40,7 +42,7 @@ import { and, count, desc, eq, isNotNull, isNull, ne, or, sql, type SQL } from '
 import sharp from 'sharp';
 
 import { DB, type Db } from '../db/db.module.js';
-import { eventMembers, events, faceProfiles, photographerInvites, photos, users } from '../db/schema.js';
+import { eventMembers, events, faceProfiles, photographerInvites, photos, shotRefillRequests, users } from '../db/schema.js';
 import { MailService } from '../mail/mail.service.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { StorageService } from '../storage/storage.service.js';
@@ -233,6 +235,7 @@ export class EventsService {
       role: m.role,
       joinedAt: m.joinedAt.toISOString(),
       photosUsed: m.photosUsed,
+      bonusShots: m.bonusShots,
       ...(role === 'host' && { email: u.email }),
     }));
   }
@@ -466,7 +469,7 @@ export class EventsService {
     const limit = sql`CASE ${eventMembers.role}
       WHEN 'host' THEN 2147483647
       WHEN 'photographer' THEN ${PHOTOGRAPHER_PHOTO_LIMIT}::int
-      ELSE coalesce((SELECT ${events.guestPhotoLimit} FROM ${events} WHERE ${events.id} = ${eventId}), 2147483647)
+      ELSE coalesce((SELECT ${events.guestPhotoLimit} FROM ${events} WHERE ${events.id} = ${eventId}) + ${eventMembers.bonusShots}, 2147483647)
     END`;
     const reserved = await conn
       .update(eventMembers)
@@ -486,7 +489,7 @@ export class EventsService {
     const body: ApiError = {
       statusCode: 403,
       code: 'PHOTO_LIMIT_REACHED',
-      message: `You've used all ${photoLimitFor(member.role, event.guestPhotoLimit) ?? 0} of your photos for this event`,
+      message: `You've used all ${photoLimitFor(member.role, event.guestPhotoLimit, member.bonusShots) ?? 0} of your photos for this event`,
     };
     throw new ForbiddenException(body);
   }
@@ -653,12 +656,34 @@ export class EventsService {
       photoCount: p?.n ?? 0,
       pendingReviewCount: pending?.n ?? 0,
       hasFaceProfile: event.findMyPhotos ? await this.hasFaceProfile(event.id, member.userId) : false,
-      photoLimit: photoLimitFor(member.role, event.guestPhotoLimit),
+      photoLimit: photoLimitFor(member.role, event.guestPhotoLimit, member.bonusShots),
+      ...(await this.refillState(event, member)),
       photosUsed: member.photosUsed,
       videoLimitMs: VIDEO_LIMIT_MS,
       videoMsUsed: member.videoMsUsed,
       voiceLimitMs: VOICE_LIMIT_MS,
       voiceMsUsed: member.voiceMsUsed,
     };
+  }
+
+  /** Guests: their own request. Hosts: how many are waiting. */
+  private async refillState({ id: eventId, startsAt }: { id: string; startsAt: Date | null }, member: MemberRow) {
+    if (member.role === 'host') {
+      if (shootingPhase('host', startsAt) === 'closed') return { refillStatus: null, pendingRefillCount: 0 };
+      const [waiting] = await this.db
+        .select({ n: count() })
+        .from(shotRefillRequests)
+        .innerJoin(eventMembers, and(eq(eventMembers.eventId, shotRefillRequests.eventId), eq(eventMembers.userId, shotRefillRequests.userId), eq(eventMembers.status, 'active')))
+        .where(and(eq(shotRefillRequests.eventId, eventId), eq(shotRefillRequests.status, 'pending')));
+      return { refillStatus: null, pendingRefillCount: waiting?.n ?? 0 };
+    }
+    const [last] = await this.db
+      .select({ status: shotRefillRequests.status, decidedAt: shotRefillRequests.decidedAt })
+      .from(shotRefillRequests)
+      .where(and(eq(shotRefillRequests.eventId, eventId), eq(shotRefillRequests.userId, member.userId)))
+      .orderBy(desc(shotRefillRequests.createdAt))
+      .limit(1);
+    const recentlyDeclined = last?.status === 'declined' && last.decidedAt && Date.now() - last.decidedAt.getTime() < REFILL_RETRY_AFTER_MS;
+    return { refillStatus: last?.status === 'pending' ? ('pending' as const) : recentlyDeclined ? ('declined' as const) : null, pendingRefillCount: 0 };
   }
 }

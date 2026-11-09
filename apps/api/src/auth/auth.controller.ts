@@ -5,7 +5,7 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 import { ZodPipe } from '../common/zod.pipe.js';
 import { AuthService } from './auth.service.js';
 
-/** Public routes. Rate-limited per IP to slow down password guessing. */
+/** Public routes. Rate-limited per account to slow down password guessing (see AppModule). */
 @UseGuards(ThrottlerGuard)
 @Controller('auth')
 export class AuthController {

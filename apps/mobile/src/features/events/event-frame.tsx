@@ -3,34 +3,10 @@ import type { ComponentRef, Ref } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { Text } from '@/components/ui';
-import { radius, space } from '@/constants/theme';
+import { space } from '@/constants/theme';
 import { makeStyles, useTheme } from '@/theme';
 
 import { EventLogo } from './event-images';
-
-/**
- * Optional frame over the live viewfinder, in the event's theme. Only on screen: the photo
- * itself is always taken clean. Events without a frame style get a simple line.
- */
-export function ViewfinderFrame({ logoUrl }: { logoUrl: string | null }) {
-  const { frame } = useTheme();
-  const styles = useStyles();
-  return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      {frame === 'polaroid' ? (
-        <View style={[StyleSheet.absoluteFill, styles.mat]} />
-      ) : (
-        <View style={[styles.rule, styles.outer]} />
-      )}
-      {frame === 'double' && <View style={[styles.rule, styles.inner]} />}
-      {logoUrl && (
-        <View style={[styles.logo, frame === 'polaroid' && styles.logoOnMat]}>
-          <EventLogo uri={logoUrl} size={frame === 'polaroid' ? 30 : 36} />
-        </View>
-      )}
-    </View>
-  );
-}
 
 /** Laid out at this many points wide; captured at the phone's pixel density (about 2000px). */
 export const FRAMED_COPY_WIDTH = 720;
@@ -85,14 +61,6 @@ export function FramedCopy({ ref, uri, ratio, eventName, date, logoUrl, onLoad, 
 }
 
 const useStyles = makeStyles(({ colors, fonts }) => ({
-  rule: { position: 'absolute', borderWidth: 1.5, borderColor: colors.viewfinderText, opacity: 0.85 },
-  // Concentric with the viewfinder's 24pt corners, so the lines follow the curve.
-  outer: { top: 12, left: 12, right: 12, bottom: 12, borderRadius: 24 - 12 },
-  inner: { top: 18, left: 18, right: 18, bottom: 18, borderRadius: 24 - 18 },
-  mat: { borderWidth: 10, borderBottomWidth: 44, borderColor: colors.surface },
-  logo: { position: 'absolute', right: 24, bottom: 24 },
-  logoOnMat: { right: 14, bottom: 7 },
-
   copy: { width: FRAMED_COPY_WIDTH, padding: PAD, paddingBottom: PAD + space.sm },
   copyRule: { position: 'absolute', borderWidth: 2, borderColor: colors.viewfinderAccent },
   copyOuter: { top: 16, left: 16, right: 16, bottom: 16 },

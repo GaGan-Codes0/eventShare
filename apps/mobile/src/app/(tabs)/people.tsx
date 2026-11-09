@@ -1,4 +1,4 @@
-import { invitePhotographerSchema, MAX_PHOTOGRAPHERS, PHOTOGRAPHER_PHOTO_LIMIT, type EventDetail, type Member, type PhotographerInvite } from '@eventshare/shared';
+import { invitePhotographerSchema, MAX_PHOTOGRAPHERS, PHOTOGRAPHER_PHOTO_LIMIT, REFILL_SHOTS, type EventDetail, type Member, type PhotographerInvite, type RefillRequest } from '@eventshare/shared';
 import { router } from 'expo-router';
 import { Aperture, Mail, MoreHorizontal, Plus, Trash2, UserPlus, X } from 'lucide-react-native';
 import { useState, type ReactNode } from 'react';
@@ -12,7 +12,7 @@ import { radius, screenPadding, space } from '@/constants/theme';
 import { HostHeader } from '@/features/events/event-header';
 import { NoEventYet } from '@/features/events/no-event';
 import { useCurrentEvent } from '@/features/events/use-current-event';
-import { useCancelPhotographerInvite, useInvitePhotographer, useMe, useMembers, usePhotographerInvites, useRemoveMember, useSetMemberRole } from '@/services/api/hooks';
+import { useCancelPhotographerInvite, useDecideRefill, useInvitePhotographer, useMe, useMembers, usePhotographerInvites, useRefillRequests, useRemoveMember, useSetMemberRole } from '@/services/api/hooks';
 import { makeStyles, useTheme } from '@/theme';
 
 /** Host: the designated photographers (up to 3) and every guest with their shots used. */
@@ -33,6 +33,8 @@ function PeopleBody({ event }: { event: EventDetail }) {
   const invites = usePhotographerInvites(event.id);
   const invite = useInvitePhotographer(event.id);
   const cancelInvite = useCancelPhotographerInvite(event.id);
+  const refills = useRefillRequests(event.id);
+  const decide = useDecideRefill(event.id);
   const [picking, setPicking] = useState(false);
   const [menuFor, setMenuFor] = useState<Member | null>(null);
   const [form, setForm] = useState({ name: '', email: '' });
@@ -44,6 +46,16 @@ function PeopleBody({ event }: { event: EventDetail }) {
   // An open invite holds its slot until it's taken up or cancelled.
   const taken = shooters.length + pending.length;
   const full = taken >= MAX_PHOTOGRAPHERS;
+
+  function answer(request: RefillRequest, shots: (typeof REFILL_SHOTS)[number] | null) {
+    decide.mutate(
+      { requestId: request.id, shots },
+      {
+        onSuccess: () => toast(shots === null ? `Told ${request.name.split(' ')[0]} not now` : `Gave ${request.name.split(' ')[0]} ${shots} more shots`),
+        onError: (e) => Alert.alert("Couldn't save that", e.message),
+      },
+    );
+  }
 
   function sendInvite() {
     const parsed = invitePhotographerSchema.safeParse(form);
@@ -130,7 +142,7 @@ function PeopleBody({ event }: { event: EventDetail }) {
     ]);
   }
 
-  const used = (m: Member) => (limit === null ? `${m.photosUsed} shots` : `${m.photosUsed} of ${limit} shots`);
+  const used = (m: Member) => (limit === null ? `${m.photosUsed} shots` : `${m.photosUsed} of ${limit + m.bonusShots} shots`);
   const isMe = (m: Member) => m.userId === me.data?.id;
 
   return (
@@ -147,6 +159,45 @@ function PeopleBody({ event }: { event: EventDetail }) {
             }}
           />
         }>
+        {(refills.data?.length ?? 0) > 0 && (
+          <>
+            <Text variant="eyebrow">Asking for more shots · {refills.data?.length}</Text>
+            {refills.data?.map((r) => (
+              <View key={r.id} style={styles.card}>
+                <View style={styles.cardTop}>
+                  <Initials name={r.name} />
+                  <View style={styles.flex}>
+                    <Text variant="bodyStrong" numberOfLines={1}>
+                      {r.name}
+                    </Text>
+                    <Text variant="caption" color="muted">
+                      Used {r.photosUsed} of {r.photoLimit} shots
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.row}>
+                  {REFILL_SHOTS.map((shots) => (
+                    <Pressable
+                      key={shots}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Give ${r.name} ${shots} more shots`}
+                      disabled={decide.isPending}
+                      onPress={() => answer(r, shots)}
+                      style={({ pressed }) => [styles.refillGive, pressed && { opacity: 0.85 }]}>
+                      <Text variant="label" style={{ color: colors.onPrimary }}>
+                        +{shots}
+                      </Text>
+                    </Pressable>
+                  ))}
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Not now for ${r.name}`} disabled={decide.isPending} onPress={() => answer(r, null)} style={styles.refillNo}>
+                    <Text variant="label">Not now</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+          </>
+        )}
+
         <Text variant="eyebrow">
           Designated photographers · {taken}/{MAX_PHOTOGRAPHERS}
         </Text>
@@ -261,7 +312,7 @@ function PeopleBody({ event }: { event: EventDetail }) {
                 </Text>
                 <View style={styles.row}>
                   <View style={styles.miniTrack}>
-                    <View style={[styles.miniFill, { width: limit ? `${Math.min(100, (g.photosUsed / limit) * 100)}%` : '0%' }]} />
+                    <View style={[styles.miniFill, { width: limit ? `${Math.min(100, (g.photosUsed / (limit + g.bonusShots)) * 100)}%` : '0%' }]} />
                   </View>
                   <Text variant="caption" color="muted">
                     {used(g)}
@@ -433,6 +484,8 @@ const useStyles = makeStyles(({ colors }) => ({
     borderColor: colors.lineStrong,
   },
   slotIcon: { width: 38, height: 38, borderRadius: radius.md, backgroundColor: colors.sage, alignItems: 'center', justifyContent: 'center' },
+  refillGive: { flex: 1, height: 40, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  refillNo: { flex: 1.3, height: 40, borderRadius: radius.md, backgroundColor: colors.field, alignItems: 'center', justifyContent: 'center' },
   guestHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: space.lg },
   guest: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm + 3, borderBottomWidth: 0.5, borderBottomColor: colors.line },
   guestText: { gap: space.xs },

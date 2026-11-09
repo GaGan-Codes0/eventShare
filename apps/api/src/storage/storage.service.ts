@@ -1,10 +1,14 @@
 import {
+  CompleteMultipartUploadCommand,
+  CreateMultipartUploadCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListPartsCommand,
   NotFound,
   PutObjectCommand,
   S3Client,
+  UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -13,6 +17,9 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import { ENV, type Env } from '../config/env.js';
 import { RedisService } from '../redis/redis.service.js';
+
+/** Long enough for a phone in a pocket to get round to it. */
+const UPLOAD_LINK_SECONDS = 60 * 60;
 
 /**
  * Private bucket. The app never sees credentials: it gets short-lived signed URLs to
@@ -48,8 +55,48 @@ export class StorageService {
     return getSignedUrl(
       this.s3,
       new PutObjectCommand({ Bucket: this.bucket, Key: key, ContentType: contentType, ContentLength: byteSize }),
-      { expiresIn: 15 * 60, signableHeaders: new Set(['content-type', 'content-length']) },
+      { expiresIn: UPLOAD_LINK_SECONDS, signableHeaders: new Set(['content-type', 'content-length']) },
     );
+  }
+
+  /** Starts a big file going up in pieces. */
+  async createMultipart(key: string, contentType: string): Promise<string> {
+    const res = await this.s3.send(new CreateMultipartUploadCommand({ Bucket: this.bucket, Key: key, ContentType: contentType }));
+    if (!res.UploadId) throw new Error('Storage gave no upload id');
+    return res.UploadId;
+  }
+
+  /** Signed PUT for one piece, locked to its exact size. */
+  presignPart(key: string, uploadId: string, partNumber: number, byteSize: number) {
+    return getSignedUrl(
+      this.s3,
+      new UploadPartCommand({ Bucket: this.bucket, Key: key, UploadId: uploadId, PartNumber: partNumber, ContentLength: byteSize }),
+      { expiresIn: UPLOAD_LINK_SECONDS, signableHeaders: new Set(['content-length']) },
+    );
+  }
+
+  /** The pieces storage has received so far (at most 1,000, which a 5 GB limit never reaches). */
+  async listParts(key: string, uploadId: string): Promise<{ number: number; etag: string }[]> {
+    const res = await this.s3.send(new ListPartsCommand({ Bucket: this.bucket, Key: key, UploadId: uploadId }));
+    return (res.Parts ?? []).flatMap((p) => (p.PartNumber && p.ETag ? [{ number: p.PartNumber, etag: p.ETag }] : []));
+  }
+
+  /** Joins the pieces into the finished file. False if storage no longer has this upload. */
+  async completeMultipart(key: string, uploadId: string, parts: { number: number; etag: string }[]): Promise<boolean> {
+    try {
+      await this.s3.send(
+        new CompleteMultipartUploadCommand({
+          Bucket: this.bucket,
+          Key: key,
+          UploadId: uploadId,
+          MultipartUpload: { Parts: [...parts].sort((a, b) => a.number - b.number).map((p) => ({ PartNumber: p.number, ETag: p.etag })) },
+        }),
+      );
+      return true;
+    } catch (err) {
+      if ((err as { name?: string }).name === 'NoSuchUpload') return false;
+      throw err;
+    }
   }
 
   presignDownload(key: string, filename?: string) {

@@ -1,4 +1,4 @@
-import type { EventLive, Page, Photo, PhotoListFilter } from '@eventshare/shared';
+import type { EventDetail, EventLive, Page, Photo, PhotoListFilter } from '@eventshare/shared';
 import { useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 
@@ -69,10 +69,17 @@ export function useLiveEvent(eventId: string | null, memberCount: number) {
     let last: EventLive | null = null;
     let dirtyNew = false;
     let dirtyRev = false;
+    let dirtyRefill = false;
     let summaryAt = 0;
 
     const flush = () => {
       flushTimer = null;
+      if (dirtyRefill) {
+        void qc.invalidateQueries({ queryKey: keys.refills(eventId) });
+        void qc.invalidateQueries({ queryKey: keys.members(eventId) });
+        void qc.invalidateQueries({ queryKey: keys.event(eventId), exact: true });
+        dirtyRefill = false;
+      }
       if (dirtyRev) {
         // Something other than a new photo: a hide, delete, approval or rule change.
         void qc.invalidateQueries({ queryKey: keys.event(eventId) });
@@ -92,6 +99,14 @@ export function useLiveEvent(eventId: string | null, memberCount: number) {
       if (!before) return; // The first reading after opening: what's on screen is already current.
       dirtyNew ||= live.new !== before.new;
       dirtyRev ||= live.rev !== before.rev;
+      // Refills only matter to the hosts and to whoever is waiting; for them, no spreading out.
+      const current = qc.getQueryData<EventDetail>(keys.event(eventId));
+      if (live.refill !== before.refill && (current?.role === 'host' || current?.refillStatus === 'pending')) {
+        dirtyRefill = true;
+        if (flushTimer) clearTimeout(flushTimer);
+        flushTimer = setTimeout(flush, 200);
+        return;
+      }
       if ((dirtyNew || dirtyRev) && !flushTimer) {
         const spread = Math.min(15_000, Math.max(500, members.current * 10));
         flushTimer = setTimeout(flush, Math.random() * spread);

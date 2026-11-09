@@ -1,6 +1,9 @@
+import type { EventDetail } from '@eventshare/shared';
 import { Tabs } from 'expo-router/js-tabs';
+import { useEffect, useRef } from 'react';
 
 import { FocusStatusBar } from '@/components/focus-status-bar';
+import { toast } from '@/components/toast';
 import { TabBar } from '@/components/tab-bar';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { useLiveEvent } from '@/features/gallery/live';
@@ -14,6 +17,16 @@ export default function EventTabs() {
   const theme = useCurrentEventTheme();
   const { id, event, managing } = useCurrentEvent();
   useLiveEvent(id, event?.memberCount ?? 0);
+  // The moment the hosts add shots, say so, wherever the guest is in the event.
+  const seen = useRef<{ status: EventDetail['refillStatus']; limit: number | null } | null>(null);
+  useEffect(() => {
+    if (!event) return;
+    const before = seen.current;
+    seen.current = { status: event.refillStatus, limit: event.photoLimit };
+    if (before?.status === 'pending' && event.refillStatus === null && event.photoLimit !== null && before.limit !== null && event.photoLimit > before.limit) {
+      toast(`The hosts added ${event.photoLimit - before.limit} shots to your roll`);
+    }
+  }, [event]);
   return (
     <ThemeProvider theme={theme}>
       {/* Light status bar text on dark event themes. */}

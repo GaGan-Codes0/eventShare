@@ -11,6 +11,7 @@ import { useMe } from '@/services/api/hooks';
 import { makeStyles, useTheme } from '@/theme';
 
 import { EventBadge } from './event-card';
+import { useShootingPhase } from './shooting-window';
 
 /** Host screens: back to My events, the event's name over the screen title, and its QR. */
 export function HostHeader({ event, title, right }: { event: EventDetail | null; title: string; right?: ReactNode }) {
@@ -47,15 +48,16 @@ export function GuestHeader({ event, dark }: { event: EventDetail | null; dark?:
   const { colors } = useTheme();
   const styles = useStyles();
   const me = useMe();
+  const phase = useShootingPhase(event);
   return (
     <View style={[styles.bar, styles.plain, { paddingTop: insets.top }]}>
       <View style={styles.row}>
         {event && <EventBadge event={event} size={36} />}
         <View style={styles.titles}>
           <View style={styles.live}>
-            <View style={[styles.liveDot, { backgroundColor: colors.primary }]} />
+            <View style={[styles.liveDot, { backgroundColor: phase === 'open' ? colors.primary : colors.subtle }]} />
             <Text variant="eyebrow" style={[styles.liveText, { color: dark ? colors.viewfinderAccent : colors.primaryText }]}>
-              Live now
+              {phase === 'closed' ? 'Uploads closed' : phase === 'early' ? 'Coming up' : 'Live now'}
             </Text>
           </View>
           <Text variant="h3" numberOfLines={1} style={dark && { color: colors.viewfinderText }}>

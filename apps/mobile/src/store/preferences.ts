@@ -3,8 +3,6 @@ import { useSyncExternalStore } from 'react';
 
 /** Small choices each person makes on their own phone, remembered between launches. */
 export type Preferences = {
-  /** Show the event's frame on the live viewfinder. Photos are never framed. */
-  viewfinderFrame: boolean;
   /** What Save puts in the phone's library: the untouched original, a framed copy, or both. */
   saveOriginal: boolean;
   saveFramed: boolean;
@@ -17,7 +15,7 @@ export type Preferences = {
 };
 
 const KEY = 'preferences';
-const DEFAULTS: Preferences = { viewfinderFrame: false, saveOriginal: true, saveFramed: false, saveFiltered: true, dateStamp: true, cameraGrid: false };
+const DEFAULTS: Preferences = { saveOriginal: true, saveFramed: false, saveFiltered: true, dateStamp: true, cameraGrid: false };
 let prefs = DEFAULTS;
 const listeners = new Set<() => void>();
 

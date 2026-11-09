@@ -52,7 +52,11 @@ export class QueueService implements OnApplicationShutdown {
     if (!this.env.REDIS_URL || !this.env.RUN_WORKERS) return;
     const worker = new Worker<T>(name, (job) => handler(job.data), { connection: this.connection({ maxRetriesPerRequest: null }), concurrency });
     worker.on('error', (err: Error) => this.log.warn(`Worker ${name}: ${err.message}`));
-    worker.on('failed', (job, err) => this.log.warn(`Job ${name}/${job?.id} failed: ${err.message}`));
+    worker.on('failed', (job, err) => {
+      // Only once it has run out of tries; a job waiting to try again is working as intended.
+      if (job && job.attemptsMade < (job.opts.attempts ?? 1)) return;
+      this.log.warn(`Job ${name}/${job?.id} failed: ${err.message}`);
+    });
     this.workers.push(worker);
   }
 
