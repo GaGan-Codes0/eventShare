@@ -6,7 +6,8 @@ set -euo pipefail
 export AWS_REGION=${AWS_REGION:-ap-south-1} AWS_PAGER=""
 cd "$(dirname "$0")"
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-PHOTOS=eventshare-photos-$ACCOUNT
+# The photos bucket the server uses (S3_BUCKET in /opt/eventshare/.env). Pass PHOTOS_BUCKET if it was named differently.
+PHOTOS=${PHOTOS_BUCKET:-eventshare-photos-$ACCOUNT}
 BACKUPS=eventshare-backups-$ACCOUNT
 NAME=eventshare-api
 INSTANCE_TYPE=${INSTANCE_TYPE:-t4g.small}
@@ -26,8 +27,12 @@ bucket() {
 bucket "$PHOTOS"
 bucket "$BACKUPS"
 aws s3api put-bucket-versioning --bucket "$PHOTOS" --versioning-configuration Status=Enabled
+# tidy: drop half-finished uploads and deleted files' old copies.
+# tiering: event files over 1 MB (originals, videos, voice) go to Intelligent-Tiering. S3 then moves each
+# one to cheaper storage by itself after 30 and 90 days unopened, and back the moment it's opened again,
+# with no fee to read it. Thumbnails and previews stay on Standard: they're small and opened all the time.
 aws s3api put-bucket-lifecycle-configuration --bucket "$PHOTOS" --lifecycle-configuration \
-  '{"Rules":[{"ID":"tidy","Status":"Enabled","Filter":{},"AbortIncompleteMultipartUpload":{"DaysAfterInitiation":2},"NoncurrentVersionExpiration":{"NoncurrentDays":30}}]}'
+  '{"Rules":[{"ID":"tidy","Status":"Enabled","Filter":{},"AbortIncompleteMultipartUpload":{"DaysAfterInitiation":2},"NoncurrentVersionExpiration":{"NoncurrentDays":30}},{"ID":"tiering","Status":"Enabled","Filter":{"And":{"Prefix":"events/","ObjectSizeGreaterThan":1048576}},"Transitions":[{"Days":0,"StorageClass":"INTELLIGENT_TIERING"}]}]}'
 aws s3api put-bucket-lifecycle-configuration --bucket "$BACKUPS" --lifecycle-configuration \
   '{"Rules":[{"ID":"expire","Status":"Enabled","Filter":{},"Expiration":{"Days":30}}]}'
 

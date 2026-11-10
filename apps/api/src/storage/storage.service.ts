@@ -11,6 +11,7 @@ import {
   UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
+import { getSignedUrl as signCloudFrontUrl } from '@aws-sdk/cloudfront-signer';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { Readable } from 'node:stream';
 import { Inject, Injectable } from '@nestjs/common';
@@ -29,12 +30,18 @@ const UPLOAD_LINK_SECONDS = 60 * 60;
 export class StorageService {
   private readonly s3: S3Client;
   private readonly bucket: string;
+  /** Set when view/download links should go through CloudFront. */
+  private readonly cloudfront: { url: string; keyPairId: string; privateKey: string } | null;
 
   constructor(
     @Inject(ENV) private readonly env: Env,
     private readonly redis: RedisService,
   ) {
     this.bucket = env.S3_BUCKET;
+    this.cloudfront =
+      env.CLOUDFRONT_URL && env.CLOUDFRONT_KEY_PAIR_ID && env.CLOUDFRONT_PRIVATE_KEY
+        ? { url: env.CLOUDFRONT_URL.replace(/\/+$/, ''), keyPairId: env.CLOUDFRONT_KEY_PAIR_ID, privateKey: env.CLOUDFRONT_PRIVATE_KEY }
+        : null;
     this.s3 = new S3Client({
       region: env.S3_REGION,
       endpoint: env.S3_ENDPOINT,
@@ -99,7 +106,22 @@ export class StorageService {
     }
   }
 
-  presignDownload(key: string, filename?: string) {
+  /**
+   * A view/download link. Through CloudFront when it's set up (S3 → CloudFront is free, and
+   * CloudFront's first 1 TB a month to phones is free), otherwise a signed S3 link.
+   */
+  async presignDownload(key: string, filename?: string): Promise<string> {
+    const cf = this.cloudfront;
+    if (cf) {
+      // The file name rides along as S3's own override; CloudFront passes it on (docs/CLOUDFRONT.md).
+      const query = filename ? `?response-content-disposition=${encodeURIComponent(`attachment; filename="${filename}"`)}` : '';
+      return signCloudFrontUrl({
+        url: `${cf.url}/${key.split('/').map(encodeURIComponent).join('/')}${query}`,
+        keyPairId: cf.keyPairId,
+        privateKey: cf.privateKey,
+        dateLessThan: new Date(Date.now() + this.env.SIGNED_URL_TTL_SECONDS * 1000).toISOString(),
+      });
+    }
     return getSignedUrl(
       this.s3,
       new GetObjectCommand({
@@ -118,7 +140,9 @@ export class StorageService {
    */
   async signedUrls(keys: string[]): Promise<Map<string, string>> {
     const unique = [...new Set(keys)];
-    const cached = await this.redis.mget(unique.map((k) => `signed:${k}`));
+    // Separate cache entries per kind of link, so switching CloudFront on or off never serves the other kind.
+    const prefix = this.cloudfront ? 'signed-cf:' : 'signed:';
+    const cached = await this.redis.mget(unique.map((k) => `${prefix}${k}`));
     const urls = new Map<string, string>();
     const fresh: [string, string][] = [];
     await Promise.all(
@@ -127,7 +151,7 @@ export class StorageService {
         if (hit) return void urls.set(key, hit);
         const url = await this.presignDownload(key);
         urls.set(key, url);
-        fresh.push([`signed:${key}`, url]);
+        fresh.push([`${prefix}${key}`, url]);
       }),
     );
     await this.redis.msetEx(fresh, Math.floor(this.env.SIGNED_URL_TTL_SECONDS / 2));

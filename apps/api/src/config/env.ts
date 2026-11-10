@@ -34,6 +34,20 @@ const envSchema = z
     /** How long signed photo URLs stay valid. */
     SIGNED_URL_TTL_SECONDS: z.coerce.number().default(3600),
 
+    /**
+     * CloudFront in front of the photos bucket (docs/CLOUDFRONT.md). When set, view and download
+     * links go through CloudFront (first 1 TB a month free, then about the same as S3) instead of
+     * straight to S3. Uploads always go straight to S3. Leave all three empty locally.
+     */
+    CLOUDFRONT_URL: z.preprocess((v) => (v === '' ? undefined : v), z.url().optional()),
+    /** The public key's ID in CloudFront (Key management → Public keys), e.g. K2JCJMDEHXQW5F. */
+    CLOUDFRONT_KEY_PAIR_ID: z.string().optional(),
+    /** The matching private key: PEM, or the PEM base64-encoded on one line (easier in .env). */
+    CLOUDFRONT_PRIVATE_KEY: z
+      .string()
+      .optional()
+      .transform((v) => (v && !v.includes('BEGIN') ? Buffer.from(v, 'base64').toString('utf8') : v?.replace(/\\n/g, '\n'))),
+
     /** Resend (resend.com) sends the photographer invite emails. Without a key, invites still work but no email goes out. */
     RESEND_API_KEY: z.string().optional(),
     /** Who the emails come from: an address on a domain verified in Resend, e.g. `eventShare <invites@klyra.co.in>`. */
@@ -42,6 +56,13 @@ const envSchema = z
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && env.AUTH_DEV_BYPASS) {
       ctx.addIssue({ code: 'custom', path: ['AUTH_DEV_BYPASS'], message: 'must never be enabled in production' });
+    }
+    const cloudfront = [env.CLOUDFRONT_URL, env.CLOUDFRONT_KEY_PAIR_ID, env.CLOUDFRONT_PRIVATE_KEY].filter(Boolean).length;
+    if (cloudfront > 0 && cloudfront < 3) {
+      ctx.addIssue({ code: 'custom', path: ['CLOUDFRONT_URL'], message: 'set CLOUDFRONT_URL, CLOUDFRONT_KEY_PAIR_ID and CLOUDFRONT_PRIVATE_KEY together, or none of them' });
+    }
+    if (env.CLOUDFRONT_PRIVATE_KEY && !env.CLOUDFRONT_PRIVATE_KEY.includes('PRIVATE KEY')) {
+      ctx.addIssue({ code: 'custom', path: ['CLOUDFRONT_PRIVATE_KEY'], message: 'is not a PEM private key (or its base64)' });
     }
     // Clerk is switched off for now.
     // if (!env.AUTH_DEV_BYPASS && !env.CLERK_SECRET_KEY) {
