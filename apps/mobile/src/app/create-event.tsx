@@ -20,12 +20,12 @@ import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { Aperture, ArrowRight, Briefcase, Cake, Camera, ChevronLeft, Heart, ImagePlus, Sparkle, type LucideIcon } from 'lucide-react-native';
 import { useState } from 'react';
-import { Alert, Platform, Pressable, Switch, TextInput, View } from 'react-native';
+import { Alert, Modal, Platform, Pressable, Switch, TextInput, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { toast } from '@/components/toast';
-import { Text } from '@/components/ui';
+import { Button, Text } from '@/components/ui';
 import { FocusStatusBar } from '@/components/focus-status-bar';
 import { radius, screenPadding, space } from '@/constants/theme';
 import { EventBadge } from '@/features/events/event-card';
@@ -319,17 +319,17 @@ export default function CreateEvent() {
             <Heading eyebrow="Camera rules" title="Load the " emphasis="film." />
             <Text variant="bodyStrong">Shots per guest</Text>
             <View style={styles.shots}>
-              {[...GUEST_PHOTO_LIMITS, null].map((n) => {
+              {GUEST_PHOTO_LIMITS.map((n) => {
                 const selected = w.shots === n;
                 return (
                   <Pressable
                     key={String(n)}
                     accessibilityRole="radio"
                     accessibilityState={{ selected }}
-                    accessibilityLabel={n === null ? 'No limit' : `${n} shots`}
+                    accessibilityLabel={`${n} shots`}
                     onPress={() => set({ shots: n })}
                     style={[styles.shot, selected && styles.shotOn]}>
-                    <Text style={[styles.shotText, selected && { color: defaultTheme.colors.onPrimary }]}>{n === null ? '∞' : n}</Text>
+                    <Text style={[styles.shotText, selected && { color: defaultTheme.colors.onPrimary }]}>{n}</Text>
                   </Pressable>
                 );
               })}
@@ -516,33 +516,73 @@ function Input({ value, onChange, placeholder, capitalize = 'words', maxLength =
   );
 }
 
-/** The phone's own date picker: inline on iOS, a dialog on Android. */
+/**
+ * The event date. Android uses the phone's own dialog (it has OK and Cancel). iOS shows the calendar
+ * in a sheet with Cancel and Save, so it's clear how to finish: the compact picker had no button.
+ */
 function DateField({ value, onChange }: { value: Date; onChange: (d: Date) => void }) {
   const styles = useStyles();
+  const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
-  if (Platform.OS === 'ios') {
+  const [draft, setDraft] = useState(value);
+  const show = () => {
+    setDraft(value);
+    setOpen(true);
+  };
+  const field = (
+    <Pressable accessibilityRole="button" accessibilityLabel={`Date, ${longDate(value.toISOString())}`} onPress={show} style={[styles.input, styles.dateField]}>
+      <Text>{longDate(value.toISOString())}</Text>
+    </Pressable>
+  );
+  if (Platform.OS !== 'ios') {
     return (
-      <View style={[styles.input, styles.dateIos]}>
-        <DateTimePicker value={value} mode="date" display="compact" onValueChange={(_, d) => onChange(d)} />
-      </View>
+      <>
+        {field}
+        {open && (
+          <DateTimePicker
+            value={value}
+            mode="date"
+            onValueChange={(_, d) => {
+              setOpen(false);
+              onChange(d);
+            }}
+            onDismiss={() => setOpen(false)}
+          />
+        )}
+      </>
     );
   }
   return (
     <>
-      <Pressable accessibilityRole="button" onPress={() => setOpen(true)} style={[styles.input, styles.dateAndroid]}>
-        <Text>{longDate(value.toISOString())}</Text>
-      </Pressable>
-      {open && (
-        <DateTimePicker
-          value={value}
-          mode="date"
-          onValueChange={(_, d) => {
-            setOpen(false);
-            onChange(d);
-          }}
-          onDismiss={() => setOpen(false)}
-        />
-      )}
+      {field}
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <View style={styles.sheetWrap}>
+          <Pressable accessibilityLabel="Close" style={styles.backdrop} onPress={() => setOpen(false)} />
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + space.lg }]}>
+            <View style={styles.grabber} />
+            <Text variant="bodyStrong">Event date</Text>
+            <DateTimePicker
+              value={draft}
+              mode="date"
+              display="inline"
+              themeVariant="light"
+              accentColor={defaultTheme.colors.primary}
+              onValueChange={(_, d) => setDraft(d)}
+            />
+            <View style={styles.sheetButtons}>
+              <Button label="Cancel" variant="secondary" onPress={() => setOpen(false)} style={styles.flex1} />
+              <Button
+                label="Save date"
+                onPress={() => {
+                  onChange(draft);
+                  setOpen(false);
+                }}
+                style={styles.flex1}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </>
   );
 }
@@ -603,8 +643,13 @@ const useStyles = makeStyles(() => {
       backgroundColor: colors.surface,
       fontSize: 15,
     },
-    dateIos: { justifyContent: 'center', alignItems: 'flex-start', paddingHorizontal: space.xs },
-    dateAndroid: { justifyContent: 'center' },
+    dateField: { justifyContent: 'center' },
+    sheetWrap: { flex: 1 },
+    backdrop: { flex: 1, backgroundColor: colors.overlay },
+    sheet: { backgroundColor: colors.paper, borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: space.xl, paddingTop: space.sm + 2, gap: space.sm },
+    grabber: { alignSelf: 'center', width: 36, height: 5, borderRadius: 3, backgroundColor: colors.lineStrong, marginBottom: space.xs },
+    sheetButtons: { flexDirection: 'row', gap: space.sm + 2 },
+    flex1: { flex: 1 },
     logoRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md, borderRadius: radius.lg + 2, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line },
     logoIcon: { width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.sage, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
     logoImg: { width: '76%', height: '76%' },

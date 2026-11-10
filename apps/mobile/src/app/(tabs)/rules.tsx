@@ -85,7 +85,8 @@ function RulesBody({ event }: { event: EventDetail }) {
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
         <Text variant="bodyStrong">Shots per guest</Text>
         <View style={styles.shots} accessibilityRole="radiogroup" accessibilityLabel="Shots per guest">
-          {[...GUEST_PHOTO_LIMITS, null].map((n) => {
+          {/* No ∞: every guest gets a roll. Older events that had no limit still show it until changed. */}
+          {[...GUEST_PHOTO_LIMITS, ...(event.guestPhotoLimit === null ? [null] : [])].map((n) => {
             const selected = event.guestPhotoLimit === n;
             return (
               <Pressable
