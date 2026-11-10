@@ -24,8 +24,9 @@ export const GUEST_TABS = ['home', 'camera', 'album'];
 export const HOST_TABS = ['overview', 'gallery', 'design', 'people', 'rules'];
 
 /**
- * Guests: Home, a raised Camera always one tap away, Album. Hosts: the organizer's five tabs.
- * Every screen lives in one navigator; each role sees only its own tabs.
+ * Guests: Home, Camera, Album. Hosts: the organizer's five tabs. The tab you're on is the one
+ * raised, so it's always clear where you are. Every screen lives in one navigator; each role
+ * sees only its own tabs.
  */
 export function TabBar({ state, emitter, navigateToTab, isHost }: BottomTabBarProps & { isHost: boolean }) {
   const visible = isHost ? HOST_TABS : GUEST_TABS;
@@ -57,14 +58,13 @@ export function TabBar({ state, emitter, navigateToTab, isHost }: BottomTabBarPr
             accessibilityLabel={tab.label}
             onPress={onPress}
             style={styles.tab}>
-            {isCamera ? (
-              <View style={[styles.cameraButton, focused && { backgroundColor: colors.primaryPressed }]}>
+            {focused ? (
+              <View style={styles.raised}>
                 <Icon size={icon.lg} color={colors.onPrimary} strokeWidth={icon.stroke} />
               </View>
             ) : (
               <View style={styles.iconWrap}>
-                <Icon size={icon.lg} color={focused ? colors.ink : colors.subtle} strokeWidth={icon.stroke} />
-                {focused && <View style={styles.dot} />}
+                <Icon size={icon.lg} color={colors.subtle} strokeWidth={icon.stroke} />
               </View>
             )}
             <Text variant="caption" style={[styles.label, { color: focused ? colors.ink : colors.subtle }]}>
@@ -87,17 +87,17 @@ const useStyles = makeStyles(({ colors }) => ({
   },
   tab: { flex: 1, alignItems: 'center', gap: space.xs, minHeight: 48 },
   iconWrap: { height: 28, alignItems: 'center', justifyContent: 'center' },
-  dot: { position: 'absolute', bottom: -4, width: 4, height: 4, borderRadius: 2, backgroundColor: colors.accent },
   label: { fontSize: 11, lineHeight: 14 },
-  cameraButton: {
+  // 40 + 2×4 border, lifted 20: the same 28pt as a flat icon, so labels stay level whichever tab is raised.
+  raised: {
     width: 52,
-    height: 44,
-    marginTop: -16,
+    height: 40,
+    marginTop: -20,
     borderRadius: 15,
     backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 5,
+    borderWidth: 4,
     borderColor: colors.surfaceBar,
     boxSizing: 'content-box',
   },

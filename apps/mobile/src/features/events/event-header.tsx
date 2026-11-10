@@ -8,9 +8,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Avatar, Text } from '@/components/ui';
 import { icon, radius, screenPadding, space } from '@/constants/theme';
 import { useMe } from '@/services/api/hooks';
+import { useGuestView } from '@/store/shell';
 import { makeStyles, useTheme } from '@/theme';
 
 import { EventBadge } from './event-card';
+import { backToDashboard, backToMyEvents } from './open-event';
 import { useShootingPhase } from './shooting-window';
 
 /** Host screens: back to My events, the event's name over the screen title, and its QR. */
@@ -42,16 +44,27 @@ export function HostHeader({ event, title, right }: { event: EventDetail | null;
   );
 }
 
-/** Guest screens: the event's badge, "Live now" and its name; your profile on the right. */
+/**
+ * Guest screens: back, the event's badge, "Live now" and its name; your profile on the right.
+ * Back leaves the event for My events, or, for a host looking at it as a guest, returns to Overview.
+ */
 export function GuestHeader({ event, dark }: { event: EventDetail | null; dark?: boolean }) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useStyles();
   const me = useMe();
   const phase = useShootingPhase(event);
+  const guestView = useGuestView();
   return (
     <View style={[styles.bar, styles.plain, { paddingTop: insets.top }]}>
       <View style={styles.row}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={guestView ? 'Back to Overview' : 'My events'}
+          hitSlop={10}
+          onPress={guestView ? backToDashboard : backToMyEvents}>
+          <ChevronLeft size={icon.lg} color={dark ? colors.viewfinderText : colors.ink} strokeWidth={icon.stroke} />
+        </Pressable>
         {event && <EventBadge event={event} size={36} />}
         <View style={styles.titles}>
           <View style={styles.live}>
