@@ -1,4 +1,4 @@
-import { ALLOWED_PHOTO_TYPES, type MediaKind } from '@eventshare/shared';
+import { ALLOWED_PHOTO_TYPES, HOST_PHOTO_LIMIT, type MediaKind } from '@eventshare/shared';
 import { CameraView, useCameraPermissions, useMicrophonePermissions, type CameraType, type FlashMode, type FocusMode, type LensInfo } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
@@ -423,7 +423,7 @@ export default function CameraScreen() {
       ? 'Uploads are closed for this event'
       : 'Open on the day of the event'
     : event?.role === 'host'
-      ? 'You’re the host. No limit, no review'
+      ? `You’re the host. ${HOST_PHOTO_LIMIT.toLocaleString('en-US')} shots, no review`
       : event?.role !== 'member'
         ? 'Your shots skip review and go live instantly'
         : event.requireReview

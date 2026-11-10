@@ -92,6 +92,8 @@ export const events = pgTable(
     /** Storage keys of the host's logo and poster (events/<id>/logo|poster/...). */
     logoKey: text('logo_key'),
     posterKey: text('poster_key'),
+    /** The host's frame for saved photos: a PNG with a see-through middle. */
+    frameKey: text('frame_key'),
     ...timestamps,
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },

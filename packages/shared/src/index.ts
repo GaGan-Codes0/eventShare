@@ -84,6 +84,8 @@ export const GUEST_PHOTO_LIMITS = [10, 24, 36, 50] as const;
 export type GuestPhotoLimit = (typeof GUEST_PHOTO_LIMITS)[number];
 export const DEFAULT_GUEST_PHOTO_LIMIT: GuestPhotoLimit = 36;
 export const PHOTOGRAPHER_PHOTO_LIMIT = 1000;
+/** The host's own shots per event: the same as a designated photographer. */
+export const HOST_PHOTO_LIMIT = 1000;
 export const MAX_PHOTOGRAPHERS = 3;
 
 /**
@@ -91,8 +93,8 @@ export const MAX_PHOTOGRAPHERS = 3;
  * Events made before the 10/24/36/50 choices may still have 20, 40 or 60 for guests.
  */
 export function photoLimitFor(role: EventRole, guestPhotoLimit: number | null, bonusShots = 0): number | null {
-  // The host's pass: no limit and no review ("You're the host. No limit, no review").
-  if (role === 'host') return null;
+  // The host's pass: 1,000 shots and no review.
+  if (role === 'host') return HOST_PHOTO_LIMIT;
   if (role === 'photographer') return PHOTOGRAPHER_PHOTO_LIMIT;
   return guestPhotoLimit === null ? null : guestPhotoLimit + bonusShots;
 }
@@ -175,13 +177,16 @@ export const eventThemeSchema = z.object({
 });
 export type EventTheme = z.infer<typeof eventThemeSchema>;
 
-/** The host's own pictures: a logo, and a poster that replaces the newest photo as the cover. */
-export const EVENT_IMAGE_KINDS = ['logo', 'poster'] as const;
+/**
+ * The host's own pictures: a logo, a poster that replaces the newest photo as the cover, and a
+ * frame: a PNG with a see-through middle that guests can put around a photo when they save it.
+ */
+export const EVENT_IMAGE_KINDS = ['logo', 'poster', 'frame'] as const;
 export type EventImageKind = (typeof EVENT_IMAGE_KINDS)[number];
 export const EVENT_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 export const MAX_EVENT_IMAGE_BYTES = 15 * 1024 * 1024;
 /** The phone shrinks them before upload: long edge in pixels. */
-export const EVENT_IMAGE_MAX_EDGE: Record<EventImageKind, number> = { logo: 512, poster: 1600 };
+export const EVENT_IMAGE_MAX_EDGE: Record<EventImageKind, number> = { logo: 512, poster: 1600, frame: 2400 };
 
 export const createEventImageUploadSchema = z.object({
   kind: z.enum(EVENT_IMAGE_KINDS),
@@ -190,7 +195,7 @@ export const createEventImageUploadSchema = z.object({
 });
 export type CreateEventImageUploadInput = z.infer<typeof createEventImageUploadSchema>;
 
-/** Upload to `upload`, then save `key` as the event's logoKey / posterKey. */
+/** Upload to `upload`, then save `key` as the event's logoKey / posterKey / frameKey. */
 export type EventImageUpload = { key: string; upload: UploadTarget };
 
 const imageKey = z.string().max(200).nullable();
@@ -264,6 +269,7 @@ export const updateEventSchema = z
     theme: eventThemeSchema.nullable(),
     logoKey: imageKey,
     posterKey: imageKey,
+    frameKey: imageKey,
   })
   .partial()
   .refine((v) => Object.keys(v).length > 0, 'Nothing to update');
@@ -326,6 +332,8 @@ export type EventIdentity = {
   theme: EventTheme | null;
   posterUrl: string | null;
   logoUrl: string | null;
+  /** The host's own frame (PNG with a see-through middle), offered when saving a photo. */
+  frameUrl: string | null;
 };
 
 /** An event's change counters: a phone compares them to know when to refresh. */

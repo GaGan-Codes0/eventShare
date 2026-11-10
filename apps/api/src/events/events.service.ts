@@ -14,6 +14,7 @@ import {
   JOIN_CODE_LENGTH,
   MAX_EVENT_IMAGE_BYTES,
   MAX_PHOTOGRAPHERS,
+  HOST_PHOTO_LIMIT,
   PHOTOGRAPHER_PHOTO_LIMIT,
   photoLimitFor,
   REFILL_RETRY_AFTER_MS,
@@ -244,6 +245,7 @@ export class EventsService {
     const { event } = await this.requireHost(eventId, hostId);
     if (input.logoKey) await this.checkImage(eventId, 'logo', input.logoKey);
     if (input.posterKey) await this.checkImage(eventId, 'poster', input.posterKey);
+    if (input.frameKey) await this.checkImage(eventId, 'frame', input.frameKey);
     const { startsAt, albumOpensAt, ...rest } = input;
     const next = { ...event, ...rest };
     if (next.type === 'wedding' && (!next.partner1 || !next.partner2)) throw new BadRequestException('Add both names');
@@ -265,13 +267,14 @@ export class EventsService {
     for (const [old, now] of [
       [event.logoKey, input.logoKey],
       [event.posterKey, input.posterKey],
+      [event.frameKey, input.frameKey],
     ] as const) {
       if (now !== undefined && old && old !== now) void this.storage.delete(old).catch(() => undefined);
     }
     return this.detail(eventId, hostId);
   }
 
-  /** Step 1 of a logo / poster change: a signed upload. Step 2 is PATCH with the key. */
+  /** Step 1 of a logo / poster / frame change: a signed upload. Step 2 is PATCH with the key. */
   async createImageUpload(eventId: string, hostId: string, input: CreateEventImageUploadInput): Promise<EventImageUpload> {
     await this.requireHost(eventId, hostId);
     const key = `events/${eventId}/${input.kind}/${randomUUID()}.${IMAGE_EXTENSIONS[input.contentType]}`;
@@ -279,7 +282,10 @@ export class EventsService {
     return { key, upload: { url, headers: { 'Content-Type': input.contentType } } };
   }
 
-  /** A key saved as the logo or poster must be this event's, uploaded, and really an image. */
+  /**
+   * A key saved as the logo, poster or frame must be this event's, uploaded, and really an image.
+   * A frame must also have see-through parts, or it would cover the whole photo.
+   */
   private async checkImage(eventId: string, kind: EventImageKind, key: string) {
     if (!key.startsWith(`events/${eventId}/${kind}/`) || key.includes('..')) {
       throw new BadRequestException(`That isn't an uploaded ${kind} for this event`);
@@ -291,6 +297,9 @@ export class EventsService {
       .metadata()
       .catch(() => null);
     if (!meta?.width || !meta.height) throw new BadRequestException(`The ${kind} isn't an image`);
+    if (kind === 'frame' && !meta.hasAlpha) {
+      throw new BadRequestException('The frame needs a see-through middle: use a PNG with a transparent window');
+    }
   }
 
   /** Host makes a guest the photographer, or back. Photos they already took stay theirs. */
@@ -467,7 +476,7 @@ export class EventsService {
    */
   async reservePhotoSlot(conn: Conn, eventId: string, userId: string) {
     const limit = sql`CASE ${eventMembers.role}
-      WHEN 'host' THEN 2147483647
+      WHEN 'host' THEN ${HOST_PHOTO_LIMIT}::int
       WHEN 'photographer' THEN ${PHOTOGRAPHER_PHOTO_LIMIT}::int
       ELSE coalesce((SELECT ${events.guestPhotoLimit} FROM ${events} WHERE ${events.id} = ${eventId}) + ${eventMembers.bonusShots}, 2147483647)
     END`;
@@ -577,10 +586,10 @@ export class EventsService {
   }
 
   private async imageUrls(event: EventRow) {
-    const [posterUrl, logoUrl] = await Promise.all(
-      [event.posterKey, event.logoKey].map((key) => (key ? this.storage.presignDownload(key) : null)),
+    const [posterUrl, logoUrl, frameUrl] = await Promise.all(
+      [event.posterKey, event.logoKey, event.frameKey].map((key) => (key ? this.storage.presignDownload(key) : null)),
     );
-    return { posterUrl, logoUrl };
+    return { posterUrl, logoUrl, frameUrl };
   }
 
   private async identity(event: EventRow): Promise<EventIdentity> {

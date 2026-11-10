@@ -70,3 +70,31 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
   name: { fontSize: 48, lineHeight: 54 },
   date: { fontFamily: fonts.sansMedium, fontSize: 22, lineHeight: 28, letterSpacing: 2, textTransform: 'uppercase', opacity: 0.75 },
 }));
+
+type HostFramedCopyProps = {
+  ref?: Ref<ComponentRef<typeof View>>;
+  uri: string;
+  frameUrl: string;
+  /** Frame width / height, once its image has loaded. */
+  frameRatio: number;
+  onFrameLoad: (size: { width: number; height: number }) => void;
+  onPhotoLoad?: () => void;
+};
+
+/**
+ * The photo inside the host's own frame: the frame's shape and size, the photo filling it behind,
+ * the frame (a PNG with a see-through window) on top. Captured to an image like FramedCopy.
+ */
+export function HostFramedCopy({ ref, uri, frameUrl, frameRatio, onFrameLoad, onPhotoLoad }: HostFramedCopyProps) {
+  return (
+    <View ref={ref} collapsable={false} style={{ width: FRAMED_COPY_WIDTH, height: FRAMED_COPY_WIDTH / frameRatio, backgroundColor: '#FFFFFF' }}>
+      <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" onLoad={() => onPhotoLoad?.()} />
+      <Image
+        source={{ uri: frameUrl }}
+        style={StyleSheet.absoluteFill}
+        contentFit="fill"
+        onLoad={(e) => onFrameLoad({ width: e.source.width, height: e.source.height })}
+      />
+    </View>
+  );
+}

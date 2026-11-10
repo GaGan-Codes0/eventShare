@@ -6,6 +6,8 @@ export type Preferences = {
   /** What Save puts in the phone's library: the untouched original, a framed copy, or both. */
   saveOriginal: boolean;
   saveFramed: boolean;
+  /** A copy inside the host's own frame (when the host has uploaded one). */
+  saveHostFrame: boolean;
   /** A full-quality copy with the event's photo look (when it has one). */
   saveFiltered: boolean;
   /** Show the event's date stamp on photos (when the host has it on). */
@@ -15,7 +17,7 @@ export type Preferences = {
 };
 
 const KEY = 'preferences';
-const DEFAULTS: Preferences = { saveOriginal: true, saveFramed: false, saveFiltered: true, dateStamp: true, cameraGrid: false };
+const DEFAULTS: Preferences = { saveOriginal: true, saveFramed: false, saveHostFrame: true, saveFiltered: true, dateStamp: true, cameraGrid: false };
 let prefs = DEFAULTS;
 const listeners = new Set<() => void>();
 

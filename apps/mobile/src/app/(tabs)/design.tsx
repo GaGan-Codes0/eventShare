@@ -81,8 +81,16 @@ function Studio({ event }: { event: EventDetail }) {
     try {
       const picked = await pickEventImage(event.id, kind);
       if (picked) {
-        update.mutate(kind === 'logo' ? { logoKey: picked.key } : { posterKey: picked.key }, {
-          onSuccess: () => toast(kind === 'logo' ? 'Logo updated on every guest phone' : 'Cover updated for every guest'),
+        const change = kind === 'logo' ? { logoKey: picked.key } : kind === 'poster' ? { posterKey: picked.key } : { frameKey: picked.key };
+        update.mutate(change, {
+          onSuccess: () =>
+            toast(
+              kind === 'logo'
+                ? 'Logo updated on every guest phone'
+                : kind === 'poster'
+                  ? 'Cover updated for every guest'
+                  : 'Frame added: guests can save photos in it',
+            ),
           onError: (e) => Alert.alert(`Couldn't save the ${kind}`, e.message),
         });
       }
@@ -143,6 +151,28 @@ function Studio({ event }: { event: EventDetail }) {
             </Pressable>
             {event.posterUrl && (
               <Pressable accessibilityRole="button" hitSlop={8} onPress={() => save({ posterKey: null })}>
+                <Text variant="label" color="danger">
+                  Remove
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        </Section>
+
+        <Section
+          title="Photo frame"
+          caption="Your own frame for guests’ photos: a PNG with a see-through window. When guests save a photo, they can keep it inside this frame.">
+          <View style={styles.row}>
+            <View style={styles.coverThumb}>
+              {sample && <Image source={{ uri: sample }} style={StyleSheet.absoluteFill} contentFit="cover" />}
+              {event.frameUrl && <Image source={{ uri: event.frameUrl }} style={StyleSheet.absoluteFill} contentFit="fill" />}
+            </View>
+            <Pressable accessibilityRole="button" disabled={busy !== null} onPress={() => chooseImage('frame')} style={styles.upload}>
+              {busy === 'frame' ? <ActivityIndicator color={colors.ink} /> : <Upload size={16} color={colors.ink} />}
+              <Text variant="label">{event.frameUrl ? 'Change frame' : 'Upload frame'}</Text>
+            </Pressable>
+            {event.frameUrl && (
+              <Pressable accessibilityRole="button" hitSlop={8} onPress={() => save({ frameKey: null })}>
                 <Text variant="label" color="danger">
                   Remove
                 </Text>

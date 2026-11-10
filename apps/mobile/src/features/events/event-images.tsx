@@ -14,9 +14,10 @@ import { makeStyles } from '@/theme';
  * straight to storage. Returns the key to save on the event, or null if they cancelled.
  */
 export async function pickEventImage(eventId: string, kind: EventImageKind): Promise<{ key: string; uri: string } | null> {
+  // A frame is used exactly as designed: no cropping, which would also lose its see-through parts.
   const res = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ['images'],
-    allowsEditing: true,
+    allowsEditing: kind !== 'frame',
     aspect: kind === 'logo' ? [1, 1] : [9, 10],
     quality: 1,
   });
@@ -28,12 +29,10 @@ export async function pickEventImage(eventId: string, kind: EventImageKind): Pro
 export async function uploadEventImage(eventId: string, kind: EventImageKind, uri: string): Promise<{ key: string; uri: string }> {
   const edge = EVENT_IMAGE_MAX_EDGE[kind];
   const rendered = await ImageManipulator.manipulate(uri, { maxWidth: edge, maxHeight: edge }).renderAsync();
-  // Logos keep their transparent background; posters are photos.
-  const saved =
-    kind === 'logo'
-      ? await rendered.saveAsync({ format: SaveFormat.PNG })
-      : await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.85 });
-  const contentType = kind === 'logo' ? 'image/png' : 'image/jpeg';
+  // Logos and frames keep their transparent parts; posters are photos.
+  const png = kind !== 'poster';
+  const saved = png ? await rendered.saveAsync({ format: SaveFormat.PNG }) : await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.85 });
+  const contentType = png ? 'image/png' : 'image/jpeg';
   const file = new File(saved.uri);
 
   const ticket = await api<EventImageUpload>(`/events/${eventId}/images`, {
