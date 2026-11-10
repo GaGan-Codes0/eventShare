@@ -3,6 +3,9 @@ import { PHOTOGRAPHER_PHOTO_LIMIT } from '@eventshare/shared';
 
 import { ENV, type Env } from '../config/env.js';
 
+/** The app's name as people see it in emails. */
+const APP = 'Klickers';
+
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 /** "482 916", as the app shows codes. */
@@ -20,7 +23,7 @@ export type PhotographerInviteMail = {
 };
 
 /**
- * Sends eventShare's emails through Resend (https://resend.com/docs/api-reference/emails/send-email).
+ * Sends Klickers' emails through Resend (https://resend.com/docs/api-reference/emails/send-email).
  * With no RESEND_API_KEY set, nothing is sent and callers are told so: invites still work, and
  * the host shares the code themselves.
  */
@@ -47,13 +50,13 @@ export class MailService {
       `${m.hostName} has made you a designated photographer for ${m.eventKind ? `${m.eventKind} ` : ''}${m.eventName}${m.dateLabel ? ` (${m.dateLabel})` : ''}.`,
       `You get ${PHOTOGRAPHER_PHOTO_LIMIT.toLocaleString('en-US')} uploads, your photos skip review and go live instantly, with a Photographer badge.`,
       ``,
-      `1. Get the eventShare app.`,
+      `1. Get the ${APP} app.`,
       `2. Sign in with this email address: ${m.to}`,
       `3. Tap Join an event and enter the code: ${code}`,
       ``,
       `You'll come in as the photographer automatically.`,
       ``,
-      `eventShare · Every photo, everyone's.`,
+      `${APP} · Every photo, everyone's.`,
     ].join('\n');
 
     try {
@@ -74,7 +77,7 @@ export class MailService {
     }
   }
 
-  /** eventShare's own look: ivory paper, deep green ink, a serif for the name. Tables, for every mail app. */
+  /** The app's own look: ivory paper, deep green ink, a serif for the name. Tables, for every mail app. */
   private inviteHtml(m: PhotographerInviteMail, first: string, code: string, link: string) {
     const ink = '#273C32';
     const muted = '#6E6A5C';
@@ -86,7 +89,7 @@ export class MailService {
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#F3F2EC;padding:28px 12px"><tr><td align="center">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;background:#FAF9F5;border:1px solid #E3E4D8;border-radius:20px">
 <tr><td style="padding:28px 28px 8px">
-  <div style="font:400 22px/26px ${serif};color:${ink}">eventShare</div>
+  <div style="font:400 22px/26px ${serif};color:${ink}">${APP}</div>
 </td></tr>
 <tr><td style="padding:12px 28px 0">
   <div style="font:600 11px/16px ${sans};letter-spacing:1.6px;text-transform:uppercase;color:#385447">Designated photographer</div>
@@ -100,18 +103,18 @@ export class MailService {
   </td></tr></table>
 </td></tr>
 <tr><td style="padding:20px 28px 0"><table role="presentation" cellspacing="0" cellpadding="0">
-  ${step(1, 'Get the <b>eventShare</b> app.')}
+  ${step(1, `Get the <b>${APP}</b> app.`)}
   ${step(2, `Sign in with this email: <b>${esc(m.to)}</b>`)}
   ${step(3, `Tap <b>Join an event</b> and enter the code above.`)}
 </table></td></tr>
 <tr><td style="padding:22px 28px 0" align="center">
-  <a href="${esc(link)}" style="display:inline-block;background:#385447;color:#FFFEFA;text-decoration:none;font:600 15px/48px ${sans};padding:0 26px;border-radius:14px">Open in eventShare</a>
+  <a href="${esc(link)}" style="display:inline-block;background:#385447;color:#FFFEFA;text-decoration:none;font:600 15px/48px ${sans};padding:0 26px;border-radius:14px">Open in ${APP}</a>
 </td></tr>
 <tr><td style="padding:22px 28px 26px">
   <p style="font:400 13px/20px ${sans};color:${muted};margin:0">You'll come in as the photographer automatically when you join with ${esc(m.to)}. Not expecting this? You can ignore this email.</p>
 </td></tr>
 </table>
-<div style="font:400 12px/18px ${sans};color:#9A9888;margin-top:14px">eventShare · Every photo, everyone's.</div>
+<div style="font:400 12px/18px ${sans};color:#9A9888;margin-top:14px">${APP} · Every photo, everyone's.</div>
 </td></tr></table></body></html>`;
   }
 }

@@ -50,8 +50,8 @@ const envSchema = z
 
     /** Resend (resend.com) sends the photographer invite emails. Without a key, invites still work but no email goes out. */
     RESEND_API_KEY: z.string().optional(),
-    /** Who the emails come from: an address on a domain verified in Resend, e.g. `eventShare <invites@klyra.co.in>`. */
-    MAIL_FROM: z.string().default('eventShare <onboarding@resend.dev>'),
+    /** Who the emails come from: an address on a domain verified in Resend, e.g. `Klickers <invites@klyra.in>`. */
+    MAIL_FROM: z.string().default('Klickers <onboarding@resend.dev>'),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && env.AUTH_DEV_BYPASS) {
