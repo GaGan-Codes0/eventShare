@@ -1,13 +1,18 @@
 import {
+  FRAME_COLORS,
+  FRAME_MESSAGE_MAX,
+  FRAME_STYLES,
   NAME_JOINERS,
   type EventDetail,
+  type FrameStyle,
+  type FrameTemplate,
   type EventImageKind,
   type EventTheme,
   type UpdateEventInput,
 } from '@eventshare/shared';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Camera, Images, Upload } from 'lucide-react-native';
+import { Camera, Check, Images, Upload } from 'lucide-react-native';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
@@ -16,6 +21,7 @@ import { toast } from '@/components/toast';
 import { LoadingState, Text } from '@/components/ui';
 import { radius, screenPadding, space } from '@/constants/theme';
 import { EventBadge } from '@/features/events/event-card';
+import { frameInk, TemplateFrame } from '@/features/events/frame-templates';
 import { HostHeader } from '@/features/events/event-header';
 import { AccentPicker, FontGrid, FramePicker, LookPicker, ThemeGrid } from '@/features/events/look-pickers';
 import { pickEventImage } from '@/features/events/event-images';
@@ -159,27 +165,7 @@ function Studio({ event }: { event: EventDetail }) {
           </View>
         </Section>
 
-        <Section
-          title="Photo frame"
-          caption="Your own frame for guests’ photos: a PNG with a see-through window. When guests save a photo, they can keep it inside this frame.">
-          <View style={styles.row}>
-            <View style={styles.coverThumb}>
-              {sample && <Image source={{ uri: sample }} style={StyleSheet.absoluteFill} contentFit="cover" />}
-              {event.frameUrl && <Image source={{ uri: event.frameUrl }} style={StyleSheet.absoluteFill} contentFit="fill" />}
-            </View>
-            <Pressable accessibilityRole="button" disabled={busy !== null} onPress={() => chooseImage('frame')} style={styles.upload}>
-              {busy === 'frame' ? <ActivityIndicator color={colors.ink} /> : <Upload size={16} color={colors.ink} />}
-              <Text variant="label">{event.frameUrl ? 'Change frame' : 'Upload frame'}</Text>
-            </Pressable>
-            {event.frameUrl && (
-              <Pressable accessibilityRole="button" hitSlop={8} onPress={() => save({ frameKey: null })}>
-                <Text variant="label" color="danger">
-                  Remove
-                </Text>
-              </Pressable>
-            )}
-          </View>
-        </Section>
+        <PhotoFrameSection event={event} sample={sample ?? null} busy={busy} onUpload={() => chooseImage('frame')} save={save} />
 
         <Section title="Names">
           {wedding ? (
@@ -335,7 +321,7 @@ type FieldProps = {
   placeholder: string;
   onChange: (text: string) => void;
   onDone?: () => void;
-  autoCapitalize?: 'none' | 'characters' | 'words';
+  autoCapitalize?: 'none' | 'characters' | 'words' | 'sentences';
   maxLength?: number;
 };
 
@@ -404,4 +390,174 @@ const useStyles = makeStyles(({ colors }) => ({
   joinerOn: { backgroundColor: colors.primary },
   stampRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: 14, borderRadius: radius.lg + 2, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line },
   reset: { alignItems: 'center', paddingVertical: space.sm },
+  frameCards: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm + 2 },
+  frameCard: { alignItems: 'center', gap: space.xs },
+  frameThumb: {
+    width: 58,
+    height: 76,
+    borderRadius: radius.sm,
+    borderWidth: 2,
+    borderColor: colors.line,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.field,
+  },
+  frameThumbOn: { borderColor: colors.primary },
+  frameEdit: { flexDirection: 'row', gap: space.lg, alignItems: 'flex-start' },
+  framePreview: { borderRadius: radius.sm, overflow: 'hidden', borderWidth: 1, borderColor: colors.line },
+  frameControls: { flex: 1, gap: space.sm },
+  frameSwatches: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  frameSwatch: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: colors.lineStrong, alignItems: 'center', justifyContent: 'center' },
+  frameSwatchOn: { borderWidth: 3, borderColor: colors.primary },
 }));
+
+const FRAME_STYLE_LABEL: Record<FrameStyle, string> = { polaroid: 'Polaroid', classic: 'Classic', band: 'Band', confetti: 'Confetti' };
+
+/**
+ * The frame guests can save photos in: a ready-made one (style, colour, message, logo) or the
+ * host's own upload. One at a time; picking one replaces the other.
+ */
+function PhotoFrameSection({
+  event,
+  sample,
+  busy,
+  onUpload,
+  save,
+}: {
+  event: EventDetail;
+  sample: string | null;
+  busy: EventImageKind | null;
+  onUpload: () => void;
+  save: (change: UpdateEventInput) => void;
+}) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+  const tpl = event.frameTemplate;
+  const [message, setMessage] = useState(tpl?.message ?? event.name);
+  // The message field follows a change made elsewhere (another phone, or a reset).
+  const [lastMessage, setLastMessage] = useState(tpl?.message);
+  if (tpl?.message !== lastMessage) {
+    setLastMessage(tpl?.message);
+    if (tpl) setMessage(tpl.message);
+  }
+
+  function setTemplate(change: Partial<FrameTemplate>) {
+    const base: FrameTemplate = tpl ?? { style: 'polaroid', color: FRAME_COLORS[0], message: message.trim(), logo: Boolean(event.logoUrl) };
+    save({ frameTemplate: { ...base, ...change } });
+  }
+
+  const none = !tpl && !event.frameUrl;
+  const card = (key: string, label: string, selected: boolean, onPress: () => void, body: React.ReactNode) => (
+    <Pressable key={key} accessibilityRole="radio" accessibilityState={{ selected }} accessibilityLabel={`${label} frame`} onPress={onPress} style={styles.frameCard}>
+      <View style={[styles.frameThumb, selected && styles.frameThumbOn]}>{body}</View>
+      <Text variant="caption" style={{ color: selected ? colors.ink : colors.muted }}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+
+  return (
+    <Section title="Photo frame" caption="When guests save a photo, they can keep it inside this frame. Pick one and make it yours, or upload your own design.">
+      <View style={styles.frameCards}>
+        {card('none', 'None', none, () => save({ frameTemplate: null, frameKey: null }), <Text variant="caption" color="muted">None</Text>)}
+        {FRAME_STYLES.map((style) =>
+          card(
+            style,
+            FRAME_STYLE_LABEL[style],
+            tpl?.style === style,
+            () => setTemplate({ style }),
+            <TemplateFrame template={{ ...(tpl ?? { color: FRAME_COLORS[0], message: '', logo: false }), style, message: '' }} uri={sample} logoUrl={null} width={54} />,
+          ),
+        )}
+        {event.frameUrl &&
+          card(
+            'upload',
+            'Yours',
+            true,
+            () => undefined,
+            <>
+              {sample && <Image source={{ uri: sample }} style={StyleSheet.absoluteFill} contentFit="cover" />}
+              <Image source={{ uri: event.frameUrl }} style={StyleSheet.absoluteFill} contentFit="fill" />
+            </>,
+          )}
+      </View>
+
+      {tpl && (
+        <View style={styles.frameEdit}>
+          <View style={styles.framePreview}>
+            <TemplateFrame template={{ ...tpl, message: message.trim() }} uri={sample} logoUrl={event.logoUrl} width={150} />
+          </View>
+          <View style={styles.frameControls}>
+            <Text variant="label" style={{ color: colors.accent }}>
+              Colour
+            </Text>
+            <View style={styles.frameSwatches}>
+              {FRAME_COLORS.map((c) => {
+                const selected = tpl.color === c;
+                return (
+                  <Pressable
+                    key={c}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected }}
+                    accessibilityLabel={`Frame colour ${c}`}
+                    onPress={() => setTemplate({ color: c })}
+                    style={[styles.frameSwatch, { backgroundColor: c }, selected && styles.frameSwatchOn]}>
+                    {selected && <Check size={14} color={frameInk(c)} />}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        </View>
+      )}
+
+      {tpl && (
+        <>
+          <Field
+            value={message}
+            placeholder="A message, e.g. Tanya & Paul · 12.12.2026"
+            autoCapitalize="sentences"
+            maxLength={FRAME_MESSAGE_MAX}
+            onChange={setMessage}
+            onDone={() => message.trim() !== tpl.message && setTemplate({ message: message.trim() })}
+          />
+          <View style={styles.stampRow}>
+            <View style={styles.flex}>
+              <Text variant="bodyStrong">Show the logo</Text>
+              <Text variant="caption" color="muted">
+                {event.logoUrl ? 'Your logo next to the message.' : 'Add a logo above to show it on the frame.'}
+              </Text>
+            </View>
+            <Switch
+              accessibilityLabel="Show the logo on the frame"
+              disabled={!event.logoUrl}
+              value={tpl.logo && Boolean(event.logoUrl)}
+              onValueChange={(logo) => setTemplate({ logo })}
+              trackColor={{ true: colors.primaryText, false: colors.lineStrong }}
+              thumbColor={colors.surface}
+              ios_backgroundColor={colors.lineStrong}
+            />
+          </View>
+        </>
+      )}
+
+      <View style={styles.row}>
+        <Pressable accessibilityRole="button" disabled={busy !== null} onPress={onUpload} style={styles.upload}>
+          {busy === 'frame' ? <ActivityIndicator color={colors.ink} /> : <Upload size={16} color={colors.ink} />}
+          <Text variant="label">{event.frameUrl ? 'Change your frame' : 'Upload your own'}</Text>
+        </Pressable>
+        {event.frameUrl && (
+          <Pressable accessibilityRole="button" hitSlop={8} onPress={() => save({ frameKey: null })}>
+            <Text variant="label" color="danger">
+              Remove
+            </Text>
+          </Pressable>
+        )}
+      </View>
+      <Text variant="caption" color="muted">
+        Your own: a PNG with a see-through window, best at 1800 × 2400.
+      </Text>
+    </Section>
+  );
+}

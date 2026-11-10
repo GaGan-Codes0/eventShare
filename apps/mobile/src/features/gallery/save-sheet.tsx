@@ -10,6 +10,7 @@ import { captureRef } from 'react-native-view-shot';
 import { Banner, Button, Text } from '@/components/ui';
 import { icon, radius, screenPadding, space } from '@/constants/theme';
 import { FRAMED_COPY_WIDTH, FramedCopy, HostFramedCopy } from '@/features/events/event-frame';
+import { TEMPLATE_RATIO, TemplateFrame } from '@/features/events/frame-templates';
 import { exportFiltered, FILTER_LABEL } from '@/features/gallery/photo-filters';
 import { getDownloadUrl } from '@/services/api/hooks';
 import { setPreference, usePreferences } from '@/store/preferences';
@@ -37,9 +38,12 @@ export function SaveSheet({ photo, event, onClose }: Props) {
   const [looked, setLooked] = useState<string | null | undefined>(undefined);
   const copy = useRef<ComponentRef<typeof View>>(null);
   const hostCopy = useRef<ComponentRef<typeof View>>(null);
-  // The host's own frame: its shape once loaded, and whether the photo under it has drawn.
+  // The host's frame, uploaded or ready-made: its shape (an upload's once loaded), and whether
+  // the photo in it has drawn.
   const frameUrl = event?.frameUrl ?? null;
-  const [frameRatio, setFrameRatio] = useState<number | null>(null);
+  const template = frameUrl ? null : (event?.frameTemplate ?? null);
+  const [uploadRatio, setFrameRatio] = useState<number | null>(null);
+  const frameRatio = template ? TEMPLATE_RATIO : uploadRatio;
   const [hostPhotoLoaded, setHostPhotoLoaded] = useState(false);
   const look = event?.filter ?? 'natural';
   const hasLook = look !== 'natural';
@@ -71,7 +75,7 @@ export function SaveSheet({ photo, event, onClose }: Props) {
   }, [photo.id, look]);
 
   const wantLook = hasLook && prefs.saveFiltered;
-  const wantHostFrame = Boolean(frameUrl) && prefs.saveHostFrame;
+  const wantHostFrame = Boolean(frameUrl || template) && prefs.saveHostFrame;
   const nothing = !prefs.saveOriginal && !prefs.saveFramed && !wantLook && !wantHostFrame;
   // The framed copies show the look too, so they wait for the looked copy.
   const ready =
@@ -140,7 +144,7 @@ export function SaveSheet({ photo, event, onClose }: Props) {
             onPress={() => setPreference('saveFiltered', !prefs.saveFiltered)}
           />
         )}
-        {frameUrl && (
+        {(frameUrl || template) && (
           <>
             <Option
               title="In the host’s frame"
@@ -151,14 +155,18 @@ export function SaveSheet({ photo, event, onClose }: Props) {
             <View style={[styles.preview, { height: frameRatio ? (FRAMED_COPY_WIDTH / frameRatio) * scale : 0 }, !prefs.saveHostFrame && styles.off]}>
               {framedSource && (!hasLook || looked !== undefined) ? (
                 <View style={[styles.scaled, { transform: [{ scale }] }]}>
-                  <HostFramedCopy
-                    ref={hostCopy}
-                    uri={framedSource}
-                    frameUrl={frameUrl}
-                    frameRatio={frameRatio ?? 1}
-                    onFrameLoad={(size) => size.width && size.height && setFrameRatio(size.width / size.height)}
-                    onPhotoLoad={() => setHostPhotoLoaded(true)}
-                  />
+                  {template ? (
+                    <TemplateFrame ref={hostCopy} template={template} uri={framedSource} logoUrl={event?.logoUrl ?? null} onPhotoLoad={() => setHostPhotoLoaded(true)} />
+                  ) : frameUrl ? (
+                    <HostFramedCopy
+                      ref={hostCopy}
+                      uri={framedSource}
+                      frameUrl={frameUrl}
+                      frameRatio={frameRatio ?? 1}
+                      onFrameLoad={(size) => size.width && size.height && setFrameRatio(size.width / size.height)}
+                      onPhotoLoad={() => setHostPhotoLoaded(true)}
+                    />
+                  ) : null}
                 </View>
               ) : null}
             </View>

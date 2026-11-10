@@ -178,6 +178,28 @@ export const eventThemeSchema = z.object({
 export type EventTheme = z.infer<typeof eventThemeSchema>;
 
 /**
+ * Ready-made frames for saved photos, so a host without a designer can have one: a style, a
+ * colour, a short message and (optionally) the event's logo. Drawn on the phone when a guest saves.
+ * polaroid: wide bottom border. classic: gold double line. band: a strip with logo and message.
+ * confetti: dots around the border, message on top.
+ */
+export const FRAME_STYLES = ['polaroid', 'classic', 'band', 'confetti'] as const;
+export type FrameStyle = (typeof FRAME_STYLES)[number];
+/** Frame colours offered to the host: white, cream, black, forest, navy, wine, blush, gold. */
+export const FRAME_COLORS = ['#FFFFFF', '#F3EBDD', '#111111', '#1F3329', '#0E1A2C', '#7A1F2B', '#F6E3DF', '#B8862F'] as const;
+export const FRAME_MESSAGE_MAX = 60;
+export const frameTemplateSchema = z.object({
+  style: z.enum(FRAME_STYLES),
+  color: z
+    .string()
+    .regex(/^#[0-9A-Fa-f]{6}$/, 'Use a colour like #1F3329')
+    .transform((c) => c.toUpperCase()),
+  message: z.string().trim().max(FRAME_MESSAGE_MAX),
+  logo: z.boolean(),
+});
+export type FrameTemplate = z.infer<typeof frameTemplateSchema>;
+
+/**
  * The host's own pictures: a logo, a poster that replaces the newest photo as the cover, and a
  * frame: a PNG with a see-through middle that guests can put around a photo when they save it.
  */
@@ -270,6 +292,8 @@ export const updateEventSchema = z
     logoKey: imageKey,
     posterKey: imageKey,
     frameKey: imageKey,
+    /** A ready-made frame instead of an uploaded one. Setting either clears the other. */
+    frameTemplate: frameTemplateSchema.nullable(),
   })
   .partial()
   .refine((v) => Object.keys(v).length > 0, 'Nothing to update');
@@ -334,6 +358,8 @@ export type EventIdentity = {
   logoUrl: string | null;
   /** The host's own frame (PNG with a see-through middle), offered when saving a photo. */
   frameUrl: string | null;
+  /** Or a ready-made frame the host styled. At most one of frameUrl / frameTemplate is set. */
+  frameTemplate: FrameTemplate | null;
 };
 
 /** An event's change counters: a phone compares them to know when to refresh. */

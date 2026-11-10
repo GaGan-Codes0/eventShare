@@ -247,6 +247,9 @@ export class EventsService {
     if (input.posterKey) await this.checkImage(eventId, 'poster', input.posterKey);
     if (input.frameKey) await this.checkImage(eventId, 'frame', input.frameKey);
     const { startsAt, albumOpensAt, ...rest } = input;
+    // One frame at a time: picking a ready-made frame drops the uploaded one, and the other way round.
+    if (input.frameTemplate) rest.frameKey = null;
+    if (input.frameKey) rest.frameTemplate = null;
     const next = { ...event, ...rest };
     if (next.type === 'wedding' && (!next.partner1 || !next.partner2)) throw new BadRequestException('Add both names');
     await this.db
@@ -267,7 +270,7 @@ export class EventsService {
     for (const [old, now] of [
       [event.logoKey, input.logoKey],
       [event.posterKey, input.posterKey],
-      [event.frameKey, input.frameKey],
+      [event.frameKey, rest.frameKey],
     ] as const) {
       if (now !== undefined && old && old !== now) void this.storage.delete(old).catch(() => undefined);
     }
@@ -604,6 +607,7 @@ export class EventsService {
       location: event.location,
       startsAt: event.startsAt?.toISOString() ?? null,
       theme: event.theme,
+      frameTemplate: event.frameTemplate,
       ...(await this.imageUrls(event)),
     };
   }

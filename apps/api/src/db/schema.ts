@@ -1,4 +1,4 @@
-import { ARCHIVE_SCOPES, EVENT_TYPES, MEDIA_KINDS, NAME_JOINERS, PHOTO_FILTERS, REVEAL_MODES, type EventTheme } from '@eventshare/shared';
+import { ARCHIVE_SCOPES, EVENT_TYPES, MEDIA_KINDS, NAME_JOINERS, PHOTO_FILTERS, REVEAL_MODES, type EventTheme, type FrameTemplate } from '@eventshare/shared';
 import { sql } from 'drizzle-orm';
 import {
   bigint,
@@ -94,6 +94,8 @@ export const events = pgTable(
     posterKey: text('poster_key'),
     /** The host's frame for saved photos: a PNG with a see-through middle. */
     frameKey: text('frame_key'),
+    /** Or a ready-made frame (validated by frameTemplateSchema). Only one of the two is set. */
+    frameTemplate: jsonb('frame_template').$type<FrameTemplate>(),
     ...timestamps,
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
