@@ -12,6 +12,7 @@ import { icon, radius, screenPadding, space } from '@/constants/theme';
 import { FRAMED_COPY_WIDTH, FramedCopy, HostFramedCopy } from '@/features/events/event-frame';
 import { TEMPLATE_RATIO, TemplateFrame } from '@/features/events/frame-templates';
 import { exportFiltered, FILTER_LABEL } from '@/features/gallery/photo-filters';
+import { dateAsSavedNow } from '@/features/gallery/saved-date';
 import { getDownloadUrl } from '@/services/api/hooks';
 import { setPreference, usePreferences } from '@/store/preferences';
 import { makeStyles, useTheme } from '@/theme';
@@ -92,7 +93,11 @@ export function SaveSheet({ photo, event, onClose }: Props) {
     try {
       const perm = await requestPermissionsAsync(true);
       if (!perm.granted) throw new Error('Allow eventShare to add photos in Settings.');
-      if (prefs.saveOriginal) await Asset.create(local.uri);
+      if (prefs.saveOriginal) {
+        // Dated as saved now, so it's at the top of the gallery, not back on the event day.
+        await dateAsSavedNow(local.uri);
+        await Asset.create(local.uri);
+      }
       if (wantLook) {
         if (!looked) throw new Error('This phone couldn’t apply the look to this photo. The original saves fine.');
         await Asset.create(looked);

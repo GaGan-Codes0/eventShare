@@ -19,6 +19,7 @@ import { stampText } from '@/features/events/identity';
 import { ROLE_LABEL } from '@/features/events/roles';
 import { VoicePlayer } from '@/features/capture/voice-player';
 import { FilteredImage } from '@/features/gallery/photo-filters';
+import { dateAsSavedNow } from '@/features/gallery/saved-date';
 import { stableSource } from '@/features/gallery/stable-image';
 import { SaveSheet } from '@/features/gallery/save-sheet';
 import { usePreferences } from '@/store/preferences';
@@ -273,6 +274,8 @@ async function saveMedia(photo: Photo) {
   }
   const perm = await requestPermissionsAsync(true);
   if (!perm.granted) throw new Error('Allow eventShare to add to your Photos in Settings.');
+  // Dated as saved now, so it's at the top of the gallery, not back on the event day.
+  await dateAsSavedNow(file.uri, 'video');
   await Asset.create(file.uri);
   file.delete();
   toast('Video saved to your Photos');
