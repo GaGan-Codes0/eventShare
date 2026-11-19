@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Klickers | One shared camera roll for every guest</title>
-<meta name="description" content="Klickers gives every guest a roll of 36 shots and puts every photo in one shared album. Weddings, birthdays, anniversaries and corporate events, each styled your way.">
+<meta name="description" content="Klickers gives every guest a roll of shots, like film, and puts every photo in one shared album. Weddings, birthdays, anniversaries and corporate events, each styled your way.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://images.pexels.com">
@@ -360,6 +360,19 @@ html[data-occ="corporate"] .gridbg { opacity: 1; }
 .toggle[aria-checked="true"] { background: var(--accent); }
 .toggle[aria-checked="true"]::after { left: 21px; }
 
+/* ============================ PACKAGES ============================ */
+.plans { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.plan { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 24px 22px; display: flex; flex-direction: column; gap: 6px; transition: border-radius .6s; }
+.plan.pick { border: 2px solid var(--accent); }
+.plan .tag { align-self: flex-start; font: 600 11px 'DM Sans'; letter-spacing: .6px; text-transform: uppercase; color: var(--on); background: var(--accent); padding: 4px 9px; border-radius: 999px; margin-bottom: 4px; }
+.plan h3 { font-family: var(--hf); font-style: var(--hs); font-weight: var(--hw); letter-spacing: var(--htr); font-size: calc(26px * var(--hsz)); line-height: 1.1; }
+.plan .price { font: 600 30px 'DM Sans'; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin: 6px 0 10px; }
+.plan .price small { font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+.plan ul { list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 14.5px; }
+.plan li { display: flex; gap: 8px; align-items: flex-start; }
+.plan li .svg { color: var(--accent); margin-top: 2px; }
+.plans-note { margin-top: 22px; font-size: 14px; color: var(--muted); }
+
 /* ============================ CTA ============================ */
 .cta { text-align: center; padding: 140px 0 120px; }
 .cta .load { font-size: calc(clamp(64px, 11vw, 168px) * var(--hsz)); line-height: .95; }
@@ -392,6 +405,7 @@ html[data-occ="corporate"] .gridbg { opacity: 1; }
   .hero-in { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .stage { height: 660px; max-width: 560px; width: 100%; margin: 0 auto; }
   .head, .two, .studio-grid { grid-template-columns: minmax(0, 1fr); }
+  .plans { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .steps { grid-template-columns: minmax(0, 1fr); gap: 48px; }
   .hostp { padding: 24px 0 0; }
 }
@@ -422,6 +436,7 @@ html[data-occ="corporate"] .gridbg { opacity: 1; }
   .dots i { width: 10px; height: 10px; }
   .cboxes div { width: 40px; height: 52px; }
   .fcount { display: none; }
+  .plans { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition-duration: .01ms !important; }
@@ -546,7 +561,7 @@ html[data-occ="corporate"] .gridbg { opacity: 1; }
     <div class="wrap">
       <div class="head">
         <h2 class="h2">One code. Every guest. One album.</h2>
-        <p class="lede">No app-store hunting at the door, no “send me that photo” the next day. Your <span data-t="gw"></span> scan, shoot, and it all lands in one place.</p>
+        <p class="lede">No “send me that photo” the next day. Your <span data-t="gw"></span> scan one code in Klickers, shoot, and it all lands in one place.</p>
       </div>
       <ol class="steps">
         <li>
@@ -561,7 +576,7 @@ html[data-occ="corporate"] .gridbg { opacity: 1; }
           </div>
           <span class="num">1</span>
           <h3 class="h3">Share one code</h3>
-          <p>Put the QR code on the tables or send the 6-digit code with your invite. One scan and your <span data-t="gw"></span> are in.</p>
+          <p>Put the QR code on the tables or send the 6-digit code with your invite. One scan in the Klickers app and your <span data-t="gw"></span> are in. Joining is always free.</p>
         </li>
         <li>
           <div class="vis">
@@ -574,7 +589,7 @@ html[data-occ="corporate"] .gridbg { opacity: 1; }
           </div>
           <span class="num">2</span>
           <h3 class="h3">Everyone shoots</h3>
-          <p>Each guest gets a roll of 36 shots, like film. Enough for the whole day, few enough to make every shot count. Videos get their own 30 seconds.</p>
+          <p>Each guest gets a roll of shots, like film: 10, 24, 36 or 50, you choose. Enough for the whole day, few enough to make every shot count. Videos get their own 30 seconds, and voice messages a minute.</p>
         </li>
         <li>
           <div class="vis">
@@ -610,7 +625,7 @@ html[data-occ="corporate"] .gridbg { opacity: 1; }
     <div class="wrap studio-grid">
       <div>
         <h2 class="h2">Make it yours.</h2>
-        <p class="lede" style="margin-top:16px">Every event gets its own look: a colour theme, a font for the names, your logo, and a frame guests can save their photos in. Change anything and guests see it instantly.</p>
+        <p class="lede" style="margin-top:16px">Every event gets its own look, starting with a ready-made colour theme. Bigger packages add your own accent and a font for the names, then your logo and a frame guests can save their photos in. Change anything and guests see it instantly.</p>
         <p class="wearing">This page is wearing <b id="wearT"></b> with <b id="wearF"></b> names. Mix your own below.</p>
         <div class="ctl"><span>Colour theme</span><div class="themes" id="themes"></div></div>
         <div class="ctl"><span>Name font</span><div class="fonts" id="fonts"></div></div>
@@ -656,6 +671,18 @@ html[data-occ="corporate"] .gridbg { opacity: 1; }
     </div>
   </section>
 
+  <!-- ============================ PACKAGES ============================ -->
+  <section class="section" id="packages" style="padding-bottom:0">
+    <div class="wrap">
+      <div class="head">
+        <h2 class="h2">Pay once, per event.</h2>
+        <p class="lede">Try it free with a few friends, then pick the package that fits the day. Guests always join free.</p>
+      </div>
+      <div class="plans" id="plans"></div>
+      <p class="plans-note">Prices include tax. Paid once through the App Store or Google Play, for one event. Move up any time and pay only the difference.</p>
+    </div>
+  </section>
+
   <!-- ============================ CTA ============================ -->
   <section class="cta" id="start">
     <div class="wrap">
@@ -696,8 +723,8 @@ const OCC = {
   wedding: {
     label: 'Wedding', icon: 'rings', fx: 'petals', theme: 'sage', font: 'script', frame: 'polaroid',
     l1: 'Every photo,', l2: 'everyone’s.',
-    sub: 'Give every guest a roll of 36 shots. From the haldi to the last dance, every photo lands in one album that’s yours to keep.',
-    name: 'Tanya & Paul', mono: 'T&P', kind: 'Wedding, Udaipur', when: '14 December. Camera open until 16 Dec, noon',
+    sub: 'Give every guest a roll of shots, like film. From the haldi to the last dance, every photo lands in one album that’s yours to keep.',
+    name: 'Tanya & Paul', mono: 'T&P', kind: 'Wedding, Udaipur', when: '14 December. Camera open till 16 Dec, midnight',
     msg: 'Tanya & Paul, 14.12.2026', g: 1846, n: 240, gw: 'guests',
     photos: [30184613, 14819842, 19590224, 20058049, 33078537, 19569595, 12941516, 17657612, 16583021, 18361996, 30184618, 24334706],
     prints: [[1, 'the varmala', 'Meera'], [5, 'petal ambush', 'Kabir'], [3, 'baraat, 11:40 pm', 'Dev']],
@@ -706,7 +733,7 @@ const OCC = {
   birthday: {
     label: 'Birthday', icon: 'cake', fx: 'confetti', theme: 'graphite', font: 'bold', frame: 'confetti',
     l1: 'Catch', l2: 'the chaos.',
-    sub: 'Everyone at the party gets 36 shots, and every one lands in one shared album. The best photo of the night won’t be stuck on someone else’s phone.',
+    sub: 'Everyone at the party gets a roll of shots, and every one lands in one shared album. The best photo of the night won’t be stuck on someone else’s phone.',
     name: 'Zoya turns 30', mono: 'Z', kind: 'Birthday, Bandra', when: 'Saturday, 8 pm till late',
     msg: 'Zoya turns 30', g: 612, n: 54, gw: 'friends',
     photos: [30682919, 6185339, 5805051, 30692831, 6405786, 7180891, 9003003, 6312033, 17823866, 7180617, 30692832, 18704257],
@@ -716,7 +743,7 @@ const OCC = {
   anniversary: {
     label: 'Anniversary', icon: 'wine', fx: 'gold', theme: 'midnight', font: 'romantic', frame: 'classic',
     l1: 'Twenty-five years,', l2: 'one more roll.',
-    sub: 'Family and friends each get a roll of 36 shots. Every toast, every dance and every quiet moment, collected in one album at full quality.',
+    sub: 'Family and friends each get their own roll of shots. Every toast, every dance and every quiet moment, collected in one album at full quality.',
     name: 'Meera & Vikram', mono: 'M&V', kind: 'Anniversary, Goa', when: '8 February. 25 years together',
     msg: 'Meera & Vikram, 25 years', g: 438, n: 86, gw: 'loved ones',
     photos: [3171204, 7810954, 5591175, 15198293, 7911049, 7910783, 16935903, 5018978, 6248888, 7867778, 20826886, 7867790],
@@ -727,8 +754,8 @@ const OCC = {
     label: 'Corporate', icon: 'briefcase', fx: 'net', theme: 'navy', font: 'modern', frame: 'band',
     l1: 'One shared roll', l2: 'for the whole room.',
     sub: 'Turn every attendee into a photographer. Your brand on the camera, one code to join, and every photo from the day in one album your team can use.',
-    name: 'Northstar Offsite', mono: 'N', kind: 'Corporate, Bengaluru', when: '3–4 March. 412 people, one album',
-    msg: 'Northstar Offsite 2026', g: 2390, n: 412, gw: 'colleagues',
+    name: 'Northstar Offsite', mono: 'N', kind: 'Corporate, Bengaluru', when: '3 March. 280 people, one album',
+    msg: 'Northstar Offsite 2026', g: 2390, n: 280, gw: 'colleagues',
     photos: [36713385, 6405768, 8761555, 8349235, 7648057, 6405724, 37887616, 3700250, 26202153, 36713386, 8761647, 6405665],
     prints: [[3, 'the keynote', 'Arjun'], [1, 'team four won', 'Neha'], [4, 'badge pickup', 'Vikram']],
     band: 6, bandLine: 'Keynotes, breakouts and the after-party, ready for the recap deck by Monday.'
@@ -1016,10 +1043,25 @@ const HROWS = [
   ['download', 'Guests can save photos', 'Originals, or a copy in your frame.', true],
   ['images', 'Camera-roll uploads', 'Let guests add photos they took before joining.', false],
   ['face', 'Find my photos', 'One selfie finds every photo a guest is in.', true],
+  ['images', 'One look for every photo', 'Natural, golden, mono or faded. Add a date stamp, like a disposable.', false],
+  ['camera', 'Shot list', 'Up to 12 prompts for guests to shoot, like “the first look”.'],
   ['users', 'Designated photographers', 'A much bigger roll, and they skip the review queue.'],
   ['clock', 'Camera window', 'Opens on the day, closes 48 hours after. For everyone.'],
   ['download', 'Download everything', 'Every photo at full quality, in one zip.'],
 ];
+/* The app's packages (packages/shared PLANS) */
+const PLANS = [
+  ['Try Klickers', 'Free', '', ['Up to 10 guests', '10 shots each', '1 photographer, 50 photos', 'Album open for 7 days']],
+  ['Party', '₹999', '', ['Up to 75 guests', 'Up to 24 shots each', '1 photographer, 500 photos', 'Album open for 90 days']],
+  ['Celebration', '₹2,499', 'Recommended', ['Up to 200 guests', 'Up to 50 shots each', '2 photographers, 3,000 photos', 'Album open for a year', 'Your own accent and name font', 'Download everything in one zip']],
+  ['Branded Event', '₹4,999', '', ['Up to 300 guests', 'Up to 50 shots each', '3 photographers, 5,000 photos', 'Album open for a year', 'Everything in Celebration', 'Your logo and photo frames', 'Review guest photos first']],
+];
+function renderPlans() {
+  $('#plans').innerHTML = PLANS.map(([name, price, tag, items]) => `<div class="plan${tag ? ' pick' : ''}">${tag ? `<span class="tag">${tag}</span>` : ''}<h3>${name}</h3>
+    <div class="price">${price}${price === 'Free' ? '' : ' <small>per event</small>'}</div>
+    <ul>${items.map(t => `<li>${icon('check', 16)}<span>${t}</span></li>`).join('')}</ul></div>`).join('');
+}
+
 function renderHostRows() {
   $('#hostRows').innerHTML = HROWS.map(([ic, t, c, on]) => `<div class="hrow"><span class="ic">${icon(ic, 18)}</span><div class="tx"><b>${t}</b><span>${c}</span></div>${on === undefined ? '' : `<button class="toggle" role="switch" aria-checked="${on}" aria-label="${t}"></button>`}</div>`).join('');
 }
@@ -1185,7 +1227,7 @@ function typeCode() {
   buildPickers(); buildTabs();
   $('#dots').innerHTML = '<i></i>'.repeat(36);
   qr($('#qr'), 5);
-  renderText(); renderPhotos(); resetDemo(); renderStudio(true); renderHostRows();
+  renderText(); renderPhotos(); resetDemo(); renderStudio(true); renderHostRows(); renderPlans();
   paintIcons();
   $('#cboxes').innerHTML = '<div class="cur"></div><div></div><div></div><span class="gap"></span><div></div><div></div><div></div>';
 
