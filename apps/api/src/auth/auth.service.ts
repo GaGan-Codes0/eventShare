@@ -1,5 +1,5 @@
-import { ConflictException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
-import type { AppleSignInInput, AuthSession, LoginInput, SignupInput } from '@eventshare/shared';
+import { ConflictException, Inject, Injectable, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
+import type { AppleSignInInput, AuthSession, GoogleSignInInput, LoginInput, SignupInput } from '@eventshare/shared';
 import { hash, verify } from '@node-rs/argon2';
 import { and, eq, isNull } from 'drizzle-orm';
 import { createRemoteJWKSet, jwtVerify, SignJWT } from 'jose';
@@ -16,6 +16,9 @@ const BAD_LOGIN = 'Email or password is incorrect';
 const APPLE_ISSUER = 'https://appleid.apple.com';
 /** Apple's signing keys, fetched once and cached (jose refreshes them when Apple rotates). */
 const appleKeys = createRemoteJWKSet(new URL('https://appleid.apple.com/auth/keys'));
+const GOOGLE_ISSUERS = ['https://accounts.google.com', 'accounts.google.com'];
+/** Google's signing keys, cached the same way. */
+const googleKeys = createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'));
 
 /**
  * Our own email + password accounts. Passwords are hashed with argon2id (OWASP defaults);
@@ -75,6 +78,29 @@ export class AuthService {
       throw new UnauthorizedException('Apple sign-in failed. Please try again.');
     }
     return this.session(await this.externalUser(`apple_${sub}`, email, input.name));
+  }
+
+  /**
+   * Sign in with Google. The ID token must be signed by Google for one of our client IDs. Google
+   * only vouches for the email when it says so (Gmail and Workspace addresses always are).
+   */
+  async signInWithGoogle(input: GoogleSignInInput): Promise<AuthSession> {
+    const audience = this.env.GOOGLE_CLIENT_IDS;
+    if (!audience.length) throw new ServiceUnavailableException('Google sign-in is not set up yet.');
+    let sub: string;
+    let email: string | null = null;
+    let name: string | undefined;
+    try {
+      const { payload } = await jwtVerify(input.idToken, googleKeys, { issuer: GOOGLE_ISSUERS, audience });
+      if (typeof payload.sub !== 'string') throw new Error('bad token');
+      sub = payload.sub;
+      const verified = payload.email_verified === true || payload.email_verified === 'true';
+      if (typeof payload.email === 'string' && verified) email = payload.email.toLowerCase();
+      if (typeof payload.name === 'string') name = payload.name;
+    } catch {
+      throw new UnauthorizedException('Google sign-in failed. Please try again.');
+    }
+    return this.session(await this.externalUser(`google_${sub}`, email, name));
   }
 
   /** Finds the user for a sign-in provider's account: by its id, then by verified email, else a new one. */

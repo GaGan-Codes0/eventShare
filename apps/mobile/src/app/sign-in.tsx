@@ -11,6 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, Text, TextField, Wordmark } from '@/components/ui';
 import { screenPadding, space } from '@/constants/theme';
 import { AppleSignInButton, signInWithApple, useAppleSignInAvailable } from '@/features/auth/apple-sign-in';
+import { GoogleSignInButton, googleSignInAvailable, signInWithGoogle } from '@/features/auth/google-sign-in';
 import { api } from '@/services/api/client';
 import { setSession } from '@/services/api/session';
 import { setCurrentEvent } from '@/store/current-event';
@@ -93,7 +94,7 @@ export default function SignIn() {
     setError(null);
     try {
       const session = await signIn();
-      if (!session) return; // closed Apple's sheet
+      if (!session) return; // closed Apple's or Google's sheet
       qc.clear();
       setCurrentEvent(null);
       await setSession(session);
@@ -143,7 +144,7 @@ export default function SignIn() {
                 {'Every photo,\n'}
                 <Text style={styles.headlineItalic}>everyone’s.</Text>
               </Text>
-              <Text style={styles.lede}>Join an event with its QR code or 8-character code. Every guest’s shots land in one shared album.</Text>
+              <Text style={styles.lede}>Join an event with its QR code or 6-digit code. Every guest’s shots land in one shared album.</Text>
             </View>
           )}
 
@@ -203,18 +204,17 @@ export default function SignIn() {
             disabled={!canSubmit}
             onPress={submit}
           />
-          {appleAvailable && (
-            <>
-              <View style={styles.or}>
-                <View style={styles.orLine} />
-                <Text variant="caption" color="muted">
-                  or
-                </Text>
-                <View style={styles.orLine} />
-              </View>
-              <AppleSignInButton signup={isSignup} onPress={() => void run(signInWithApple)} />
-            </>
+          {(appleAvailable || googleSignInAvailable) && (
+            <View style={styles.or}>
+              <View style={styles.orLine} />
+              <Text variant="caption" color="muted">
+                or
+              </Text>
+              <View style={styles.orLine} />
+            </View>
           )}
+          {appleAvailable && <AppleSignInButton signup={isSignup} onPress={() => void run(signInWithApple)} />}
+          {googleSignInAvailable && <GoogleSignInButton signup={isSignup} disabled={busy} onPress={() => void run(signInWithGoogle)} />}
           <Button
             label={isSignup ? 'Already have an account? Log in' : 'New here? Create an account'}
             variant="ghost"

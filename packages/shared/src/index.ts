@@ -73,6 +73,10 @@ export const appleSignInSchema = z.object({
 });
 export type AppleSignInInput = z.infer<typeof appleSignInSchema>;
 
+/** Sign in with Google: the ID token Google's sign-in sheet gave the app. Google sends the name and photo inside it. */
+export const googleSignInSchema = z.object({ idToken: z.string().min(20).max(4096) });
+export type GoogleSignInInput = z.infer<typeof googleSignInSchema>;
+
 /** Returned by sign up and log in. Send `token` as `Authorization: Bearer <token>`. */
 export type AuthSession = { token: string; user: User };
 

@@ -20,6 +20,15 @@ const envSchema = z
     JWT_TTL: z.string().default('30d'),
     /** The iOS app's bundle id: Sign in with Apple tokens must be issued to it. */
     APPLE_BUNDLE_ID: z.string().default('in.co.klyra.eventshare'),
+    /**
+     * Sign in with Google: the OAuth client IDs a Google ID token may be issued to (the web client,
+     * which the apps ask for tokens on behalf of, plus the iOS and Android ones), comma separated.
+     * Not secret. Empty: Google sign-in is refused.
+     */
+    GOOGLE_CLIENT_IDS: z
+      .string()
+      .default('')
+      .transform((v) => v.split(',').map((s) => s.trim()).filter(Boolean)),
 
     // Clerk is switched off for now (own email + password login instead).
     CLERK_SECRET_KEY: z.string().optional(),
