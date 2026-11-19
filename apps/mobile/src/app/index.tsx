@@ -1,12 +1,13 @@
 // import { useAuth } from '@clerk/expo'; // Clerk is switched off for now.
 import { Redirect } from 'expo-router';
 import { CloudOff } from 'lucide-react-native';
-import { useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { View } from 'react-native';
 
 import { Button, EmptyState, LoadingState } from '@/components/ui';
 import { useEvents } from '@/services/api/hooks';
 import { getSessionUser, subscribeSession } from '@/services/api/session';
+import { takePendingJoin } from '@/store/pending-join';
 
 /** Decides where the app opens: sign in, or Your events. */
 export default function Gate() {
@@ -17,7 +18,10 @@ export default function Gate() {
 }
 
 function EventGate() {
+  // An invite link opened before signing in goes straight to that invite.
+  const [pendingCode] = useState(takePendingJoin);
   const events = useEvents();
+  if (pendingCode) return <Redirect href={{ pathname: '/join-preview', params: { code: pendingCode } }} />;
   if (events.isPending) return <LoadingState />;
   if (events.isError) {
     return (

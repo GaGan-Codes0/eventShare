@@ -3,8 +3,9 @@ export function formatCode(code: string) {
   return `${code.slice(0, 3)} ${code.slice(3)}`;
 }
 
+/** The invite link in QR codes and shared messages: opens Klickers if installed, otherwise a page with the code and the store. */
 export function joinLink(code: string) {
-  return `eventshare://join?code=${code}`;
+  return `https://klickers.app/j/${code}`;
 }
 
 export function formatEventDate(iso: string | null) {

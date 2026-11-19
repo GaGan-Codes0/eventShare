@@ -13,9 +13,9 @@ import { Button, Text } from '@/components/ui';
 import { radius, space } from '@/constants/theme';
 import { makeStyles } from '@/theme';
 
-/** The code in a scanned invite: our join link, a web link with ?code=, or the bare code. */
+/** The code in a scanned invite: our klickers.app/j/ link, an older eventshare://join?code= one, or the bare code. */
 export function codeFromScan(data: string): string | null {
-  const fromLink = /[?&]code=([A-Za-z0-9-]+)/.exec(data)?.[1];
+  const fromLink = /^https:\/\/(?:www\.)?klickers\.app\/j\/(\d+)\/?$/i.exec(data.trim())?.[1] ?? /[?&]code=([A-Za-z0-9-]+)/.exec(data)?.[1];
   const code = (fromLink ?? data).replace(/[\s-]/g, '');
   return code.length === JOIN_CODE_LENGTH && /^\d+$/.test(code) ? code : null;
 }

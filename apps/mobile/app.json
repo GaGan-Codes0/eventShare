@@ -13,7 +13,10 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "14"
+      "buildNumber": "14",
+      "associatedDomains": [
+        "applinks:klickers.app"
+      ]
     },
     "android": {
       "adaptiveIcon": {
@@ -23,7 +26,24 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "in.co.klyra.eventshare"
+      "package": "in.co.klyra.eventshare",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "klickers.app",
+              "pathPrefix": "/j/"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
     },
     "plugins": [
       "expo-router",
