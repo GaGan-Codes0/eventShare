@@ -656,7 +656,7 @@ html[data-occ="corporate"] .gridbg { opacity: 1; }
           <p class="h3" style="color:var(--ink)">You’re in 14 photos.</p>
           <div class="grid3" id="meGrid"></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn" id="saveAll"><span data-i="download" data-s="18"></span> Save all 14</button>
+            <button class="btn" id="saveAll"><span data-i="images" data-s="18"></span> Open them in the album</button>
             <button class="btn alt" id="fmAgain">Try again</button>
           </div>
         </div></div>
@@ -753,7 +753,7 @@ const OCC = {
   corporate: {
     label: 'Corporate', icon: 'briefcase', fx: 'net', theme: 'navy', font: 'modern', frame: 'band',
     l1: 'One shared roll', l2: 'for the whole room.',
-    sub: 'Turn every attendee into a photographer. Your brand on the camera, one code to join, and every photo from the day in one album your team can use.',
+    sub: 'Turn every attendee into a photographer. Your brand on the invite and the app, one code to join, and every photo from the day in one album your team can use.',
     name: 'Northstar Offsite', mono: 'N', kind: 'Corporate, Bengaluru', when: '3 March. 280 people, one album',
     msg: 'Northstar Offsite 2026', g: 2390, n: 280, gw: 'colleagues',
     photos: [36713385, 6405768, 8761555, 8349235, 7648057, 6405724, 37887616, 3700250, 26202153, 36713386, 8761647, 6405665],
@@ -902,7 +902,7 @@ function renderPhotos() {
 ---------------------------------------------------------------- */
 let feed = [], liveNext = 7, liveAdded = 0, shots = 4, sceneIdx = 7, phoneScreen = 'home', refillAsked = false, mine = [];
 function renderFeed(animateFirst = false) {
-  $('#feed').innerHTML = feed.slice(0, 9).map((f, j) => `<div class="tile slot${animateFirst && j === 0 ? ' enter' : ''}">${f.isNew ? '<span class="new">NEW</span>' : ''}<img class="ph" data-src-i="${f.i}" data-w="300" alt=""></div>`).join('');
+  $('#feed').innerHTML = feed.slice(0, 9).map((f, j) => `<div class="tile slot${animateFirst && j === 0 ? ' enter' : ''}"><img class="ph" data-src-i="${f.i}" data-w="300" alt=""></div>`).join('');
   fillTiles($('#feed'));
 }
 function renderAlbum() {
@@ -1043,9 +1043,7 @@ const HROWS = [
   ['download', 'Guests can save photos', 'Originals, or a copy in your frame.', true],
   ['images', 'Camera-roll uploads', 'Let guests add photos they took before joining.', false],
   ['face', 'Find my photos', 'One selfie finds every photo a guest is in.', true],
-  ['images', 'One look for every photo', 'Natural, golden, mono or faded. Add a date stamp, like a disposable.', false],
-  ['camera', 'Shot list', 'Up to 12 prompts for guests to shoot, like “the first look”.'],
-  ['users', 'Designated photographers', 'A much bigger roll, and they skip the review queue.'],
+  ['images', 'One look for every photo', 'Natural, golden, mono or faded. Add a date stamp, like a disposable.', false],  ['users', 'Designated photographers', 'A much bigger roll, and they skip the review queue.'],
   ['clock', 'Camera window', 'Opens on the day, closes 48 hours after. For everyone.'],
   ['download', 'Download everything', 'Every photo at full quality, in one zip.'],
 ];
@@ -1256,7 +1254,7 @@ function typeCode() {
   // Find me + host
   $('#fmBtn').addEventListener('click', scanFace);
   $('#fmAgain').addEventListener('click', resetFind);
-  $('#saveAll').addEventListener('click', () => toast('Saving 14 photos to your phone…'));
+  $('#saveAll').addEventListener('click', () => toast('They’re waiting under “Me” in the album'));
   $('#refill').addEventListener('click', e => { if (e.target.closest('[data-grant]')) answerRefill(true); if (e.target.closest('[data-decline]')) answerRefill(false); });
   $('#hostRows').addEventListener('click', e => { const t = e.target.closest('.toggle'); if (t) t.setAttribute('aria-checked', t.getAttribute('aria-checked') !== 'true'); });
 
