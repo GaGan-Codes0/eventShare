@@ -105,7 +105,7 @@ const SUPPORT = page(
   'Support',
   `<p>Need help with Klickers? Email <a href="mailto:${EMAIL}">${EMAIL}</a> and we'll get back to you within two working days. Tell us the event code if your question is about a specific event.</p>
 <h2>Common questions</h2>
-<p><strong>How do I join an event?</strong><br>Scan the host's QR code with your phone camera, or open their link, or enter the 8-character code in the app.</p>
+<p><strong>How do I join an event?</strong><br>Scan the host's QR code with your phone camera, or open their link, or enter the 6-digit code in the app.</p>
 <p><strong>Why can't I take more photos?</strong><br>The host sets how many shots each guest gets. You can ask the host for more shots from the camera screen.</p>
 <p><strong>How do I save photos?</strong><br>Open a photo and tap save. You can keep the original or a copy in the host's frame.</p>
 <p><strong>How do I find photos I'm in?</strong><br>Open "Me" in the event and take a selfie. This is optional and you can turn it off at any time.</p>

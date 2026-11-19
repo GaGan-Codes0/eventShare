@@ -28,6 +28,7 @@ COPY --from=build /app/packages/shared/dist packages/shared/dist
 COPY --from=build /app/apps/api/package.json apps/api/
 COPY --from=build /app/apps/api/dist apps/api/dist
 COPY --from=build /app/apps/api/drizzle apps/api/drizzle
+COPY --from=build /app/apps/api/site apps/api/site
 WORKDIR /app/apps/api
 USER node
 EXPOSE 4000

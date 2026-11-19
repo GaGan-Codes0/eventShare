@@ -139,7 +139,7 @@ export class EventsController {
   @Get('join/:code')
   preview(@Param('code') code: string) {
     const parsed = joinEventSchema.safeParse({ code });
-    if (!parsed.success) throw new BadRequestException('Codes are 8 characters');
+    if (!parsed.success) throw new BadRequestException('Codes are 6 digits');
     return this.events.preview(parsed.data.code);
   }
 

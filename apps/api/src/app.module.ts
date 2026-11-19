@@ -14,6 +14,7 @@ import { FacesController } from './faces/faces.controller.js';
 import { FacesService } from './faces/faces.service.js';
 import { HealthController } from './health.controller.js';
 import { LegalController } from './legal/legal.controller.js';
+import { SiteController } from './site/site.controller.js';
 import { MailService } from './mail/mail.service.js';
 import { PhotosController } from './photos/photos.controller.js';
 import { ArchiveService } from './photos/archive.service.js';
@@ -46,7 +47,7 @@ function accountTracker(req: Record<string, any>): string {
       { name: 'ip', ttl: 60_000, limit: 600 },
     ]),
   ],
-  controllers: [HealthController, LegalController, AuthController, UsersController, EventsController, PhotosController, FacesController, RefillsController],
+  controllers: [HealthController, LegalController, SiteController, AuthController, UsersController, EventsController, PhotosController, FacesController, RefillsController],
   providers: [
     AuthService,
     AuthGuard,
