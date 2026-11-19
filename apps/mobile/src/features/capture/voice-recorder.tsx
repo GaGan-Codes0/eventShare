@@ -27,7 +27,7 @@ export function useVoiceNote() {
 
   async function start(leftMs: number) {
     const perm = await requestRecordingPermissionsAsync();
-    if (!perm.granted) throw new Error('Allow eventShare to use the microphone in Settings to record voice notes.');
+    if (!perm.granted) throw new Error('Allow Klickers to use the microphone in Settings to record voice notes.');
     await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
     // If the microphone never comes up (busy in a call, or blocked), say so rather than wait forever.
     await Promise.race([

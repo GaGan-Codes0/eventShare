@@ -1,4 +1,4 @@
-import { ARCHIVE_SCOPES, EVENT_TYPES, MEDIA_KINDS, NAME_JOINERS, PHOTO_FILTERS, REVEAL_MODES, type EventTheme, type FrameTemplate } from '@eventshare/shared';
+import { ARCHIVE_SCOPES, EVENT_TYPES, MEDIA_KINDS, NAME_JOINERS, PHOTO_FILTERS, PLAN_IDS, REVEAL_MODES, type EventTheme, type FrameTemplate } from '@eventshare/shared';
 import { sql } from 'drizzle-orm';
 import {
   bigint,
@@ -31,6 +31,7 @@ export const revealMode = pgEnum('reveal_mode', REVEAL_MODES);
 export const photoFilter = pgEnum('photo_filter', PHOTO_FILTERS);
 export const mediaKind = pgEnum('media_kind', MEDIA_KINDS);
 export const archiveScope = pgEnum('archive_scope', ARCHIVE_SCOPES);
+export const eventPlan = pgEnum('event_plan', PLAN_IDS);
 export const archiveStatus = pgEnum('archive_status', ['building', 'ready', 'failed']);
 
 export const users = pgTable('users', {
@@ -75,6 +76,8 @@ export const events = pgTable(
     coverPhotoId: uuid('cover_photo_id'),
     /** How many photos each guest may upload: 10, 24, 36 or 50; null is no limit. Older events may have 20/40/60. */
     guestPhotoLimit: integer('guest_photo_limit').default(36),
+    /** The package the host bought (see PLANS). Events from before packages were made Branded. */
+    plan: eventPlan('plan').notNull().default('free'),
     revealMode: revealMode('reveal_mode').notNull().default('live'),
     /** Until then guests see only their own photos. Null: open now. */
     albumOpensAt: timestamp('album_opens_at', { withTimezone: true }),

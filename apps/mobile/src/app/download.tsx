@@ -1,4 +1,5 @@
-import type { ArchiveScope } from '@eventshare/shared';
+import { planWith, type ArchiveScope } from '@eventshare/shared';
+import { router } from 'expo-router';
 import { Directory, File, Paths } from 'expo-file-system';
 import { Check, Download } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
@@ -6,6 +7,7 @@ import { ActivityIndicator, Alert, Linking, Platform, Pressable, ScrollView, Sha
 
 import { Button, LoadingState, Text } from '@/components/ui';
 import { radius, screenPadding, space } from '@/constants/theme';
+import { planOf } from '@/features/events/plan';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { requestArchive, useArchiveSummary } from '@/services/api/hooks';
 import { makeStyles, ThemeProvider, useCurrentEventTheme, useTheme } from '@/theme';
@@ -26,8 +28,10 @@ function size(bytes: number) {
 function DownloadAll() {
   const { colors, fonts } = useTheme();
   const styles = useStyles();
-  const { id } = useCurrentEvent();
-  const summary = useArchiveSummary(id);
+  const { id, event } = useCurrentEvent();
+  // Downloading everything comes with Celebration: the request is refused below that, so don't make it.
+  const included = !event || planOf(event).downloadAll;
+  const summary = useArchiveSummary(included ? id : null);
   const [scope, setScope] = useState<ArchiveScope>('all');
   // Stop asking once the sheet is closed; the server keeps packing regardless.
   const open = useRef(true);
@@ -38,6 +42,19 @@ function DownloadAll() {
     [],
   );
   const [stage, setStage] = useState<'idle' | 'packing' | 'saving' | 'done'>('idle');
+  if (!included) {
+    const plan = planWith('downloadAll');
+    return (
+      <View style={styles.locked}>
+        <Text variant="h2">Download every original</Text>
+        <Text color="muted">
+          One ZIP with every photo and video in full quality, a folder per person. It comes with {plan.name} and up. Guests can still save photos one
+          by one.
+        </Text>
+        <Button label="See packages" fullWidth onPress={() => router.replace('/plans')} />
+      </View>
+    );
+  }
   if (!summary.data) return <LoadingState />;
   const chosen = summary.data[scope];
 
@@ -143,6 +160,7 @@ function DownloadAll() {
 const useStyles = makeStyles(({ colors }) => ({
   screen: { flex: 1, backgroundColor: colors.paper },
   body: { padding: screenPadding, paddingTop: space['3xl'], gap: space.md + 2 },
+  locked: { flex: 1, backgroundColor: colors.paper, padding: screenPadding, paddingTop: space['3xl'], gap: space.md },
   flex: { flex: 1, gap: 1 },
   group: { borderRadius: radius.lg + 2, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: 14 },

@@ -34,7 +34,7 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
       body: init.body ? JSON.stringify(init.body) : undefined,
     });
   } catch {
-    throw new Error("Can't reach eventShare. Check your connection.");
+    throw new Error("Can't reach Klickers. Check your connection.");
   }
   // Our token expired or was revoked: sign out, and the gate sends you to the sign-in screen.
   if (res.status === 401 && 'Authorization' in auth) void setSession(null);

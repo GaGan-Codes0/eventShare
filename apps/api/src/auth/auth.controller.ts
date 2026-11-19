@@ -1,5 +1,5 @@
 import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
-import { loginSchema, signupSchema, type LoginInput, type SignupInput } from '@eventshare/shared';
+import { appleSignInSchema, loginSchema, signupSchema, type AppleSignInInput, type LoginInput, type SignupInput } from '@eventshare/shared';
 import { ThrottlerGuard } from '@nestjs/throttler';
 
 import { ZodPipe } from '../common/zod.pipe.js';
@@ -20,5 +20,11 @@ export class AuthController {
   @HttpCode(200)
   login(@Body(new ZodPipe(loginSchema)) body: LoginInput) {
     return this.auth.login(body);
+  }
+
+  @Post('apple')
+  @HttpCode(200)
+  apple(@Body(new ZodPipe(appleSignInSchema)) body: AppleSignInInput) {
+    return this.auth.signInWithApple(body);
   }
 }

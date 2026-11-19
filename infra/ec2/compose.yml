@@ -54,6 +54,8 @@ services:
       - '443:443/udp'
     environment:
       API_HOST: ${API_HOST:?set by server-deploy.sh}
+      # klickers.app etc., once their DNS points here (empty until then).
+      SITE_HOSTS: ${SITE_HOSTS:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

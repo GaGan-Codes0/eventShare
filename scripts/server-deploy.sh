@@ -14,8 +14,15 @@ COMMIT=$(git log -1 --format='%h %s')
 TOKEN=$(curl -fsS -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')
 IP=$(curl -fsS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4)
 API_HOST=${IP//./-}.sslip.io
+# Our own domain is served too, but only once its DNS points at this server: otherwise Caddy
+# would keep failing to get its certificate (and the other server may be the one it points at).
+SITE_HOSTS=""
+for HOST in klickers.app www.klickers.app; do
+  if getent ahostsv4 "$HOST" | awk '{print $1}' | grep -qx "$IP"; then SITE_HOSTS="$SITE_HOSTS $HOST"; fi
+done
 # Saved next to compose.yml (git-ignored) so admin commands like `docker compose logs` work too.
-echo "API_HOST=$API_HOST" > infra/ec2/.env
+printf 'API_HOST=%s\nSITE_HOSTS=%s\n' "$API_HOST" "${SITE_HOSTS# }" > infra/ec2/.env
+if [ -n "$SITE_HOSTS" ]; then echo "Also serving:$SITE_HOSTS"; fi
 
 echo "Deploying $BRANCH: $COMMIT"
 docker compose -f infra/ec2/compose.yml up -d --build --remove-orphans

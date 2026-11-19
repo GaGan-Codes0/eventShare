@@ -157,7 +157,7 @@ export default function CameraScreen() {
   async function enableCamera() {
     const res = await requestPermission();
     if (!res.granted && !res.canAskAgain) {
-      Alert.alert('Camera is off', 'Allow camera access for eventShare in Settings to take photos.', [
+      Alert.alert('Camera is off', 'Allow camera access for Klickers in Settings to take photos.', [
         { text: 'Not now', style: 'cancel' },
         { text: 'Open Settings', onPress: () => void Linking.openSettings() },
       ]);
@@ -206,7 +206,7 @@ export default function CameraScreen() {
     if (videoLeft < MIN_CLIP_MS) return toast('No video time left for this event');
     const micOk = mic?.granted || (await requestMic()).granted;
     if (!micOk) {
-      Alert.alert('Microphone is off', 'Allow microphone access for eventShare in Settings to record video with sound.', [
+      Alert.alert('Microphone is off', 'Allow microphone access for Klickers in Settings to record video with sound.', [
         { text: 'Not now', style: 'cancel' },
         { text: 'Open Settings', onPress: () => void Linking.openSettings() },
       ]);

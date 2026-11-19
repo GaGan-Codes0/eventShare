@@ -1,7 +1,7 @@
 import { PassThrough } from 'node:stream';
 
-import { Inject, Injectable, Logger, NotFoundException, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
-import { ARCHIVE_KEEP_DAYS, type ArchiveScope, type ArchiveStatus, type ArchiveSummary } from '@eventshare/shared';
+import { ForbiddenException, Inject, Injectable, Logger, NotFoundException, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { ARCHIVE_KEEP_DAYS, PLANS, planWith, type ApiError, type ArchiveScope, type ArchiveStatus, type ArchiveSummary } from '@eventshare/shared';
 import archiver from 'archiver';
 import { and, desc, eq, isNull, lt, or, sql } from 'drizzle-orm';
 
@@ -92,6 +92,14 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
    */
   async request(eventId: string, hostId: string, scope: ArchiveScope): Promise<ArchiveStatus> {
     const { event } = await this.events.requireHost(eventId, hostId);
+    if (!PLANS[event.plan].downloadAll) {
+      const body: ApiError = {
+        statusCode: 403,
+        code: 'PLAN_REQUIRED',
+        message: `${planWith('downloadAll').name} includes downloading everything. Upgrade this event to use it.`,
+      };
+      throw new ForbiddenException(body);
+    }
     const list = await this.rows(eventId, scope);
     if (list.length === 0) throw new NotFoundException('No photos to download yet');
     const bytes = list.reduce((n, r) => n + r.bytes, 0);

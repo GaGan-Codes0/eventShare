@@ -1,11 +1,13 @@
-import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Inject, Param, ParseUUIDPipe, Patch, Post, UseGuards } from '@nestjs/common';
 import {
+  changePlanSchema,
   createEventImageUploadSchema,
   createEventSchema,
   invitePhotographerSchema,
   joinEventSchema,
   updateEventSchema,
   updateMemberSchema,
+  type ChangePlanInput,
   type CreateEventImageUploadInput,
   type CreateEventData,
   type InvitePhotographerData,
@@ -15,6 +17,7 @@ import {
 } from '@eventshare/shared';
 
 import { AuthGuard, CurrentUser, type AuthUser } from '../auth/auth.guard.js';
+import { ENV, type Env } from '../config/env.js';
 import { ZodPipe } from '../common/zod.pipe.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { EventsService } from './events.service.js';
@@ -25,6 +28,7 @@ export class EventsController {
   constructor(
     private readonly events: EventsService,
     private readonly realtime: RealtimeService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   @Get('events')
@@ -47,6 +51,17 @@ export class EventsController {
   @Get('events/:id')
   detail(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.events.detail(id, user.id);
+  }
+
+  /** Host: move the event to a bigger package (testing only until store purchases are wired up). */
+  @Post('events/:id/plan')
+  @HttpCode(200)
+  changePlan(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(changePlanSchema)) body: ChangePlanInput,
+  ) {
+    return this.events.changePlan(id, user.id, body.plan, this.env.PLAN_SELF_UPGRADE);
   }
 
   @Patch('events/:id')

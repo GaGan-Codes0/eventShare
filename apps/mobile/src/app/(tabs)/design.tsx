@@ -9,6 +9,8 @@ import {
   type EventImageKind,
   type EventTheme,
   type UpdateEventInput,
+  planWith,
+  type Plan,
 } from '@eventshare/shared';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -24,6 +26,7 @@ import { EventBadge } from '@/features/events/event-card';
 import { frameInk, TemplateFrame } from '@/features/events/frame-templates';
 import { HostHeader } from '@/features/events/event-header';
 import { AccentPicker, FontGrid, FramePicker, LookPicker, ThemeGrid } from '@/features/events/look-pickers';
+import { openPlans, PlanLock, planOf } from '@/features/events/plan';
 import { pickEventImage } from '@/features/events/event-images';
 import { longDate, stampText } from '@/features/events/identity';
 import { useCurrentEvent } from '@/features/events/use-current-event';
@@ -42,6 +45,7 @@ function Studio({ event }: { event: EventDetail }) {
   const { colors, fonts } = useTheme();
   const styles = useStyles();
   const update = useUpdateEvent(event.id);
+  const plan = planOf(event);
   const photos = usePhotos(event.id);
   const theme = event.theme ?? DEFAULT_EVENT_THEME;
   const look = useEventLook();
@@ -129,7 +133,10 @@ function Studio({ event }: { event: EventDetail }) {
         </View>
       </View>
       <KeyboardAwareScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" bottomOffset={24}>
-        <Section title="Logo" caption="On the join screen, app header and table card. Without one we use your monogram.">
+        <Section
+          title="Logo"
+          caption="On the join screen, app header and table card. Without one we use your monogram."
+          locked={!plan.branding && !event.logoUrl ? planWith('branding') : undefined}>
           <View style={styles.row}>
             <ThemeProvider theme={look}>
               <EventBadge event={event} size={58} />
@@ -165,7 +172,14 @@ function Studio({ event }: { event: EventDetail }) {
           </View>
         </Section>
 
-        <PhotoFrameSection event={event} sample={sample ?? null} busy={busy} onUpload={() => chooseImage('frame')} save={save} />
+        <PhotoFrameSection
+          event={event}
+          sample={sample ?? null}
+          busy={busy}
+          onUpload={() => chooseImage('frame')}
+          save={save}
+          locked={!plan.branding && !event.frameTemplate && !event.frameUrl ? planWith('branding') : undefined}
+        />
 
         <Section title="Names">
           {wedding ? (
@@ -209,7 +223,7 @@ function Studio({ event }: { event: EventDetail }) {
           <Field value={names.tagline} placeholder="A line for your guests" onChange={(tagline) => setNames((n) => ({ ...n, tagline }))} onDone={saveNames} />
         </Section>
 
-        <Section title="Name font" caption="Used for names and headings across the guest app.">
+        <Section title="Name font" caption="Used for names and headings across the guest app." locked={plan.customLook ? undefined : planWith('customLook')}>
           <FontGrid value={theme.fonts} name={event.name} onChange={(fonts) => setTheme({ fonts })} />
         </Section>
 
@@ -218,7 +232,16 @@ function Studio({ event }: { event: EventDetail }) {
             value={theme.preset}
             onChange={(preset) => setTheme({ preset, accent: null })}
           />
-          <AccentPicker value={theme.accent} onChange={(accent) => setTheme({ accent })} />
+          {plan.customLook || theme.accent ? (
+            <AccentPicker value={theme.accent} onChange={(accent) => setTheme({ accent })} />
+          ) : (
+            <View style={styles.row}>
+              <Text variant="caption" color="muted" style={styles.flexText}>
+                Your own colour
+              </Text>
+              <PlanLock plan={planWith('customLook')} />
+            </View>
+          )}
         </Section>
 
         <Section title="Poster frame" caption="Around the event’s cover on your events and the poster.">
@@ -252,7 +275,7 @@ function Studio({ event }: { event: EventDetail }) {
             onPress={() => save({ theme: null })}
             style={styles.reset}>
             <Text variant="label" style={{ color: colors.accent }}>
-              Use eventShare’s look
+              Use Klickers’s look
             </Text>
           </Pressable>
         )}
@@ -299,8 +322,29 @@ function GuestPreview({ event, name }: { event: EventDetail; name: string }) {
   );
 }
 
-function Section({ title, caption, children }: { title: string; caption?: string; children: React.ReactNode }) {
+/** `locked`: the package doesn't include it. Shown faded, and a tap anywhere opens the packages. */
+function Section({ title, caption, children, locked }: { title: string; caption?: string; children: React.ReactNode; locked?: Plan }) {
   const styles = useStyles();
+  if (locked) {
+    return (
+      <Pressable accessibilityRole="button" accessibilityLabel={`${title}: comes with ${locked.name}`} onPress={openPlans} style={styles.section}>
+        <View style={styles.sectionHead}>
+          <View style={styles.row}>
+            <Text variant="bodyStrong">{title}</Text>
+            <PlanLock plan={locked} />
+          </View>
+          {caption && (
+            <Text variant="caption" color="muted">
+              {caption}
+            </Text>
+          )}
+        </View>
+        <View pointerEvents="none" style={styles.lockedBody}>
+          {children}
+        </View>
+      </Pressable>
+    );
+  }
   return (
     <View style={styles.section}>
       <View style={styles.sectionHead}>
@@ -391,6 +435,8 @@ const useStyles = makeStyles(({ colors }) => ({
   stampRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: 14, borderRadius: radius.lg + 2, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line },
   reset: { alignItems: 'center', paddingVertical: space.sm },
   frameCards: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm + 2 },
+  lockedBody: { opacity: 0.4 },
+  flexText: { flex: 1 },
   frameCard: { alignItems: 'center', gap: space.xs },
   frameThumb: {
     width: 58,
@@ -424,12 +470,14 @@ function PhotoFrameSection({
   busy,
   onUpload,
   save,
+  locked,
 }: {
   event: EventDetail;
   sample: string | null;
   busy: EventImageKind | null;
   onUpload: () => void;
   save: (change: UpdateEventInput) => void;
+  locked?: Plan;
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -458,7 +506,10 @@ function PhotoFrameSection({
   );
 
   return (
-    <Section title="Photo frame" caption="When guests save a photo, they can keep it inside this frame. Pick one and make it yours, or upload your own design.">
+    <Section
+      title="Photo frame"
+      caption="When guests save a photo, they can keep it inside this frame. Pick one and make it yours, or upload your own design."
+      locked={locked}>
       <View style={styles.frameCards}>
         {card('none', 'None', none, () => save({ frameTemplate: null, frameKey: null }), <Text variant="caption" color="muted">None</Text>)}
         {FRAME_STYLES.map((style) =>

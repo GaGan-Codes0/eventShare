@@ -1,7 +1,8 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { Aperture, CalendarClock, Grid3x3, LogOut } from 'lucide-react-native';
 import { Image } from 'expo-image';
-import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 
 import { initialsOf, Text } from '@/components/ui';
 import { radius, space } from '@/constants/theme';
@@ -9,6 +10,7 @@ import { backToDashboard, backToMyEvents } from '@/features/events/open-event';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { setGuestView, setShellTab, useGuestView } from '@/store/shell';
 import { useMe } from '@/services/api/hooks';
+import { api } from '@/services/api/client';
 import { setSession } from '@/services/api/session';
 import { setCurrentEvent } from '@/store/current-event';
 import { setPreference, usePreferences } from '@/store/preferences';
@@ -30,12 +32,44 @@ function Profile() {
   // Opened from inside an event (?from=event), or from Your events.
   const fromEvent = useLocalSearchParams<{ from?: string }>().from === 'event';
   const name = me.data?.name ?? '';
+  const [deleting, setDeleting] = useState(false);
 
   async function signOut() {
     setCurrentEvent(null);
     setGuestView(false);
     setShellTab('join');
     await setSession(null); // SessionWatch clears the data; the signed-in screens drop away.
+  }
+
+  // Asked twice: it can't be undone, and a host's events go with the account.
+  function confirmDelete() {
+    Alert.alert(
+      'Delete your account?',
+      'This removes your account and the photos, videos and voice messages you added. Events you host are deleted for everyone. This can\'t be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete account',
+          style: 'destructive',
+          onPress: () =>
+            Alert.alert('Are you sure?', 'Your account will be deleted right away.', [
+              { text: 'Keep my account', style: 'cancel' },
+              { text: 'Delete', style: 'destructive', onPress: deleteAccount },
+            ]),
+        },
+      ],
+    );
+  }
+
+  async function deleteAccount() {
+    setDeleting(true);
+    try {
+      await api('/me', { method: 'DELETE' });
+      await signOut();
+    } catch (e) {
+      setDeleting(false);
+      Alert.alert('Could not delete your account', e instanceof Error ? e.message : 'Please try again.');
+    }
   }
 
   // Out of the event to My events (you stay a member and can come back). A host looking at
@@ -135,6 +169,9 @@ function Profile() {
       <Pressable accessibilityRole="button" onPress={signOut} style={styles.signOut}>
         <Text style={styles.signOutText}>Sign out</Text>
       </Pressable>
+      <Pressable accessibilityRole="button" onPress={confirmDelete} disabled={deleting} style={styles.delete}>
+        {deleting ? <ActivityIndicator color={colors.muted} /> : <Text style={styles.deleteText}>Delete account</Text>}
+      </Pressable>
     </ScrollView>
   );
 }
@@ -176,4 +213,6 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
   leaveText: { fontFamily: fonts.sansSemiBold, fontSize: 14.5, lineHeight: 18, color: colors.ink },
   signOut: { height: 44, alignItems: 'center', justifyContent: 'center' },
   signOutText: { fontFamily: fonts.sansSemiBold, fontSize: 14.5, lineHeight: 18, color: '#9F4C3E' },
+  delete: { height: 36, alignItems: 'center', justifyContent: 'center', marginTop: -space.sm },
+  deleteText: { fontFamily: fonts.sans, fontSize: 13, lineHeight: 16, color: colors.muted },
 }));

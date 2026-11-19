@@ -352,10 +352,10 @@ export class PhotosService implements OnModuleInit {
     const delta = actual - reported;
     if (Math.abs(delta) <= DURATION_SLACK_MS) return actual;
     try {
-      await this.events.reserveMediaTime(this.db, row.eventId, row.uploaderId, kind, delta);
+      await this.events.reserveMediaTime(this.db, row.eventId, row.uploaderId, kind, delta, true);
     } catch (err) {
       // Longer than the time they have: refuse it and give back what was reserved.
-      await this.events.reserveMediaTime(this.db, row.eventId, row.uploaderId, kind, -reported);
+      await this.events.reserveMediaTime(this.db, row.eventId, row.uploaderId, kind, -reported, true);
       await this.setStatus(row.id, 'failed');
       throw err;
     }

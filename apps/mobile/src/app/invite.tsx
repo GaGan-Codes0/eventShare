@@ -37,7 +37,7 @@ function Invite() {
   function share() {
     if (!event) return;
     void Share.share({
-      message: `Join "${event.name}" on eventShare and add your photos.\n\nCode: ${formatCode(event.joinCode)}\n${link}`,
+      message: `Join "${event.name}" on Klickers and add your photos.\n\nCode: ${formatCode(event.joinCode)}\n${link}`,
     });
   }
 
@@ -46,7 +46,7 @@ function Invite() {
     setPrinting(true);
     try {
       const perm = await requestPermissionsAsync(true);
-      if (!perm.granted) throw new Error('Allow eventShare to add photos in Settings.');
+      if (!perm.granted) throw new Error('Allow Klickers to add photos in Settings.');
       const uri = await captureRef(card, { format: 'png', width: 1500, result: 'tmpfile' });
       await Asset.create(uri);
       new File(uri).delete();
@@ -113,7 +113,7 @@ function TableCard({ cardRef, event, link }: { cardRef: RefObject<ComponentRef<t
         {formatCode(event.joinCode)}
       </Text>
       <Text variant="caption" color="muted">
-        Open eventShare · Enter code
+        Open Klickers · Enter code
       </Text>
     </View>
   );

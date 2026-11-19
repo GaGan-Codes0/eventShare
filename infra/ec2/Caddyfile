@@ -1,4 +1,4 @@
-{$API_HOST} {
+{$API_HOST} {$SITE_HOSTS} {
 	encode gzip
 	header -Server
 	reverse_proxy api:4000

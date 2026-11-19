@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "eventShare",
+    "name": "Klickers",
     "slug": "eventshare",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -38,8 +38,8 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "eventShare uses your camera to take photos and videos for the events you join.",
-          "microphonePermission": "eventShare uses the microphone for voice notes and the sound of your videos at the events you join.",
+          "cameraPermission": "Klickers uses your camera to take photos and videos for the events you join.",
+          "microphonePermission": "Klickers uses the microphone for voice notes and the sound of your videos at the events you join.",
           "recordAudioAndroid": true,
           "barcodeScannerEnabled": true
         }
@@ -47,16 +47,16 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "eventShare needs access to your photos so you can add them to an event gallery.",
-          "cameraPermission": "eventShare uses your camera to take photos and videos for the events you join.",
-          "microphonePermission": "eventShare uses the microphone for voice notes and the sound of your videos at the events you join."
+          "photosPermission": "Klickers needs access to your photos so you can add them to an event gallery.",
+          "cameraPermission": "Klickers uses your camera to take photos and videos for the events you join.",
+          "microphonePermission": "Klickers uses the microphone for voice notes and the sound of your videos at the events you join."
         }
       ],
       [
         "expo-media-library",
         {
-          "photosPermission": "eventShare needs access to your photos so you can add them to an event gallery.",
-          "savePhotosPermission": "eventShare saves photos you download from an event to your library.",
+          "photosPermission": "Klickers needs access to your photos so you can add them to an event gallery.",
+          "savePhotosPermission": "Klickers saves photos you download from an event to your library.",
           "granularPermissions": [
             "photo"
           ]
@@ -72,7 +72,7 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "eventShare uses the microphone for voice notes and the sound of your videos at the events you join."
+          "microphonePermission": "Klickers uses the microphone for voice notes and the sound of your videos at the events you join."
         }
       ]
     ],

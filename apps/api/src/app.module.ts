@@ -13,6 +13,7 @@ import { RefillsService } from './events/refills.service.js';
 import { FacesController } from './faces/faces.controller.js';
 import { FacesService } from './faces/faces.service.js';
 import { HealthController } from './health.controller.js';
+import { LegalController } from './legal/legal.controller.js';
 import { MailService } from './mail/mail.service.js';
 import { PhotosController } from './photos/photos.controller.js';
 import { ArchiveService } from './photos/archive.service.js';
@@ -22,6 +23,7 @@ import { RealtimeService } from './realtime/realtime.service.js';
 import { QueueService } from './redis/queue.service.js';
 import { RedisService } from './redis/redis.service.js';
 import { StorageService } from './storage/storage.service.js';
+import { AccountService } from './users/account.service.js';
 import { UsersController } from './users/users.controller.js';
 import { UsersService } from './users/users.service.js';
 
@@ -43,11 +45,12 @@ function accountTracker(req: Record<string, any>): string {
       { name: 'ip', ttl: 60_000, limit: 600 },
     ]),
   ],
-  controllers: [HealthController, AuthController, UsersController, EventsController, PhotosController, FacesController, RefillsController],
+  controllers: [HealthController, LegalController, AuthController, UsersController, EventsController, PhotosController, FacesController, RefillsController],
   providers: [
     AuthService,
     AuthGuard,
     UsersService,
+    AccountService,
     EventsService,
     RefillsService,
     PhotosService,

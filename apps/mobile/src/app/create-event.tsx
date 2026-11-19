@@ -1,8 +1,7 @@
 import {
-  DEFAULT_GUEST_PHOTO_LIMIT,
   GUEST_PHOTO_LIMITS,
-  MAX_PHOTOGRAPHERS,
-  PHOTOGRAPHER_PHOTO_LIMIT,
+  PLANS,
+  planWith,
   type CreateEventInput,
   type EventTheme,
   type EventType,
@@ -33,6 +32,7 @@ import { uploadEventImage } from '@/features/events/event-images';
 import { inviteLine, longDate, stampText } from '@/features/events/identity';
 import { AccentPicker, FontGrid, FramePicker, LookPicker, opensAt, RevealOptions, ThemeGrid } from '@/features/events/look-pickers';
 import { openEvent } from '@/features/events/open-event';
+import { LockedNote } from '@/features/events/plan';
 import { api } from '@/services/api/client';
 import { useCreateEvent } from '@/services/api/hooks';
 import { defaultTheme, makeStyles, themeFor, ThemeProvider, useTheme } from '@/theme';
@@ -61,9 +61,6 @@ const TYPE_DEFAULTS: Record<EventType, { theme: ThemePreset; font: FontPairing; 
   birthday: { theme: 'blush', font: 'bold', tagline: 'Catch the chaos.', titlePh: 'Kabir turns 30' },
   other: { theme: 'marigold', font: 'classic', tagline: 'Every photo, everyone’s.', titlePh: 'Goa reunion' },
 };
-
-const SHOT_NOTE =
-  'Most event-camera apps give guests 10 to 25 shots, with 25 the usual default. We start at 36, a full roll of film: enough for a long day, few enough to keep every shot intentional.';
 
 type Wizard = {
   type: EventType;
@@ -109,7 +106,8 @@ export default function CreateEvent() {
     logoUri: null,
     posterUri: null,
     dateStamp: true,
-    shots: DEFAULT_GUEST_PHOTO_LIMIT,
+    // New events start on Free; more shots come with an upgrade.
+    shots: PLANS.free.maxGuestShots as GuestPhotoLimit,
     reveal: 'live',
   });
   const set = (change: Partial<Wizard>) => setW((v) => ({ ...v, ...change }));
@@ -269,12 +267,26 @@ export default function CreateEvent() {
             <Heading eyebrow="The look" title="Make it " emphasis="yours." caption="Everything here can be changed later in Design." />
             <Text variant="bodyStrong">Colour theme</Text>
             <ThemeGrid value={w.theme} onChange={(preset) => set({ theme: preset, accent: null })} />
-            <AccentPicker value={w.accent} onChange={(accent) => set({ accent })} />
-            <Text variant="bodyStrong" style={styles.mt}>
-              Name font
-            </Text>
-            <FontGrid value={w.font} name={display} onChange={(font) => set({ font })} />
-            <ImageRow title="Logo" caption="Optional. We’ll use your monogram." uri={w.logoUri} contain onPick={() => pick('logo')} onRemove={() => set({ logoUri: null })} />
+            {PLANS.free.customLook ? (
+              <>
+                <AccentPicker value={w.accent} onChange={(accent) => set({ accent })} />
+                <Text variant="bodyStrong" style={styles.mt}>
+                  Name font
+                </Text>
+                <FontGrid value={w.font} name={display} onChange={(font) => set({ font })} />
+              </>
+            ) : (
+              <View>
+                <Text variant="caption" color="muted">
+                  Your own colour and name font come with {planWith('customLook').name}, and your logo with {planWith('branding').name}. You can
+                  upgrade from the event’s Overview.
+                </Text>
+                <LockedNote plan={planWith('customLook')} />
+              </View>
+            )}
+            {PLANS.free.branding && (
+              <ImageRow title="Logo" caption="Optional. We’ll use your monogram." uri={w.logoUri} contain onPick={() => pick('logo')} onRemove={() => set({ logoUri: null })} />
+            )}
             <ImageRow
               title="Cover photo"
               caption="Optional. Without one, the newest photo is used."
@@ -321,6 +333,13 @@ export default function CreateEvent() {
             <View style={styles.shots}>
               {GUEST_PHOTO_LIMITS.map((n) => {
                 const selected = w.shots === n;
+                if (n > PLANS.free.maxGuestShots) {
+                  return (
+                    <View key={String(n)} accessibilityLabel={`${n} shots: comes with an upgrade`} style={[styles.shot, styles.shotLocked]}>
+                      <Text style={[styles.shotText, { color: defaultTheme.colors.muted }]}>{n}</Text>
+                    </View>
+                  );
+                }
                 return (
                   <Pressable
                     key={String(n)}
@@ -335,7 +354,7 @@ export default function CreateEvent() {
               })}
             </View>
             <Text variant="caption" color="muted">
-              {SHOT_NOTE}
+              Free events give each guest {PLANS.free.maxGuestShots} shots and welcome {PLANS.free.maxGuests} guests. Upgrade any time for more.
             </Text>
             <Text variant="bodyStrong" style={styles.mt}>
               When guests see the album
@@ -348,8 +367,7 @@ export default function CreateEvent() {
               <View style={styles.flex}>
                 <Text variant="bodyStrong">Designated photographers</Text>
                 <Text variant="caption" color="muted">
-                  Add up to {MAX_PHOTOGRAPHERS} after you create the event. Each gets {PHOTOGRAPHER_PHOTO_LIMIT.toLocaleString('en-US')} uploads and
-                  their shots go live instantly.
+                  Add photographers after you create the event. Their shots skip review and go live instantly.
                 </Text>
               </View>
             </View>
@@ -655,6 +673,7 @@ const useStyles = makeStyles(() => {
     logoImg: { width: '76%', height: '76%' },
     small: { height: 36, paddingHorizontal: space.md, borderRadius: 10, backgroundColor: colors.field, borderWidth: 1, borderColor: colors.lineStrong, justifyContent: 'center' },
     shots: { flexDirection: 'row', gap: 6 },
+    shotLocked: { opacity: 0.45, borderStyle: 'dashed' },
     shot: { flex: 1, height: 46, borderRadius: radius.md, borderWidth: 1, borderColor: colors.lineStrong, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
     shotOn: { backgroundColor: colors.primary, borderColor: colors.primary },
     shotText: { fontFamily: defaultTheme.fonts.mono, fontSize: 16, color: colors.ink },

@@ -1,14 +1,15 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { Calendar, ChevronRight, Download, Eye, MapPin, Plus, QrCode, ShieldCheck } from 'lucide-react-native';
+import { Calendar, ChevronRight, Download, Eye, MapPin, Package, Plus, QrCode, ShieldCheck } from 'lucide-react-native';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Button, LoadingState, Text } from '@/components/ui';
-import { MAX_PHOTOGRAPHERS, PHOTOGRAPHER_PHOTO_LIMIT } from '@eventshare/shared';
+import { upgradesFrom } from '@eventshare/shared';
 import { radius, screenPadding, space } from '@/constants/theme';
 import { EventBadge } from '@/features/events/event-card';
 import { HostHeader } from '@/features/events/event-header';
 import { longDate } from '@/features/events/identity';
+import { openPlans, planOf, shortDate } from '@/features/events/plan';
 import { useShootingPhase } from '@/features/events/shooting-window';
 import { NoEventYet } from '@/features/events/no-event';
 import { useCurrentEvent } from '@/features/events/use-current-event';
@@ -84,10 +85,25 @@ export default function Overview() {
         </View>
 
         <View style={styles.stats}>
-          <Stat value={String(Math.max(0, event.memberCount - 1))} label="Guests in" />
+          <Stat value={`${event.guestCount}/${planOf(event).maxGuests}`} label="Guests in" />
           <Stat value={String(event.photoCount)} label="Photos" />
-          <Stat value={`${event.photographerCount}/${MAX_PHOTOGRAPHERS}`} label="Photographers" />
+          <Stat value={`${event.photographerCount}/${planOf(event).photographers}`} label="Photographers" />
         </View>
+
+        {/* The event's package, how full it is, and the way up. */}
+        <Pressable accessibilityRole="button" onPress={openPlans} style={({ pressed }) => [styles.guestView, pressed && { backgroundColor: colors.field }]}>
+          <View style={styles.guestViewIcon}>
+            <Package size={18} color={colors.ink} />
+          </View>
+          <View style={styles.flex}>
+            <Text style={styles.guestViewTitle}>{planOf(event).name}</Text>
+            <Text style={styles.guestViewCaption}>
+              {event.guestCount >= planOf(event).maxGuests ? 'Full. ' : ''}Gallery open until {shortDate(event.accessEndsAt)}
+              {upgradesFrom(event.plan).length ? ' · Upgrade' : ''}
+            </Text>
+          </View>
+          <ChevronRight size={16} color={colors.ink} />
+        </Pressable>
 
         <View style={styles.actions}>
           <View style={styles.flex}>
@@ -158,7 +174,7 @@ export default function Overview() {
           </Text>
         )}
 
-        <PhotographersCard eventId={event.id} />
+        <PhotographersCard eventId={event.id} slots={planOf(event).photographers} pool={planOf(event).photographerPhotos} />
       </ScrollView>
     </View>
   );
@@ -166,9 +182,9 @@ export default function Overview() {
 
 /**
  * As in the prototype: each designated photographer (joined or still invited) with their
- * uploads out of 1,000, and Manage to go to People.
+ * uploads out of the photos they share, and Manage to go to People.
  */
-function PhotographersCard({ eventId }: { eventId: string }) {
+function PhotographersCard({ eventId, slots, pool }: { eventId: string; slots: number; pool: number }) {
   const styles = useStyles();
   const members = useMembers(eventId);
   const invites = usePhotographerInvites(eventId);
@@ -186,7 +202,7 @@ function PhotographersCard({ eventId }: { eventId: string }) {
       </View>
       {rows.length === 0 ? (
         <Text style={styles.phEmpty}>
-          None yet. Add up to {MAX_PHOTOGRAPHERS} people with {PHOTOGRAPHER_PHOTO_LIMIT.toLocaleString('en-US')} uploads each.
+          None yet. Add {slots === 1 ? 'one photographer' : `up to ${slots} photographers`}, sharing {pool.toLocaleString('en-IN')} photos.
         </Text>
       ) : (
         rows.map((r) => (
@@ -196,11 +212,11 @@ function PhotographersCard({ eventId }: { eventId: string }) {
                 {r.name}
               </Text>
               <Text style={styles.phCount}>
-                {r.uploads.toLocaleString('en-US')} / {PHOTOGRAPHER_PHOTO_LIMIT.toLocaleString('en-US')}
+                {r.uploads.toLocaleString('en-IN')} / {pool.toLocaleString('en-IN')}
               </Text>
             </View>
             <View style={styles.phTrack}>
-              <View style={[styles.phFill, { width: `${Math.min(100, (r.uploads / PHOTOGRAPHER_PHOTO_LIMIT) * 100)}%` }]} />
+              <View style={[styles.phFill, { width: `${Math.min(100, (r.uploads / pool) * 100)}%` }]} />
             </View>
           </View>
         ))

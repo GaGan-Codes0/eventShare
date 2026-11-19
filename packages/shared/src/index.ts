@@ -62,6 +62,17 @@ export const loginSchema = z.object({
 });
 export type LoginInput = z.infer<typeof loginSchema>;
 
+/**
+ * Sign in with Apple: the identity token Apple gave the phone, the random nonce the phone made
+ * (Apple signs its hash into the token), and the name, which Apple only shares the first time.
+ */
+export const appleSignInSchema = z.object({
+  identityToken: z.string().min(20).max(4096),
+  nonce: z.string().min(16).max(128),
+  name: z.string().trim().max(80).optional(),
+});
+export type AppleSignInInput = z.infer<typeof appleSignInSchema>;
+
 /** Returned by sign up and log in. Send `token` as `Authorization: Bearer <token>`. */
 export type AuthSession = { token: string; user: User };
 
@@ -98,6 +109,127 @@ export function photoLimitFor(role: EventRole, guestPhotoLimit: number | null, b
   if (role === 'photographer') return PHOTOGRAPHER_PHOTO_LIMIT;
   return guestPhotoLimit === null ? null : guestPhotoLimit + bonusShots;
 }
+
+// ---------- packages ----------
+
+/**
+ * What a host buys for one event, once. Guests and photographers always join free. Free is a
+ * taster; the host upgrades the same event (never down). Prices are in rupees, tax included.
+ */
+export const PLAN_IDS = ['free', 'party', 'celebration', 'branded'] as const;
+export type PlanId = (typeof PLAN_IDS)[number];
+
+export type Plan = {
+  id: PlanId;
+  name: string;
+  /** Rupees, tax included; 0 for free. */
+  priceInr: number;
+  /** Guests who can join (the host and photographers don't count). */
+  maxGuests: number;
+  /** The most shots per guest the host can pick. */
+  maxGuestShots: number;
+  /** Each guest's video and voice time in total, in milliseconds. */
+  guestVideoMs: number;
+  guestVoiceMs: number;
+  /** Photographer slots, and the photos and videos all of them share. */
+  photographers: number;
+  photographerPhotos: number;
+  photographerVideos: number;
+  /** How long the gallery stays open, counted from the event day. */
+  accessDays: number;
+  /** Own accent colour and font pairing (ready-made themes are in every package). */
+  customLook: boolean;
+  /** Download everything as a ZIP of originals. */
+  downloadAll: boolean;
+  /** Logo, photo frames and approving photos before they show. */
+  branding: boolean;
+};
+
+const SECOND = 1000;
+export const PLANS: Record<PlanId, Plan> = {
+  free: {
+    id: 'free',
+    name: 'Try Klickers',
+    priceInr: 0,
+    maxGuests: 10,
+    maxGuestShots: 10,
+    guestVideoMs: 30 * SECOND,
+    guestVoiceMs: 60 * SECOND,
+    photographers: 1,
+    photographerPhotos: 50,
+    photographerVideos: 1,
+    accessDays: 7,
+    customLook: false,
+    downloadAll: false,
+    branding: false,
+  },
+  party: {
+    id: 'party',
+    name: 'Party',
+    priceInr: 999,
+    maxGuests: 75,
+    maxGuestShots: 24,
+    guestVideoMs: 30 * SECOND,
+    guestVoiceMs: 60 * SECOND,
+    photographers: 1,
+    photographerPhotos: 500,
+    photographerVideos: 5,
+    accessDays: 90,
+    customLook: false,
+    downloadAll: false,
+    branding: false,
+  },
+  celebration: {
+    id: 'celebration',
+    name: 'Celebration',
+    priceInr: 2499,
+    maxGuests: 200,
+    maxGuestShots: 50,
+    guestVideoMs: 30 * SECOND,
+    guestVoiceMs: 60 * SECOND,
+    photographers: 2,
+    photographerPhotos: 3000,
+    photographerVideos: 30,
+    accessDays: 365,
+    customLook: true,
+    downloadAll: true,
+    branding: false,
+  },
+  branded: {
+    id: 'branded',
+    name: 'Branded Event',
+    priceInr: 4999,
+    maxGuests: 300,
+    maxGuestShots: 50,
+    guestVideoMs: 30 * SECOND,
+    guestVoiceMs: 60 * SECOND,
+    photographers: 3,
+    photographerPhotos: 5000,
+    photographerVideos: 50,
+    accessDays: 365,
+    customLook: true,
+    downloadAll: true,
+    branding: true,
+  },
+};
+
+/** Packages a host can move to from this one (upgrades only). */
+export function upgradesFrom(plan: PlanId): Plan[] {
+  return PLAN_IDS.slice(PLAN_IDS.indexOf(plan) + 1).map((id) => PLANS[id]);
+}
+
+/** The cheapest package that has this feature. */
+export function planWith(feature: 'customLook' | 'downloadAll' | 'branding'): Plan {
+  return PLAN_IDS.map((id) => PLANS[id]).find((p) => p[feature])!;
+}
+
+/** Shot choices the host can pick in this package. */
+export function guestShotChoices(plan: PlanId): GuestPhotoLimit[] {
+  return GUEST_PHOTO_LIMITS.filter((n) => n <= PLANS[plan].maxGuestShots);
+}
+
+export const changePlanSchema = z.object({ plan: z.enum(PLAN_IDS) });
+export type ChangePlanInput = z.infer<typeof changePlanSchema>;
 
 const HOUR_MS = 60 * 60_000;
 /** How long the camera stays open after the event day ends. */
@@ -419,6 +551,11 @@ export type EventSummary = EventIdentity &
     /** The host's poster if there is one, else the newest photo you can see. */
     coverUrl: string | null;
     role: EventRole;
+    /** The package the host bought for this event, and when its gallery closes. */
+    plan: PlanId;
+    accessEndsAt: string;
+    /** Guests in the event (not the host or photographers), counted against the package. */
+    guestCount: number;
     memberCount: number;
     photographerCount: number;
     photoCount: number;
@@ -599,7 +736,11 @@ export type ApiErrorCode =
   | 'LIBRARY_UPLOADS_OFF'
   | 'SHOOTING_NOT_OPEN'
   | 'SHOOTING_CLOSED'
-  | 'DOWNLOADS_OFF';
+  | 'DOWNLOADS_OFF'
+  /** The event's package doesn't include it: the host can upgrade. */
+  | 'PLAN_REQUIRED'
+  /** The event has as many guests as its package allows. */
+  | 'EVENT_FULL';
 
 // ---------- find my photos ----------
 

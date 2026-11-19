@@ -18,11 +18,15 @@ const envSchema = z
     JWT_SECRET: z.string().min(32, 'must be at least 32 characters'),
     /** How long a login lasts, e.g. `30d`. */
     JWT_TTL: z.string().default('30d'),
+    /** The iOS app's bundle id: Sign in with Apple tokens must be issued to it. */
+    APPLE_BUNDLE_ID: z.string().default('in.co.klyra.eventshare'),
 
     // Clerk is switched off for now (own email + password login instead).
     CLERK_SECRET_KEY: z.string().optional(),
     /** Local development / tests only: trust an `x-dev-user` header instead of a login token. */
     AUTH_DEV_BYPASS: z.stringbool().default(false),
+    /** Hosts can switch packages without paying: for testing until store purchases are wired up. */
+    PLAN_SELF_UPGRADE: z.stringbool().default(false),
 
     S3_REGION: z.string().default('ap-south-1'),
     S3_BUCKET: z.string(),

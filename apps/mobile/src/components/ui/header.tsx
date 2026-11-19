@@ -12,11 +12,11 @@ export function Wordmark() {
   const { colors } = useTheme();
   const styles = useStyles();
   return (
-    <View style={styles.wordmark} accessibilityRole="header" accessibilityLabel="eventShare">
+    <View style={styles.wordmark} accessibilityRole="header" accessibilityLabel="Klickers">
       <View style={styles.symbol}>
         <Camera size={14} color={colors.ink} strokeWidth={icon.stroke} />
       </View>
-      <Text style={styles.wordmarkText}>eventShare</Text>
+      <Text style={styles.wordmarkText}>Klickers</Text>
     </View>
   );
 }

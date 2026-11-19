@@ -10,6 +10,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, Text, TextField, Wordmark } from '@/components/ui';
 import { screenPadding, space } from '@/constants/theme';
+import { AppleSignInButton, signInWithApple, useAppleSignInAvailable } from '@/features/auth/apple-sign-in';
 import { api } from '@/services/api/client';
 import { setSession } from '@/services/api/session';
 import { setCurrentEvent } from '@/store/current-event';
@@ -53,11 +54,11 @@ function Collage() {
 /** The prototype's sign-in wordmark: a little tilted camera and "eventShare", a size up from the app bar's. */
 function WelcomeMark() {
   return (
-    <View style={styles.mark} accessibilityRole="header" accessibilityLabel="eventShare">
+    <View style={styles.mark} accessibilityRole="header" accessibilityLabel="Klickers">
       <View style={styles.markSymbol}>
         <Camera size={15} color={INK} strokeWidth={1.75} />
       </View>
-      <Text style={styles.markText}>eventShare</Text>
+      <Text style={styles.markText}>Klickers</Text>
     </View>
   );
 }
@@ -73,6 +74,7 @@ export default function SignIn() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const appleAvailable = useAppleSignInAvailable();
 
   const isSignup = mode === 'signup';
   const emailOk = /^\S+@\S+\.\S+$/.test(email.trim());
@@ -84,14 +86,14 @@ export default function SignIn() {
     setMode(isSignup ? 'login' : 'signup');
   }
 
-  async function submit() {
-    if (!canSubmit || busy) return;
+  /** Runs a sign-in and, if it gives a session, opens the app with it. */
+  async function run(signIn: () => Promise<AuthSession | null>) {
+    if (busy) return;
     setBusy(true);
     setError(null);
     try {
-      const session = await api<AuthSession>(isSignup ? '/auth/signup' : '/auth/login', {
-        body: isSignup ? { name: name.trim(), email: email.trim(), password } : { email: email.trim(), password },
-      });
+      const session = await signIn();
+      if (!session) return; // closed Apple's sheet
       qc.clear();
       setCurrentEvent(null);
       await setSession(session);
@@ -101,6 +103,15 @@ export default function SignIn() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function submit() {
+    if (!canSubmit) return;
+    void run(() =>
+      api<AuthSession>(isSignup ? '/auth/signup' : '/auth/login', {
+        body: isSignup ? { name: name.trim(), email: email.trim(), password } : { email: email.trim(), password },
+      }),
+    );
   }
 
   return (
@@ -132,7 +143,7 @@ export default function SignIn() {
                 {'Every photo,\n'}
                 <Text style={styles.headlineItalic}>everyone’s.</Text>
               </Text>
-              <Text style={styles.lede}>Join an event with its QR code or 6-digit code. Every guest’s shots land in one shared album.</Text>
+              <Text style={styles.lede}>Join an event with its QR code or 8-character code. Every guest’s shots land in one shared album.</Text>
             </View>
           )}
 
@@ -192,6 +203,18 @@ export default function SignIn() {
             disabled={!canSubmit}
             onPress={submit}
           />
+          {appleAvailable && (
+            <>
+              <View style={styles.or}>
+                <View style={styles.orLine} />
+                <Text variant="caption" color="muted">
+                  or
+                </Text>
+                <View style={styles.orLine} />
+              </View>
+              <AppleSignInButton signup={isSignup} onPress={() => void run(signInWithApple)} />
+            </>
+          )}
           <Button
             label={isSignup ? 'Already have an account? Log in' : 'New here? Create an account'}
             variant="ghost"
@@ -204,13 +227,15 @@ export default function SignIn() {
   );
 }
 
-/** Sign-in is always in eventShare's own look. */
+/** Sign-in is always in Klickers' own look. */
 const { fonts } = defaultTheme;
 /** The prototype's ink. */
 const INK = '#273C32';
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#FAF9F5' },
+  or: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  orLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: '#C9CEC2' },
   flex: { flex: 1 },
   body: { paddingHorizontal: screenPadding, paddingTop: space.xl, paddingBottom: space['3xl'], gap: space.lg },
   hero: { gap: space.md, marginTop: space.lg, marginBottom: space.sm },

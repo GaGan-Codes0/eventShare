@@ -1,5 +1,4 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { PHOTOGRAPHER_PHOTO_LIMIT } from '@eventshare/shared';
 
 import { ENV, type Env } from '../config/env.js';
 
@@ -48,7 +47,7 @@ export class MailService {
       `Hi ${first},`,
       ``,
       `${m.hostName} has made you a designated photographer for ${m.eventKind ? `${m.eventKind} ` : ''}${m.eventName}${m.dateLabel ? ` (${m.dateLabel})` : ''}.`,
-      `You get ${PHOTOGRAPHER_PHOTO_LIMIT.toLocaleString('en-US')} uploads, your photos skip review and go live instantly, with a Photographer badge.`,
+      `You can upload your full shoot, and your photos skip review and go live instantly, with a Photographer badge.`,
       ``,
       `1. Get the ${APP} app.`,
       `2. Sign in with this email address: ${m.to}`,
@@ -94,7 +93,7 @@ export class MailService {
 <tr><td style="padding:12px 28px 0">
   <div style="font:600 11px/16px ${sans};letter-spacing:1.6px;text-transform:uppercase;color:#385447">Designated photographer</div>
   <div style="font:400 30px/36px ${serif};color:${ink};margin-top:6px">${esc(first)}, you're <i style="color:#6F7F5E">shooting.</i></div>
-  <p style="font:400 15px/23px ${sans};color:${muted};margin:12px 0 0">${esc(m.hostName)} has made you a designated photographer for ${m.eventKind ? `${esc(m.eventKind)} ` : ''}<b style="color:${ink}">${esc(m.eventName)}</b>${m.dateLabel ? `, ${esc(m.dateLabel)}` : ''}. You get ${PHOTOGRAPHER_PHOTO_LIMIT.toLocaleString('en-US')} uploads, and your photos skip review and go live instantly with a Photographer badge.</p>
+  <p style="font:400 15px/23px ${sans};color:${muted};margin:12px 0 0">${esc(m.hostName)} has made you a designated photographer for ${m.eventKind ? `${esc(m.eventKind)} ` : ''}<b style="color:${ink}">${esc(m.eventName)}</b>${m.dateLabel ? `, ${esc(m.dateLabel)}` : ''}. You can upload your full shoot, and your photos skip review and go live instantly with a Photographer badge.</p>
 </td></tr>
 <tr><td style="padding:22px 28px 0" align="center">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#FFFEFA;border:1px solid #E3E4D8;border-radius:16px"><tr><td align="center" style="padding:18px">

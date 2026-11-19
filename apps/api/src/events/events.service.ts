@@ -13,14 +13,16 @@ import {
   JOIN_CODE_ALPHABET,
   JOIN_CODE_LENGTH,
   MAX_EVENT_IMAGE_BYTES,
-  MAX_PHOTOGRAPHERS,
   HOST_PHOTO_LIMIT,
-  PHOTOGRAPHER_PHOTO_LIMIT,
+  PLANS,
   photoLimitFor,
+  upgradesFrom,
   REFILL_RETRY_AFTER_MS,
   VIDEO_LIMIT_MS,
   VOICE_LIMIT_MS,
   type ApiError,
+  type Plan,
+  type PlanId,
   type CreateEventImageUploadInput,
   type CreateEventData,
   type EventImageKind,
@@ -58,6 +60,30 @@ const IMAGE_EXTENSIONS: Record<CreateEventImageUploadInput['contentType'], strin
 type MemberRow = typeof eventMembers.$inferSelect;
 /** The db itself or an open transaction. */
 type Conn = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
+
+/** The cheapest package above this one that allows it, to name in the refusal. */
+function upgradeFor(plan: PlanId, allows: (p: Plan) => boolean) {
+  return upgradesFrom(plan).find(allows);
+}
+
+/** "That needs Celebration": refused because of the event's package, never a dead end for the host. */
+function planRequired(what: string, plan: PlanId, allows: (p: Plan) => boolean): never {
+  const next = upgradeFor(plan, allows);
+  const body: ApiError = {
+    statusCode: 403,
+    code: 'PLAN_REQUIRED',
+    message: next
+      ? `${next.name} includes ${what.charAt(0).toLowerCase()}${what.slice(1)}. Upgrade this event to use it.`
+      : `${what} isn't included in this event's package.`,
+  };
+  throw new ForbiddenException(body);
+}
+
+/** When the gallery closes: the package's days, counted from the event day (or creation). */
+export function accessEndsAt(event: Pick<EventRow, 'plan' | 'startsAt' | 'createdAt'>) {
+  const from = event.startsAt && event.startsAt > event.createdAt ? event.startsAt : event.createdAt;
+  return new Date(from.getTime() + PLANS[event.plan].accessDays * 24 * 60 * 60_000);
+}
 
 /** "Tanya & Paul" for a wedding with both names, else the title. */
 export function displayName(e: Pick<EventRow, 'type' | 'name' | 'partner1' | 'partner2' | 'joiner'>) {
@@ -144,10 +170,12 @@ export class EventsService {
           location: input.location || null,
           startsAt: input.startsAt ? new Date(input.startsAt) : null,
           joinCode: await this.freshJoinCode(tx),
-          guestPhotoLimit: input.guestPhotoLimit === undefined ? DEFAULT_GUEST_PHOTO_LIMIT : input.guestPhotoLimit,
+          // New events start on Free; the host picks more shots after upgrading.
+          guestPhotoLimit: Math.min(input.guestPhotoLimit ?? DEFAULT_GUEST_PHOTO_LIMIT, PLANS.free.maxGuestShots),
           revealMode: input.revealMode ?? 'live',
           albumOpensAt: input.albumOpensAt ? new Date(input.albumOpensAt) : null,
-          theme: input.theme ?? null,
+          // Own colours come with Celebration; Free keeps the ready-made theme's.
+          theme: input.theme ? { ...input.theme, accent: PLANS.free.customLook ? input.theme.accent : null } : null,
           prompts: input.prompts ?? [],
         })
         .returning();
@@ -214,6 +242,23 @@ export class EventsService {
       throw new ForbiddenException('The host removed you from this event');
     }
     if (!existing) {
+      // Invited photographers have their own slot; everyone else counts against the package.
+      const user = await this.db.query.users.findFirst({ where: eq(users.id, userId) });
+      const [invited] = user?.email
+        ? await this.db
+            .select({ id: photographerInvites.id })
+            .from(photographerInvites)
+            .where(and(this.openInvites(event.id), eq(photographerInvites.email, user.email)))
+            .limit(1)
+        : [];
+      if (!invited && (await this.guestCount(event.id)) >= PLANS[event.plan].maxGuests) {
+        const body: ApiError = {
+          statusCode: 403,
+          code: 'EVENT_FULL',
+          message: `This event is full (${PLANS[event.plan].maxGuests} guests). Ask the host to upgrade it so more people can join.`,
+        };
+        throw new ForbiddenException(body);
+      }
       await this.db.insert(eventMembers).values({ eventId: event.id, userId, role: 'member' }).onConflictDoNothing();
     }
     // Invited by email to shoot this event: they come in as the photographer.
@@ -243,6 +288,7 @@ export class EventsService {
 
   async update(eventId: string, hostId: string, input: UpdateEventData): Promise<EventDetail> {
     const { event } = await this.requireHost(eventId, hostId);
+    this.checkPlan(event, input);
     if (input.logoKey) await this.checkImage(eventId, 'logo', input.logoKey);
     if (input.posterKey) await this.checkImage(eventId, 'poster', input.posterKey);
     if (input.frameKey) await this.checkImage(eventId, 'frame', input.frameKey);
@@ -277,6 +323,41 @@ export class EventsService {
     return this.detail(eventId, hostId);
   }
 
+  /**
+   * Refuses changes the event's package doesn't include. Values the event already has are
+   * always fine (events from before packages keep everything).
+   */
+  private checkPlan(event: EventRow, input: UpdateEventData) {
+    const plan = PLANS[event.plan];
+    const limit = input.guestPhotoLimit;
+    if (limit !== undefined && limit !== event.guestPhotoLimit) {
+      if (limit === null) planRequired('Unlimited shots', event.plan, () => false);
+      if (limit > plan.maxGuestShots) planRequired(`${limit} shots per guest`, event.plan, (p) => p.maxGuestShots >= limit);
+    }
+    if (!plan.branding) {
+      const allows = (p: Plan) => p.branding;
+      if (input.requireReview && !event.requireReview) planRequired('Approving photos', event.plan, allows);
+      if (input.logoKey && input.logoKey !== event.logoKey) planRequired('Your logo', event.plan, allows);
+      if ((input.frameKey && input.frameKey !== event.frameKey) || input.frameTemplate) planRequired('Photo frames', event.plan, allows);
+    }
+    if (!plan.customLook && input.theme?.accent && input.theme.accent !== event.theme?.accent) {
+      planRequired('Your own colours and fonts', event.plan, (p) => p.customLook);
+    }
+  }
+
+  /**
+   * Moves the event to a bigger package. For now only when PLAN_SELF_UPGRADE is on (testing);
+   * paid upgrades will come from verified App Store / Google Play purchases.
+   */
+  async changePlan(eventId: string, hostId: string, plan: PlanId, allowed: boolean): Promise<EventDetail> {
+    const { event } = await this.requireHost(eventId, hostId);
+    if (!allowed) throw new ForbiddenException('Upgrades open soon.');
+    if (!upgradesFrom(event.plan).some((p) => p.id === plan)) throw new BadRequestException('Pick a bigger package than this one');
+    await this.db.update(events).set({ plan }).where(eq(events.id, eventId));
+    await this.realtime.touch(eventId, 'rev');
+    return this.detail(eventId, hostId);
+  }
+
   /** Step 1 of a logo / poster / frame change: a signed upload. Step 2 is PATCH with the key. */
   async createImageUpload(eventId: string, hostId: string, input: CreateEventImageUploadInput): Promise<EventImageUpload> {
     await this.requireHost(eventId, hostId);
@@ -307,11 +388,11 @@ export class EventsService {
 
   /** Host makes a guest the photographer, or back. Photos they already took stay theirs. */
   async setMemberRole(eventId: string, hostId: string, targetUserId: string, input: UpdateMemberInput): Promise<Member> {
-    await this.requireHost(eventId, hostId);
+    const { event } = await this.requireHost(eventId, hostId);
     const target = await this.db.query.users.findFirst({ where: eq(users.id, targetUserId) });
     if (input.role === 'photographer') {
       // Their own open invite (if any) is the slot they're taking, so it doesn't count twice.
-      if ((await this.slotsUsed(eventId, targetUserId, target?.email ?? undefined)) >= MAX_PHOTOGRAPHERS) this.slotsFull();
+      if ((await this.slotsUsed(eventId, targetUserId, target?.email ?? undefined)) >= PLANS[event.plan].photographers) this.slotsFull(event.plan);
     }
     const updated = await this.db
       .update(eventMembers)
@@ -361,11 +442,13 @@ export class EventsService {
     return and(eq(photographerInvites.eventId, eventId), isNull(photographerInvites.acceptedAt), isNull(photographerInvites.cancelledAt));
   }
 
-  private slotsFull(): never {
+  private slotsFull(plan: PlanId): never {
+    const slots = PLANS[plan].photographers;
+    const next = upgradeFor(plan, (p) => p.photographers > slots);
     const body: ApiError = {
       statusCode: 409,
       code: 'PHOTOGRAPHER_SLOTS_FULL',
-      message: `All ${MAX_PHOTOGRAPHERS} photographer slots are taken. Remove one first.`,
+      message: `${slots === 1 ? 'The photographer slot is' : `All ${slots} photographer slots are`} taken. Remove one first${next ? `, or upgrade to ${next.name} for ${next.photographers}` : ''}.`,
     };
     throw new ConflictException(body);
   }
@@ -410,7 +493,7 @@ export class EventsService {
       return { status: 'joined', member: await this.setMemberRole(eventId, hostId, user.id, { role: 'photographer' }) };
     }
 
-    if ((await this.slotsUsed(eventId)) >= MAX_PHOTOGRAPHERS) this.slotsFull();
+    if ((await this.slotsUsed(eventId)) >= PLANS[event.plan].photographers) this.slotsFull(event.plan);
     try {
       const [row] = await this.db
         .insert(photographerInvites)
@@ -478,9 +561,28 @@ export class EventsService {
    * A single conditional UPDATE, so two uploads at the same moment can't both slip past the limit.
    */
   async reservePhotoSlot(conn: Conn, eventId: string, userId: string) {
+    const { event, member: me } = await this.requireMember(eventId, userId);
+    if (me.role === 'photographer') {
+      // One allowance for all the photographers: taken one at a time per event, so it can't overshoot.
+      await conn.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`photographer-pool:${eventId}`}))`);
+      const pool = PLANS[event.plan].photographerPhotos;
+      if ((await this.photographerPhotosUsed(conn, eventId)) >= pool) {
+        const next = upgradeFor(event.plan, (p) => p.photographerPhotos > pool);
+        const body: ApiError = {
+          statusCode: 403,
+          code: 'PHOTO_LIMIT_REACHED',
+          message: `The photographers have used all ${pool.toLocaleString('en-IN')} photos for this event${next ? `. The host can upgrade to ${next.name} for ${next.photographerPhotos.toLocaleString('en-IN')}` : ''}.`,
+        };
+        throw new ForbiddenException(body);
+      }
+      await conn
+        .update(eventMembers)
+        .set({ photosUsed: sql`${eventMembers.photosUsed} + 1` })
+        .where(and(eq(eventMembers.eventId, eventId), eq(eventMembers.userId, userId)));
+      return;
+    }
     const limit = sql`CASE ${eventMembers.role}
       WHEN 'host' THEN ${HOST_PHOTO_LIMIT}::int
-      WHEN 'photographer' THEN ${PHOTOGRAPHER_PHOTO_LIMIT}::int
       ELSE coalesce((SELECT ${events.guestPhotoLimit} FROM ${events} WHERE ${events.id} = ${eventId}) + ${eventMembers.bonusShots}, 2147483647)
     END`;
     const reserved = await conn
@@ -497,7 +599,7 @@ export class EventsService {
       .returning({ photosUsed: eventMembers.photosUsed });
     if (reserved.length) return;
 
-    const { event, member } = await this.requireMember(eventId, userId);
+    const { member } = await this.requireMember(eventId, userId);
     const body: ApiError = {
       statusCode: 403,
       code: 'PHOTO_LIMIT_REACHED',
@@ -511,9 +613,28 @@ export class EventsService {
    * limit. Like reservePhotoSlot, one conditional UPDATE, so concurrent uploads can't overshoot.
    * A negative `ms` gives time back (a recording turned out shorter than reserved).
    */
-  async reserveMediaTime(conn: Conn, eventId: string, userId: string, kind: 'video' | 'voice', ms: number) {
+  async reserveMediaTime(conn: Conn, eventId: string, userId: string, kind: 'video' | 'voice', ms: number, adjust = false) {
+    const { event, member: me } = await this.requireMember(eventId, userId);
+    const plan = PLANS[event.plan];
+    // Photographers share a number of videos instead of a time limit: a new video takes one,
+    // and correcting a video's length afterwards (adjust) changes nothing for them.
+    if (kind === 'video' && me.role === 'photographer') {
+      if (adjust) return;
+      if (ms > VIDEO_LIMIT_MS) throw new BadRequestException('Videos can be up to 5 minutes long');
+      await conn.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`photographer-videos:${eventId}`}))`);
+      if ((await this.photographerVideos(conn, eventId)) >= plan.photographerVideos) {
+        const next = upgradeFor(event.plan, (p) => p.photographerVideos > plan.photographerVideos);
+        const body: ApiError = {
+          statusCode: 403,
+          code: 'VIDEO_LIMIT_REACHED',
+          message: `The photographers have added all ${plan.photographerVideos} videos for this event${next ? `. The host can upgrade to ${next.name} for ${next.photographerVideos}` : ''}.`,
+        };
+        throw new ForbiddenException(body);
+      }
+      return;
+    }
     const column = kind === 'video' ? eventMembers.videoMsUsed : eventMembers.voiceMsUsed;
-    const limit = kind === 'video' ? VIDEO_LIMIT_MS : VOICE_LIMIT_MS;
+    const limit = this.mediaLimitMs(event, me.role, kind);
     const next = sql`greatest(0, ${column} + ${ms}::int)`;
     const reserved = await conn
       .update(eventMembers)
@@ -542,6 +663,12 @@ export class EventsService {
           : `That's longer than the ${fmt(left)} of ${kind === 'video' ? 'video' : 'voice-note'} time you have left`,
     };
     throw new ForbiddenException(body);
+  }
+
+  /** Video or voice time for someone in this role: the package's for guests, the usual for the host. */
+  private mediaLimitMs(event: EventRow, role: EventRole, kind: 'video' | 'voice') {
+    if (role === 'member') return kind === 'video' ? PLANS[event.plan].guestVideoMs : PLANS[event.plan].guestVoiceMs;
+    return kind === 'video' ? VIDEO_LIMIT_MS : VOICE_LIMIT_MS;
   }
 
   async removeMember(eventId: string, hostId: string, targetUserId: string) {
@@ -578,6 +705,33 @@ export class EventsService {
       if (!taken) return code;
     }
     throw new ConflictException('Please try again');
+  }
+
+  private async guestCount(eventId: string) {
+    const [r] = await this.db
+      .select({ n: count() })
+      .from(eventMembers)
+      .where(and(eq(eventMembers.eventId, eventId), eq(eventMembers.status, 'active'), eq(eventMembers.role, 'member')));
+    return r?.n ?? 0;
+  }
+
+  /** Photos all the photographers have taken here: they share one allowance. */
+  private async photographerPhotosUsed(conn: Conn, eventId: string) {
+    const [r] = await conn
+      .select({ n: sql<number>`coalesce(sum(${eventMembers.photosUsed}), 0)::int` })
+      .from(eventMembers)
+      .where(and(eq(eventMembers.eventId, eventId), eq(eventMembers.role, 'photographer'), eq(eventMembers.status, 'active')));
+    return r?.n ?? 0;
+  }
+
+  /** Videos the photographers have added here (they share a number of videos). */
+  private async photographerVideos(conn: Conn, eventId: string) {
+    const [r] = await conn
+      .select({ n: count() })
+      .from(photos)
+      .innerJoin(eventMembers, and(eq(eventMembers.eventId, photos.eventId), eq(eventMembers.userId, photos.uploaderId)))
+      .where(and(eq(photos.eventId, eventId), eq(photos.kind, 'video'), isNull(photos.deletedAt), eq(eventMembers.role, 'photographer')));
+    return r?.n ?? 0;
   }
 
   private async memberCount(eventId: string) {
@@ -639,7 +793,7 @@ export class EventsService {
       eq(photos.pendingReview, false),
       isNull(photos.deletedAt),
     );
-    const [[p], [pending], slots, memberCount] = await Promise.all([
+    const [[p], [pending], slots, memberCount, guestCount, poolUsed] = await Promise.all([
       this.db.select({ n: count() }).from(photos).where(shared),
       member.role === 'host'
         ? this.db
@@ -649,7 +803,10 @@ export class EventsService {
         : Promise.resolve([{ n: 0 }]),
       this.slotsUsed(event.id),
       this.memberCount(event.id),
+      this.guestCount(event.id),
+      member.role === 'photographer' ? this.photographerPhotosUsed(this.db, event.id) : Promise.resolve(0),
     ]);
+    const photographer = member.role === 'photographer';
     // Without a poster from the host, the newest photo you can see is the cover.
     const [latest] = await this.db
       .select({ thumbKey: photos.thumbKey })
@@ -663,18 +820,22 @@ export class EventsService {
       id: event.id,
       coverUrl: identity.posterUrl ?? (latest?.thumbKey ? await this.storage.presignDownload(latest.thumbKey) : null),
       role: member.role,
+      plan: event.plan,
+      accessEndsAt: accessEndsAt(event).toISOString(),
+      guestCount,
       memberCount,
       // Slots taken, open email invites included (as the prototype counts them).
       photographerCount: slots,
       photoCount: p?.n ?? 0,
       pendingReviewCount: pending?.n ?? 0,
       hasFaceProfile: event.findMyPhotos ? await this.hasFaceProfile(event.id, member.userId) : false,
-      photoLimit: photoLimitFor(member.role, event.guestPhotoLimit, member.bonusShots),
+      // Photographers see the allowance they share, and how much of it all of them have used.
+      photoLimit: photographer ? PLANS[event.plan].photographerPhotos : photoLimitFor(member.role, event.guestPhotoLimit, member.bonusShots),
       ...(await this.refillState(event, member)),
-      photosUsed: member.photosUsed,
-      videoLimitMs: VIDEO_LIMIT_MS,
+      photosUsed: photographer ? poolUsed : member.photosUsed,
+      videoLimitMs: this.mediaLimitMs(event, member.role, 'video'),
       videoMsUsed: member.videoMsUsed,
-      voiceLimitMs: VOICE_LIMIT_MS,
+      voiceLimitMs: this.mediaLimitMs(event, member.role, 'voice'),
       voiceMsUsed: member.voiceMsUsed,
     };
   }

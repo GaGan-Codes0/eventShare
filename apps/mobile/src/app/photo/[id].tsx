@@ -273,7 +273,7 @@ async function saveMedia(photo: Photo) {
     return;
   }
   const perm = await requestPermissionsAsync(true);
-  if (!perm.granted) throw new Error('Allow eventShare to add to your Photos in Settings.');
+  if (!perm.granted) throw new Error('Allow Klickers to add to your Photos in Settings.');
   // Dated as saved now, so it's at the top of the gallery, not back on the event day.
   await dateAsSavedNow(file.uri, 'video');
   await Asset.create(file.uri);

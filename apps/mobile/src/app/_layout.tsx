@@ -166,6 +166,7 @@ function AppStack() {
         {/* As tall as its contents, like the prototype's profile sheet. */}
         <Stack.Screen name="profile" options={{ ...sheet, sheetAllowedDetents: 'fitToContents' }} />
         <Stack.Screen name="download" options={sheet} />
+        <Stack.Screen name="plans" options={sheet} />
         <Stack.Screen name="find-me" options={{ ...sheet, sheetAllowedDetents: 'fitToContents' }} />
         <Stack.Screen
           name="photo/[id]"

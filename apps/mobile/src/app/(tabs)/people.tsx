@@ -1,4 +1,4 @@
-import { invitePhotographerSchema, MAX_PHOTOGRAPHERS, PHOTOGRAPHER_PHOTO_LIMIT, REFILL_SHOTS, type EventDetail, type Member, type PhotographerInvite, type RefillRequest } from '@eventshare/shared';
+import { invitePhotographerSchema, REFILL_SHOTS, upgradesFrom, type EventDetail, type Member, type PhotographerInvite, type RefillRequest } from '@eventshare/shared';
 import { router } from 'expo-router';
 import { Aperture, Mail, MoreHorizontal, Plus, Trash2, UserPlus, X } from 'lucide-react-native';
 import { useState, type ReactNode } from 'react';
@@ -10,6 +10,7 @@ import { toast } from '@/components/toast';
 import { Button, initialsOf, LoadingState, Text } from '@/components/ui';
 import { radius, screenPadding, space } from '@/constants/theme';
 import { HostHeader } from '@/features/events/event-header';
+import { planOf } from '@/features/events/plan';
 import { NoEventYet } from '@/features/events/no-event';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { useCancelPhotographerInvite, useDecideRefill, useInvitePhotographer, useMe, useMembers, usePhotographerInvites, useRefillRequests, useRemoveMember, useSetMemberRole } from '@/services/api/hooks';
@@ -45,7 +46,11 @@ function PeopleBody({ event }: { event: EventDetail }) {
   const pending = invites.data ?? [];
   // An open invite holds its slot until it's taken up or cancelled.
   const taken = shooters.length + pending.length;
-  const full = taken >= MAX_PHOTOGRAPHERS;
+  const plan = planOf(event);
+  const slots = plan.photographers;
+  const pool = plan.photographerPhotos.toLocaleString('en-IN');
+  const full = taken >= slots;
+  const moreSlots = upgradesFrom(event.plan).find((p) => p.photographers > slots);
 
   function answer(request: RefillRequest, shots: (typeof REFILL_SHOTS)[number] | null) {
     decide.mutate(
@@ -60,7 +65,7 @@ function PeopleBody({ event }: { event: EventDetail }) {
   function sendInvite() {
     const parsed = invitePhotographerSchema.safeParse(form);
     if (!parsed.success) return toast('Add a name and a valid email');
-    if (full) return toast(`All ${MAX_PHOTOGRAPHERS} photographer slots are taken`);
+    if (full) return toast(moreSlots ? `No photographer slots left. ${moreSlots.name} gives you ${moreSlots.photographers}.` : 'All photographer slots are taken');
     invite.mutate(parsed.data, {
       onSuccess: (res) => {
         setPicking(false);
@@ -92,7 +97,7 @@ function PeopleBody({ event }: { event: EventDetail }) {
   const limit = event.guestPhotoLimit;
 
   function promote(m: Member) {
-    if (full) return toast(`All ${MAX_PHOTOGRAPHERS} photographer slots are taken`);
+    if (full) return toast(moreSlots ? `No photographer slots left. ${moreSlots.name} gives you ${moreSlots.photographers}.` : 'All photographer slots are taken');
     setRole.mutate(
       { userId: m.userId, role: 'photographer' },
       {
@@ -199,11 +204,11 @@ function PeopleBody({ event }: { event: EventDetail }) {
         )}
 
         <Text variant="eyebrow">
-          Designated photographers · {taken}/{MAX_PHOTOGRAPHERS}
+          Designated photographers · {taken}/{slots}
         </Text>
         <Text variant="caption" color="muted">
-          Up to {MAX_PHOTOGRAPHERS} people, {PHOTOGRAPHER_PHOTO_LIMIT.toLocaleString('en-US')} uploads each. Their photos skip review, go live
-          instantly and carry a Photographer badge.
+          {slots === 1 ? 'One photographer' : `Up to ${slots} people`}, sharing {pool} photos and {plan.photographerVideos} video
+          {plan.photographerVideos === 1 ? '' : 's'}. Their photos skip review, go live instantly and carry a Photographer badge.
         </Text>
 
         {shooters.map((p) => (
@@ -226,11 +231,11 @@ function PeopleBody({ event }: { event: EventDetail }) {
               </View>
             </View>
             <View style={styles.track}>
-              <View style={[styles.fill, { width: `${Math.min(100, (p.photosUsed / PHOTOGRAPHER_PHOTO_LIMIT) * 100)}%` }]} />
+              <View style={[styles.fill, { width: `${Math.min(100, (p.photosUsed / plan.photographerPhotos) * 100)}%` }]} />
             </View>
             <View style={styles.cardFoot}>
               <Text variant="caption" color="muted" style={{ fontFamily: fonts.mono }}>
-                {p.photosUsed} / {PHOTOGRAPHER_PHOTO_LIMIT.toLocaleString('en-US')} uploads
+                {p.photosUsed} of {pool} shared uploads
               </Text>
               <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${p.name} as photographer`} hitSlop={8} onPress={() => demote(p)}>
                 <Text variant="label" color="danger">
@@ -262,7 +267,7 @@ function PeopleBody({ event }: { event: EventDetail }) {
             <View style={styles.track} />
             <View style={styles.cardFoot}>
               <Text variant="caption" color="muted" style={{ fontFamily: fonts.mono }}>
-                0 / {PHOTOGRAPHER_PHOTO_LIMIT.toLocaleString('en-US')} uploads
+                0 of {pool} shared uploads
               </Text>
               <Pressable accessibilityRole="button" accessibilityLabel={`Cancel ${i.name}'s invite`} hitSlop={8} onPress={() => confirmCancel(i)}>
                 <Text variant="label" color="danger">
@@ -273,7 +278,7 @@ function PeopleBody({ event }: { event: EventDetail }) {
           </View>
         ))}
 
-        {Array.from({ length: Math.max(0, MAX_PHOTOGRAPHERS - taken) }, (_, i) => (
+        {Array.from({ length: Math.max(0, slots - taken) }, (_, i) => (
           <Pressable key={i} accessibilityRole="button" onPress={() => setPicking(true)} style={({ pressed }) => [styles.slot, pressed && { backgroundColor: colors.field }]}>
             <View style={styles.slotIcon}>
               <Plus size={19} color={colors.ink} />
@@ -336,7 +341,7 @@ function PeopleBody({ event }: { event: EventDetail }) {
           Who’s <Text variant="h2" emphasis>shooting?</Text>
         </Text>
         <Text variant="caption" color="muted">
-          They get {PHOTOGRAPHER_PHOTO_LIMIT.toLocaleString('en-US')} uploads, a Photographer badge on every shot, and their photos skip review.
+          Photographers share {pool} uploads, get a Photographer badge on every shot, and their photos skip review.
         </Text>
         <Field value={form.name} placeholder="Name" onChange={(name) => setForm((f) => ({ ...f, name }))} />
         <Field value={form.email} placeholder="Email" email onChange={(email) => setForm((f) => ({ ...f, email }))} />
@@ -389,8 +394,8 @@ function PeopleBody({ event }: { event: EventDetail }) {
                   <Text variant="body">Make designated photographer</Text>
                   <Text variant="caption" color="muted">
                     {full
-                      ? `All ${MAX_PHOTOGRAPHERS} slots are taken. Remove one first.`
-                      : `${PHOTOGRAPHER_PHOTO_LIMIT.toLocaleString('en-US')} uploads and a badge on every shot`}
+                      ? `No slots left. Remove one first${moreSlots ? `, or upgrade to ${moreSlots.name}` : ''}.`
+                      : `Shares ${pool} uploads, with a badge on every shot`}
                   </Text>
                 </View>
               </Pressable>

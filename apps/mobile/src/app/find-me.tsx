@@ -30,7 +30,7 @@ function FindMe() {
   async function takeSelfie() {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) {
-      setStep({ kind: 'error', message: 'eventShare needs the camera for your selfie. You can allow it in Settings.' });
+      setStep({ kind: 'error', message: 'Klickers needs the camera for your selfie. You can allow it in Settings.' });
       return;
     }
     const shot = await ImagePicker.launchCameraAsync({ cameraType: ImagePicker.CameraType.front, mediaTypes: ['images'], quality: 0.9 });

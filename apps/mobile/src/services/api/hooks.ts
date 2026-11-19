@@ -16,6 +16,7 @@ import type {
   PhotographerInvite,
   PhotoListFilter,
   PhotoVisibility,
+  PlanId,
   RefillRequest,
   UpdateEventInput,
   UpdateMemberInput,
@@ -126,6 +127,18 @@ export function useUpdateEvent(eventId: string) {
     onError: (_err, _input, ctx) => {
       if (ctx?.before) qc.setQueryData(keys.event(eventId), ctx.before);
     },
+    onSuccess: (event) => {
+      qc.setQueryData(keys.event(eventId), event);
+      void qc.invalidateQueries({ queryKey: keys.events });
+    },
+  });
+}
+
+/** Host moves the event to a bigger package. */
+export function useChangePlan(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (plan: PlanId) => api<EventDetail>(`/events/${eventId}/plan`, { body: { plan } }),
     onSuccess: (event) => {
       qc.setQueryData(keys.event(eventId), event);
       void qc.invalidateQueries({ queryKey: keys.events });

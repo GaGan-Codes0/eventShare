@@ -92,7 +92,7 @@ export function SaveSheet({ photo, event, onClose }: Props) {
     setSaving(true);
     try {
       const perm = await requestPermissionsAsync(true);
-      if (!perm.granted) throw new Error('Allow eventShare to add photos in Settings.');
+      if (!perm.granted) throw new Error('Allow Klickers to add photos in Settings.');
       if (prefs.saveOriginal) {
         // Dated as saved now, so it's at the top of the gallery, not back on the event day.
         await dateAsSavedNow(local.uri);
