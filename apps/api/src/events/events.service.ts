@@ -17,6 +17,8 @@ import {
   PLANS,
   photoLimitFor,
   upgradesFrom,
+  upgradeProductId,
+  type ChangePlanInput,
   REFILL_RETRY_AFTER_MS,
   VIDEO_LIMIT_MS,
   VOICE_LIMIT_MS,
@@ -45,8 +47,9 @@ import { and, count, desc, eq, isNotNull, isNull, ne, or, sql, type SQL } from '
 import sharp from 'sharp';
 
 import { DB, type Db } from '../db/db.module.js';
-import { eventMembers, events, faceProfiles, photographerInvites, photos, shotRefillRequests, users } from '../db/schema.js';
+import { eventMembers, eventPurchases, events, faceProfiles, photographerInvites, photos, shotRefillRequests, users } from '../db/schema.js';
 import { MailService } from '../mail/mail.service.js';
+import { RevenueCatService } from '../purchases/revenuecat.service.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { StorageService } from '../storage/storage.service.js';
 
@@ -120,6 +123,7 @@ export class EventsService {
     private readonly storage: StorageService,
     private readonly mail: MailService,
     private readonly realtime: RealtimeService,
+    private readonly revenueCat: RevenueCatService,
   ) {}
 
   /**
@@ -349,11 +353,33 @@ export class EventsService {
    * Moves the event to a bigger package. For now only when PLAN_SELF_UPGRADE is on (testing);
    * paid upgrades will come from verified App Store / Google Play purchases.
    */
-  async changePlan(eventId: string, hostId: string, plan: PlanId, allowed: boolean): Promise<EventDetail> {
+  /**
+   * Host: move the event to a bigger package. Paid with a store payment (`transactionId`), which
+   * RevenueCat must confirm was made by this host for this move, and which can only be used once.
+   * Without one, only a test server (PLAN_SELF_UPGRADE) upgrades.
+   */
+  async changePlan(eventId: string, hostId: string, input: ChangePlanInput, freeUpgrades: boolean): Promise<EventDetail> {
     const { event } = await this.requireHost(eventId, hostId);
-    if (!allowed) throw new ForbiddenException('Upgrades open soon.');
+    const { plan, transactionId } = input;
     if (!upgradesFrom(event.plan).some((p) => p.id === plan)) throw new BadRequestException('Pick a bigger package than this one');
-    await this.db.update(events).set({ plan }).where(eq(events.id, eventId));
+
+    if (!transactionId) {
+      if (!freeUpgrades) throw new ForbiddenException('Buy the package in the app to upgrade.');
+      await this.db.update(events).set({ plan }).where(eq(events.id, eventId));
+    } else {
+      // The payment must be for this exact move (e.g. Party to Branded pays only the difference).
+      const paid = await this.revenueCat.findPurchase(hostId, upgradeProductId(event.plan, plan), transactionId);
+      if (!paid) throw new BadRequestException("We couldn't find that payment. If you were charged, write to support@klyra.co.in.");
+      await this.db.transaction(async (tx) => {
+        const [saved] = await tx
+          .insert(eventPurchases)
+          .values({ eventId, userId: hostId, plan, ...paid })
+          .onConflictDoNothing({ target: eventPurchases.transactionId })
+          .returning({ id: eventPurchases.id });
+        if (!saved) throw new ConflictException('This payment has already been used for an upgrade.');
+        await tx.update(events).set({ plan }).where(eq(events.id, eventId));
+      });
+    }
     await this.realtime.touch(eventId, 'rev');
     return this.detail(eventId, hostId);
   }

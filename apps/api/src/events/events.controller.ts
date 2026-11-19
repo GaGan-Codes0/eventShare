@@ -53,7 +53,7 @@ export class EventsController {
     return this.events.detail(id, user.id);
   }
 
-  /** Host: move the event to a bigger package (testing only until store purchases are wired up). */
+  /** Host: move the event to a bigger package, paid in the app (see EventsService.changePlan). */
   @Post('events/:id/plan')
   @HttpCode(200)
   changePlan(
@@ -61,7 +61,7 @@ export class EventsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodPipe(changePlanSchema)) body: ChangePlanInput,
   ) {
-    return this.events.changePlan(id, user.id, body.plan, this.env.PLAN_SELF_UPGRADE);
+    return this.events.changePlan(id, user.id, body, this.env.PLAN_SELF_UPGRADE);
   }
 
   @Patch('events/:id')

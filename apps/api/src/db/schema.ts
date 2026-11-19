@@ -320,3 +320,29 @@ export const eventArchives = pgTable(
   },
   (t) => [index('event_archives_event_scope_idx').on(t.eventId, t.scope)],
 );
+
+/**
+ * Store payments that upgraded an event. A transaction can only ever be used once, so one
+ * payment never upgrades two events. Checked with RevenueCat before it is saved.
+ */
+export const eventPurchases = pgTable(
+  'event_purchases',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => events.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    plan: eventPlan('plan').notNull(),
+    productId: text('product_id').notNull(),
+    /** RevenueCat's id for the payment (unique across stores). */
+    transactionId: text('transaction_id').notNull(),
+    store: text('store').notNull(),
+    sandbox: boolean('sandbox').notNull(),
+    purchasedAt: timestamp('purchased_at', { withTimezone: true }).notNull(),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('event_purchases_transaction_idx').on(t.transactionId), index('event_purchases_event_idx').on(t.eventId)],
+);

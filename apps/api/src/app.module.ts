@@ -23,6 +23,7 @@ import { RealtimeService } from './realtime/realtime.service.js';
 import { QueueService } from './redis/queue.service.js';
 import { RedisService } from './redis/redis.service.js';
 import { StorageService } from './storage/storage.service.js';
+import { RevenueCatService } from './purchases/revenuecat.service.js';
 import { AccountService } from './users/account.service.js';
 import { UsersController } from './users/users.controller.js';
 import { UsersService } from './users/users.service.js';
@@ -52,6 +53,7 @@ function accountTracker(req: Record<string, any>): string {
     UsersService,
     AccountService,
     EventsService,
+    RevenueCatService,
     RefillsService,
     PhotosService,
     ArchiveService,

@@ -127,6 +127,13 @@
       "when": 1795023717074,
       "tag": "0017_event_plans",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1795080280406,
+      "tag": "0018_event_purchases",
+      "breakpoints": true
     }
   ]
 }

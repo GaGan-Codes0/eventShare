@@ -228,7 +228,22 @@ export function guestShotChoices(plan: PlanId): GuestPhotoLimit[] {
   return GUEST_PHOTO_LIMITS.filter((n) => n <= PLANS[plan].maxGuestShots);
 }
 
-export const changePlanSchema = z.object({ plan: z.enum(PLAN_IDS) });
+/**
+ * The store product a host buys to move an event from one package to a bigger one (same id on the
+ * App Store and Google Play). From Free it's the full package; from a paid package only the
+ * difference is charged, e.g. Party to Branded costs ₹4,999 − ₹999.
+ */
+export function upgradeProductId(from: PlanId, to: PlanId): string {
+  return from === 'free' ? `in.co.klyra.eventshare.${to}` : `in.co.klyra.eventshare.${from}_to_${to}`;
+}
+
+/** What moving from one package to a bigger one costs, in rupees. */
+export function upgradePriceInr(from: PlanId, to: PlanId): number {
+  return PLANS[to].priceInr - PLANS[from].priceInr;
+}
+
+/** `transactionId` is the store payment (from RevenueCat) that paid for it; only test servers upgrade without one. */
+export const changePlanSchema = z.object({ plan: z.enum(PLAN_IDS), transactionId: z.string().min(1).max(200).optional() });
 export type ChangePlanInput = z.infer<typeof changePlanSchema>;
 
 const HOUR_MS = 60 * 60_000;

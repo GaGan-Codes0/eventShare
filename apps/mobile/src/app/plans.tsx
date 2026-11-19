@@ -1,6 +1,6 @@
-import { PLAN_IDS, PLANS, type Plan } from '@eventshare/shared';
+import { PLAN_IDS, PLANS, upgradePriceInr, type Plan, type PlanId } from '@eventshare/shared';
 import { Check } from 'lucide-react-native';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, ScrollView, View } from 'react-native';
 
 import { Button, LoadingState, Text } from '@/components/ui';
@@ -8,7 +8,9 @@ import { toast } from '@/components/toast';
 import { screenPadding, space } from '@/constants/theme';
 import { planOf, rupees, shortDate } from '@/features/events/plan';
 import { useCurrentEvent } from '@/features/events/use-current-event';
-import { useChangePlan } from '@/services/api/hooks';
+import { buyPlan, paymentsEnabled, pendingUpgrade, setPendingUpgrade, storePrices } from '@/features/purchases/store';
+import { ApiRequestError } from '@/services/api/client';
+import { useChangePlan, useMe } from '@/services/api/hooks';
 import { makeStyles, useTheme } from '@/theme';
 
 const secs = (ms: number) => `${Math.round(ms / 1000)}-second`;
@@ -33,25 +35,75 @@ export default function Plans() {
   const styles = useStyles();
   const { id, event } = useCurrentEvent();
   const change = useChangePlan(id ?? '');
+  const me = useMe().data;
   const [picked, setPicked] = useState<string | null>(null);
+  const [prices, setPrices] = useState<Partial<Record<PlanId, string>>>({});
+  const retried = useRef(false);
+
+  // The store's own price (in the person's currency) once it loads; our rupee price until then.
+  const currentPlan = event?.plan;
+  useEffect(() => {
+    if (!me || !currentPlan) return;
+    storePrices(me.id, currentPlan).then(setPrices, () => undefined);
+  }, [me, currentPlan]);
+
+  // A payment that went through while the upgrade itself didn't reach us: apply it now.
+  useEffect(() => {
+    if (!id || retried.current) return;
+    retried.current = true;
+    void pendingUpgrade().then(async (pending) => {
+      if (pending?.eventId !== id) return;
+      try {
+        await change.mutateAsync({ plan: pending.plan, transactionId: pending.transactionId });
+        await setPendingUpgrade(null);
+        toast(`Your payment went through: now on ${PLANS[pending.plan].name}`);
+      } catch (e) {
+        // Already applied, or not a payment we can use: stop retrying. Anything else retries next time.
+        if (e instanceof ApiRequestError && (e.status === 400 || e.status === 409)) await setPendingUpgrade(null);
+      }
+    });
+  }, [id, change]);
+
   if (!event) return <LoadingState />;
   const current = planOf(event);
   const currentIndex = PLAN_IDS.indexOf(current.id);
+  /** What moving to `p` costs this event: the store's price once loaded, else ours (only the difference from a paid package). */
+  const priceOf = (p: Plan) => prices[p.id] ?? rupees(upgradePriceInr(current.id, p.id));
+
+  async function pay(p: Plan) {
+    if (!id || !me || p.id === 'free') return;
+    setPicked(p.id);
+    try {
+      let transactionId: string | undefined;
+      if (paymentsEnabled) {
+        const paid = await buyPlan(me.id, current.id, p.id);
+        if (!paid) return; // Backed out of the store sheet.
+        transactionId = paid;
+        await setPendingUpgrade({ eventId: id, plan: p.id, transactionId });
+      }
+      await change.mutateAsync({ plan: p.id, transactionId });
+      if (transactionId) await setPendingUpgrade(null);
+      toast(`${event?.name ?? 'Your event'} is now on ${p.name}`);
+    } catch (e) {
+      const paidButNotApplied = paymentsEnabled && !(e instanceof ApiRequestError && e.status < 500);
+      toast(
+        paidButNotApplied && (await pendingUpgrade())?.eventId === id
+          ? "Payment received. We'll finish the upgrade next time you open Packages."
+          : e instanceof Error
+            ? e.message
+            : 'Could not upgrade. Please try again.',
+      );
+    } finally {
+      setPicked(null);
+    }
+  }
 
   function upgrade(p: Plan) {
-    Alert.alert(`Upgrade to ${p.name}?`, `${rupees(p.priceInr)} for this event, paid once.`, [
+    // With real payments the store's own sheet is the confirmation.
+    if (paymentsEnabled) return void pay(p);
+    Alert.alert(`Upgrade to ${p.name}?`, `${priceOf(p)} for this event, paid once.`, [
       { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Upgrade',
-        onPress: () => {
-          setPicked(p.id);
-          change.mutate(p.id, {
-            onSuccess: () => toast(`${event?.name ?? 'Your event'} is now on ${p.name}`),
-            onError: (e) => toast(e instanceof Error ? e.message : 'Could not upgrade. Please try again.'),
-            onSettled: () => setPicked(null),
-          });
-        },
-      },
+      { text: 'Upgrade', onPress: () => void pay(p) },
     ]);
   }
 
@@ -90,10 +142,10 @@ export default function Plans() {
               </Text>
             ) : below ? null : (
               <Button
-                label={`Upgrade for ${rupees(p.priceInr)}`}
+                label={current.priceInr > 0 ? `Upgrade for ${priceOf(p)} more` : `Upgrade for ${priceOf(p)}`}
                 fullWidth
                 loading={picked === p.id}
-                disabled={change.isPending}
+                disabled={picked !== null || change.isPending}
                 onPress={() => upgrade(p)}
               />
             )}

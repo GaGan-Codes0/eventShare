@@ -25,8 +25,10 @@ const envSchema = z
     CLERK_SECRET_KEY: z.string().optional(),
     /** Local development / tests only: trust an `x-dev-user` header instead of a login token. */
     AUTH_DEV_BYPASS: z.stringbool().default(false),
-    /** Hosts can switch packages without paying: for testing until store purchases are wired up. */
+    /** Testing only: hosts can switch packages without paying. Paid upgrades are checked with RevenueCat either way. */
     PLAN_SELF_UPGRADE: z.stringbool().default(false),
+    /** RevenueCat secret API key (Project settings → API keys, starts with `sk_`). Without it, paid upgrades are refused. */
+    REVENUECAT_SECRET_KEY: z.preprocess((v) => (v === '' ? undefined : v), z.string().startsWith('sk_').optional()),
 
     S3_REGION: z.string().default('ap-south-1'),
     S3_BUCKET: z.string(),

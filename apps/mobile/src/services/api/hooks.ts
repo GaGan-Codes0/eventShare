@@ -3,6 +3,7 @@ import type {
   ArchiveStatus,
   ArchiveScope,
   ArchiveSummary,
+  ChangePlanInput,
   CreateEventInput,
   EventDetail,
   EventPreview,
@@ -16,7 +17,6 @@ import type {
   PhotographerInvite,
   PhotoListFilter,
   PhotoVisibility,
-  PlanId,
   RefillRequest,
   UpdateEventInput,
   UpdateMemberInput,
@@ -138,7 +138,7 @@ export function useUpdateEvent(eventId: string) {
 export function useChangePlan(eventId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (plan: PlanId) => api<EventDetail>(`/events/${eventId}/plan`, { body: { plan } }),
+    mutationFn: (body: ChangePlanInput) => api<EventDetail>(`/events/${eventId}/plan`, { body }),
     onSuccess: (event) => {
       qc.setQueryData(keys.event(eventId), event);
       void qc.invalidateQueries({ queryKey: keys.events });
