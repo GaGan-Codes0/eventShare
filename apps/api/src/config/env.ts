@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+/** The OAuth clients in the Klickers Google Cloud project: web (what the apps ask tokens for), iOS, Android. */
+const KLICKERS_GOOGLE_CLIENT_IDS = [
+  '1013281717078-etedjrqklfid6tv9qdt83md34gqu3a45.apps.googleusercontent.com',
+  '1013281717078-4vo32npedk2cd9nuovbqj49nrevli021.apps.googleusercontent.com',
+  '1013281717078-1vh2qserbavuhhkd55mjp27f5moa2110.apps.googleusercontent.com',
+].join(',');
+
 const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -23,12 +30,11 @@ const envSchema = z
     /**
      * Sign in with Google: the OAuth client IDs a Google ID token may be issued to (the web client,
      * which the apps ask for tokens on behalf of, plus the iOS and Android ones), comma separated.
-     * Not secret. Empty: Google sign-in is refused.
+     * Not secret. Unset or empty: the Klickers project's clients. `none`: Google sign-in is refused.
      */
     GOOGLE_CLIENT_IDS: z
-      .string()
-      .default('')
-      .transform((v) => v.split(',').map((s) => s.trim()).filter(Boolean)),
+      .preprocess((v) => (v === '' ? undefined : v), z.string().default(KLICKERS_GOOGLE_CLIENT_IDS))
+      .transform((v) => v.split(',').map((s) => s.trim()).filter((s) => s && s !== 'none')),
 
     // Clerk is switched off for now (own email + password login instead).
     CLERK_SECRET_KEY: z.string().optional(),

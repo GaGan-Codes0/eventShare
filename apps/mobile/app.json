@@ -85,6 +85,12 @@
       "expo-secure-store",
       "@clerk/expo",
       "expo-web-browser",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.1013281717078-4vo32npedk2cd9nuovbqj49nrevli021"
+        }
+      ],
       "./plugins/with-release-signing",
       "@react-native-community/datetimepicker",
       "expo-asset",

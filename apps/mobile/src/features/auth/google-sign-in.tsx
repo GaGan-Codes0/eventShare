@@ -7,12 +7,12 @@ import { api } from '@/services/api/client';
 import { defaultTheme } from '@/theme';
 
 /**
- * Our OAuth client IDs from Google Cloud (APIs & Services → Credentials). Not secret.
- * The web client is the one the server checks tokens against; iOS also needs its own client.
- * Android finds its client by the app's package name and signing certificate.
+ * Our OAuth client IDs, from the Klickers project in Google Cloud (Google Auth Platform → Clients). Not secret.
+ * The web client is the one the server checks tokens against; iOS also needs its own client (its reversed ID
+ * is the URL scheme in app.json). Android finds its client by the app's package name and signing certificate.
  */
-const WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? '';
-const IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? '';
+const WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '1013281717078-etedjrqklfid6tv9qdt83md34gqu3a45.apps.googleusercontent.com';
+const IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '1013281717078-4vo32npedk2cd9nuovbqj49nrevli021.apps.googleusercontent.com';
 
 /** Whether this build has Google sign-in set up; the button is hidden until it does. */
 export const googleSignInAvailable = !!WEB_CLIENT_ID;
