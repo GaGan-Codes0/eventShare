@@ -3,13 +3,13 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Check, X } from 'lucide-react-native';
+import { Camera, Check, X } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, Text } from '@/components/ui';
+import { Text } from '@/components/ui';
 import { radius, space } from '@/constants/theme';
 import { makeStyles } from '@/theme';
 
@@ -62,14 +62,22 @@ export default function JoinScan() {
         {permission?.granted ? (
           <CameraView style={StyleSheet.absoluteFill} facing="back" barcodeScannerSettings={{ barcodeTypes: ['qr'] }} onBarcodeScanned={(r) => onScan(r.data)} />
         ) : (
+          // The button first and bright: it's the one thing to do on this screen until the camera is on.
           <View style={styles.ask}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Enable camera"
+              onPress={() => void requestPermission()}
+              style={({ pressed }) => [styles.enable, pressed && styles.enablePressed]}>
+              <Camera size={22} color={INK} />
+              <Text style={styles.enableText}>Enable camera</Text>
+            </Pressable>
             <Text variant="h3" align="center" style={styles.light}>
               Allow the camera to scan
             </Text>
             <Text variant="caption" align="center" style={styles.dim}>
               Only to read the event’s QR code.
             </Text>
-            <Button label="Enable camera" onPress={() => void requestPermission()} />
           </View>
         )}
         <View pointerEvents="none" style={styles.frame}>
@@ -79,7 +87,8 @@ export default function JoinScan() {
           <View style={[styles.corner, styles.br]} />
           {!found && <Animated.View style={[styles.line, lineStyle]} />}
         </View>
-        <View style={styles.status}>
+        {/* Nothing to look for until the camera is on. */}
+        {permission?.granted && <View style={styles.status}>
           {found ? (
             <>
               <Check size={16} color={SAGE} />
@@ -95,7 +104,7 @@ export default function JoinScan() {
               </Text>
             </>
           )}
-        </View>
+        </View>}
       </View>
 
       <View style={[styles.bottom, { paddingBottom: insets.bottom + space.lg }]}>
@@ -111,8 +120,9 @@ export default function JoinScan() {
 
 const LIGHT = '#F4F2DF';
 const SAGE = '#CDD7AB';
+const INK = '#0A0D0C';
 
-const useStyles = makeStyles(() => ({
+const useStyles = makeStyles(({ fonts }) => ({
   screen: { flex: 1, backgroundColor: '#0A0D0C' },
   top: { height: 54, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: space.sm + 2 },
   close: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' },
@@ -120,7 +130,23 @@ const useStyles = makeStyles(() => ({
   dim: { color: 'rgba(244,242,223,0.7)' },
   underline: { textDecorationLine: 'underline' },
   finder: { flex: 1, marginHorizontal: 14, marginTop: space.xs, borderRadius: 26, overflow: 'hidden', backgroundColor: '#1D1611', alignItems: 'center', justifyContent: 'center' },
-  ask: { position: 'absolute', left: space['2xl'], right: space['2xl'], alignItems: 'center', gap: space.md },
+  ask: { position: 'absolute', left: space['2xl'], right: space['2xl'], alignItems: 'center', gap: space.md, zIndex: 1 },
+  enable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    height: 58,
+    paddingHorizontal: 30,
+    marginBottom: space.sm,
+    borderRadius: radius.full,
+    backgroundColor: SAGE,
+    shadowColor: SAGE,
+    shadowOpacity: 0.45,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  enablePressed: { opacity: 0.85, transform: [{ scale: 0.98 }] },
+  enableText: { fontFamily: fonts.sansSemiBold, fontSize: 17, lineHeight: 22, color: INK },
   frame: { width: FRAME.width, height: FRAME.height },
   corner: { position: 'absolute', width: 30, height: 30, borderColor: LIGHT },
   tl: { left: 0, top: 0, borderTopWidth: 3, borderLeftWidth: 3, borderTopLeftRadius: 14 },
