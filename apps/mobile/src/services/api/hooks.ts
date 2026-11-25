@@ -1,5 +1,4 @@
 import type {
-  ApproveRefillInput,
   ArchiveStatus,
   ArchiveScope,
   ArchiveSummary,
@@ -305,14 +304,12 @@ export function useRefillRequests(eventId: string | null, enabled = true) {
   });
 }
 
-/** Host: gives a guest this many shots, or (null) says not now. */
+/** Host: allows a guest's top-up (the server adds half the event's shots per guest), or rejects it. */
 export function useDecideRefill(eventId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ requestId, shots }: { requestId: string; shots: ApproveRefillInput['shots'] | null }) =>
-      shots === null
-        ? api<void>(`/events/${eventId}/refill-requests/${requestId}/decline`, { method: 'POST' })
-        : api<void>(`/events/${eventId}/refill-requests/${requestId}/approve`, { body: { shots } }),
+    mutationFn: ({ requestId, allow }: { requestId: string; allow: boolean }) =>
+      api<void>(`/events/${eventId}/refill-requests/${requestId}/${allow ? 'approve' : 'decline'}`, { method: 'POST' }),
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: keys.refills(eventId) });
       void qc.invalidateQueries({ queryKey: keys.members(eventId) });

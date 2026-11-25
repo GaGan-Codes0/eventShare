@@ -1,4 +1,4 @@
-import { invitePhotographerSchema, REFILL_SHOTS, upgradesFrom, type EventDetail, type Member, type PhotographerInvite, type RefillRequest } from '@eventshare/shared';
+import { invitePhotographerSchema, refillShotsFor, upgradesFrom, type EventDetail, type Member, type PhotographerInvite, type RefillRequest } from '@eventshare/shared';
 import { router } from 'expo-router';
 import { Aperture, Mail, MoreHorizontal, Plus, Trash2, UserPlus, X } from 'lucide-react-native';
 import { useState, type ReactNode } from 'react';
@@ -52,11 +52,11 @@ function PeopleBody({ event }: { event: EventDetail }) {
   const full = taken >= slots;
   const moreSlots = upgradesFrom(event.plan).find((p) => p.photographers > slots);
 
-  function answer(request: RefillRequest, shots: (typeof REFILL_SHOTS)[number] | null) {
+  function answer(request: RefillRequest, allow: boolean) {
     decide.mutate(
-      { requestId: request.id, shots },
+      { requestId: request.id, allow },
       {
-        onSuccess: () => toast(shots === null ? `Told ${request.name.split(' ')[0]} not now` : `Gave ${request.name.split(' ')[0]} ${shots} more shots`),
+        onSuccess: () => toast(allow ? `Gave ${request.name.split(' ')[0]} ${request.shots} more shots` : `Told ${request.name.split(' ')[0]} not now`),
         onError: (e) => Alert.alert("Couldn't save that", e.message),
       },
     );
@@ -167,6 +167,12 @@ function PeopleBody({ event }: { event: EventDetail }) {
         {(refills.data?.length ?? 0) > 0 && (
           <>
             <Text variant="eyebrow">Asking for more shots · {refills.data?.length}</Text>
+            {event.guestPhotoLimit !== null && (
+              <Text variant="caption" color="muted">
+                A top-up adds half of each guest’s {event.guestPhotoLimit} shots: up to {refillShotsFor(event.guestPhotoLimit)} more. {plan.name} allows up to{' '}
+                {plan.maxGuestShots} shots per guest.
+              </Text>
+            )}
             {refills.data?.map((r) => (
               <View key={r.id} style={styles.card}>
                 <View style={styles.cardTop}>
@@ -176,26 +182,23 @@ function PeopleBody({ event }: { event: EventDetail }) {
                       {r.name}
                     </Text>
                     <Text variant="caption" color="muted">
-                      Used {r.photosUsed} of {r.photoLimit} shots
+                      Used {r.photosUsed} of {r.photoLimit} shots · asking for {r.shots} more
                     </Text>
                   </View>
                 </View>
                 <View style={styles.row}>
-                  {REFILL_SHOTS.map((shots) => (
-                    <Pressable
-                      key={shots}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Give ${r.name} ${shots} more shots`}
-                      disabled={decide.isPending}
-                      onPress={() => answer(r, shots)}
-                      style={({ pressed }) => [styles.refillGive, pressed && { opacity: 0.85 }]}>
-                      <Text variant="label" style={{ color: colors.onPrimary }}>
-                        +{shots}
-                      </Text>
-                    </Pressable>
-                  ))}
-                  <Pressable accessibilityRole="button" accessibilityLabel={`Not now for ${r.name}`} disabled={decide.isPending} onPress={() => answer(r, null)} style={styles.refillNo}>
-                    <Text variant="label">Not now</Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Allow ${r.name} ${r.shots} more shots`}
+                    disabled={decide.isPending}
+                    onPress={() => answer(r, true)}
+                    style={({ pressed }) => [styles.refillGive, pressed && { opacity: 0.85 }]}>
+                    <Text variant="label" style={{ color: colors.onPrimary }}>
+                      Allow +{r.shots}
+                    </Text>
+                  </Pressable>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Reject ${r.name}’s request`} disabled={decide.isPending} onPress={() => answer(r, false)} style={styles.refillNo}>
+                    <Text variant="label">Reject</Text>
                   </Pressable>
                 </View>
               </View>
@@ -490,7 +493,7 @@ const useStyles = makeStyles(({ colors }) => ({
   },
   slotIcon: { width: 38, height: 38, borderRadius: radius.md, backgroundColor: colors.sage, alignItems: 'center', justifyContent: 'center' },
   refillGive: { flex: 1, height: 40, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  refillNo: { flex: 1.3, height: 40, borderRadius: radius.md, backgroundColor: colors.field, alignItems: 'center', justifyContent: 'center' },
+  refillNo: { flex: 1, height: 40, borderRadius: radius.md, backgroundColor: colors.field, alignItems: 'center', justifyContent: 'center' },
   guestHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: space.lg },
   guest: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm + 3, borderBottomWidth: 0.5, borderBottomColor: colors.line },
   guestText: { gap: space.xs },

@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { photoLimitFor, REFILL_RETRY_AFTER_MS, shootingPhase, type RefillRequest } from '@eventshare/shared';
+import { photoLimitFor, REFILL_RETRY_AFTER_MS, refillShotsFor, shootingPhase, type RefillRequest } from '@eventshare/shared';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 
 import { DB, type Db } from '../db/db.module.js';
@@ -7,7 +7,7 @@ import { eventMembers, shotRefillRequests, users } from '../db/schema.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { EventsService } from './events.service.js';
 
-/** Guests out of shots ask the hosts for more; the hosts give some, or say not now. */
+/** Guests out of shots ask the hosts for a top-up (half their shots); the hosts allow it, or say not now. */
 @Injectable()
 export class RefillsService {
   constructor(
@@ -54,13 +54,16 @@ export class RefillsService {
       avatarUrl: user.avatarUrl,
       photosUsed: member.photosUsed,
       photoLimit: photoLimitFor(member.role, event.guestPhotoLimit, member.bonusShots),
+      shots: refillShotsFor(event.guestPhotoLimit ?? 0),
       requestedAt: request.createdAt.toISOString(),
     }));
   }
 
-  /** Host: gives this many shots, or (null) says not now. Answering twice gives shots only once. */
-  async decide(eventId: string, hostId: string, requestId: string, shots: number | null) {
-    await this.events.requireHost(eventId, hostId);
+  /** Host: allows the top-up (half the event's shots per guest), or says not now. Answering twice gives shots only once. */
+  async decide(eventId: string, hostId: string, requestId: string, allow: boolean) {
+    const { event } = await this.events.requireHost(eventId, hostId);
+    // The amount is ours to work out, never the phone's. An event that dropped its limit has nothing to top up.
+    const shots = allow && event.guestPhotoLimit !== null ? refillShotsFor(event.guestPhotoLimit) : null;
     await this.db.transaction(async (tx) => {
       const [answered] = await tx
         .update(shotRefillRequests)

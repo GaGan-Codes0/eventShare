@@ -543,11 +543,14 @@ export type EventRules = {
   prompts: string[];
 };
 
-/** How many extra shots the hosts can give a guest who asks. */
-export const REFILL_SHOTS = [5, 10, 24] as const;
+/**
+ * A top-up is always half of the event's shots per guest (rounded up): with 10 shots each, a top-up adds 5.
+ * The hosts only allow or reject it; they don't pick the amount.
+ */
+export function refillShotsFor(guestPhotoLimit: number): number {
+  return Math.max(1, Math.ceil(guestPhotoLimit / 2));
+}
 export const REFILL_RETRY_AFTER_MS = 10 * 60_000;
-export const approveRefillSchema = z.object({ shots: z.union([z.literal(5), z.literal(10), z.literal(24)]) });
-export type ApproveRefillInput = z.infer<typeof approveRefillSchema>;
 
 /** Host: a guest who has asked for more shots. */
 export type RefillRequest = {
@@ -557,6 +560,8 @@ export type RefillRequest = {
   avatarUrl: string | null;
   photosUsed: number;
   photoLimit: number | null;
+  /** What allowing it adds: half the event's shots per guest. */
+  shots: number;
   requestedAt: string;
 };
 

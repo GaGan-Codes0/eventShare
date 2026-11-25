@@ -717,14 +717,14 @@ describe('core flow (e2e)', () => {
     expect((await http().get(`/events/${eventId}`).set(as(host)).expect(200)).body.pendingRefillCount).toBe(1);
     const list = await http().get(`/events/${eventId}/refill-requests`).set(as(host)).expect(200);
     expect(list.body).toHaveLength(1);
-    expect(list.body[0]).toMatchObject({ photosUsed: 10, photoLimit: 10 });
+    // A top-up is half the event's 10 shots per guest.
+    expect(list.body[0]).toMatchObject({ photosUsed: 10, photoLimit: 10, shots: 5 });
     const requestId = list.body[0].id as string;
 
-    // Guests can't approve themselves, only the offered amounts work, and answering twice gives once.
-    await http().post(`/events/${eventId}/refill-requests/${requestId}/approve`).set(as(g)).send({ shots: 24 }).expect(403);
-    await http().post(`/events/${eventId}/refill-requests/${requestId}/approve`).set(as(host)).send({ shots: 7 }).expect(400);
-    await http().post(`/events/${eventId}/refill-requests/${requestId}/approve`).set(as(host)).send({ shots: 5 }).expect(204);
-    await http().post(`/events/${eventId}/refill-requests/${requestId}/approve`).set(as(host)).send({ shots: 5 }).expect(404);
+    // Guests can't approve themselves, the phone can't pick the amount (old builds' `shots` is ignored), and answering twice gives once.
+    await http().post(`/events/${eventId}/refill-requests/${requestId}/approve`).set(as(g)).expect(403);
+    await http().post(`/events/${eventId}/refill-requests/${requestId}/approve`).set(as(host)).send({ shots: 24 }).expect(204);
+    await http().post(`/events/${eventId}/refill-requests/${requestId}/approve`).set(as(host)).expect(404);
     expect(await detail()).toMatchObject({ refillStatus: null, photoLimit: 15 });
     for (let i = 0; i < 5; i++) await ticket().expect(201);
     await ticket().expect(403);
