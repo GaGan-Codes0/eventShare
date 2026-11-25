@@ -39,9 +39,21 @@ export const MULTIPART_PART_BYTES = 10 * 1024 * 1024;
 export type User = {
   id: string;
   name: string;
+  /** The email to show and reach them at: the one they typed on their profile, else their sign-in email (never Apple's hidden relay). */
   email: string | null;
   avatarUrl: string | null;
+  /** Their sign-in email is hidden (Apple's "Hide my email") or missing, so the profile asks for one. */
+  emailHidden: boolean;
+  /** No name or reachable email yet: the app offers the profile screen once after sign-in (skippable). */
+  needsProfile: boolean;
 };
+
+/** Edit profile: the name everyone sees, and (when the sign-in email is hidden) an email to reach them at. */
+export const updateProfileSchema = z.object({
+  name: z.string().trim().min(1, 'Enter your name').max(80),
+  email: z.string().trim().toLowerCase().pipe(z.email('Enter a valid email')).optional(),
+});
+export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 

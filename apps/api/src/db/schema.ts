@@ -44,6 +44,12 @@ export const users = pgTable('users', {
   name: text('name').notNull(),
   /** Stored lowercased; one account per email. */
   email: text('email').unique(),
+  /**
+   * The email the person typed on their profile, for when the sign-in email is hidden (Apple's
+   * "Hide my email") or missing. Unverified: shown and used to reach them, never to sign anyone in
+   * or match accounts. Sign-in only ever uses `email` above.
+   */
+  contactEmail: text('contact_email'),
   /** argon2id hash. Null for accounts that sign in elsewhere (dev users). */
   passwordHash: text('password_hash'),
   avatarUrl: text('avatar_url'),

@@ -19,6 +19,7 @@ import type {
   RefillRequest,
   UpdateEventInput,
   UpdateMemberInput,
+  UpdateProfileInput,
   User,
 } from '@eventshare/shared';
 import { FACE_MODEL, JOIN_CODE_LENGTH } from '@eventshare/shared';
@@ -40,6 +41,19 @@ export const keys = {
 
 export function useMe() {
   return useQuery({ queryKey: keys.me, queryFn: () => api<User>('/me') });
+}
+
+/** Saves your name (and, when your sign-in email is hidden, an email to reach you at). */
+export function useUpdateProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateProfileInput) => api<User>('/me', { method: 'PATCH', body: input }),
+    onSuccess: (user) => {
+      qc.setQueryData(keys.me, user);
+      // Your name shows on member lists and photos too.
+      void qc.invalidateQueries({ queryKey: keys.events });
+    },
+  });
 }
 
 export function useEvents() {

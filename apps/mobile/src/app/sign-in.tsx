@@ -98,7 +98,8 @@ export default function SignIn() {
       qc.clear();
       setCurrentEvent(null);
       await setSession(session);
-      router.replace('/');
+      // Apple's "Hide my email", or no name: offer the profile screen once (skippable) before opening the app.
+      router.replace(session.user.needsProfile ? { pathname: '/edit-profile', params: { first: '1' } } : '/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {

@@ -8,7 +8,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { ENV, type Env } from '../config/env.js';
 import { DB, type Db } from '../db/db.module.js';
 import { users } from '../db/schema.js';
-import { UsersService } from '../users/users.service.js';
+import { isHiddenEmail, UNNAMED, UsersService } from '../users/users.service.js';
 
 const ISSUER = 'eventshare-api';
 const AUDIENCE = 'eventshare-app';
@@ -111,7 +111,8 @@ export class AuthService {
       const byEmail = await this.db.query.users.findFirst({ where: and(eq(users.email, email), isNull(users.deletedAt)) });
       if (byEmail) return byEmail;
     }
-    const fallback = email?.endsWith('@privaterelay.appleid.com') ? 'Guest' : (email?.split('@')[0] ?? 'Guest');
+    // No name from the provider: the email's first part if it's a real address, else UNNAMED (the app then asks).
+    const fallback = isHiddenEmail(email) ? UNNAMED : email!.split('@')[0];
     return this.users.findOrCreate(authId, async () => ({ name: name?.trim() || fallback, email, avatarUrl: null }));
   }
 

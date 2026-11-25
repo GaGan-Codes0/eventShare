@@ -395,7 +395,15 @@ describe('core flow (e2e)', () => {
 
     // The token works on protected routes.
     const me = await http().get('/me').set('Authorization', `Bearer ${signup.body.token}`).expect(200);
-    expect(me.body.id).toBe(signup.body.user.id);
+    expect(me.body).toMatchObject({ id: signup.body.user.id, emailHidden: false, needsProfile: false });
+
+    // Edit profile: the name changes; a visible sign-in email stays (it's how they sign in), whatever is sent.
+    const bearer = { Authorization: `Bearer ${signup.body.token}` };
+    const edited = await http().patch('/me').set(bearer).send({ name: '  Riya S. ', email: `other${run}@example.com` }).expect(200);
+    expect(edited.body).toMatchObject({ name: 'Riya S.', email: email.toLowerCase() });
+    await http().patch('/me').set(bearer).send({ name: '' }).expect(400);
+    await http().patch('/me').set(bearer).send({ name: 'Riya', email: 'not an email' }).expect(400);
+    await http().patch('/me').send({ name: 'Nobody' }).expect(401);
 
     // One account per email (case-insensitive).
     await http().post('/auth/signup').send({ name: 'Copy', email: email.toUpperCase(), password }).expect(409);

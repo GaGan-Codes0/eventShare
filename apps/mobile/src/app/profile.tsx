@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { Aperture, CalendarClock, Grid3x3, LogOut } from 'lucide-react-native';
+import { Aperture, CalendarClock, Grid3x3, LogOut, Pencil } from 'lucide-react-native';
 import { Image } from 'expo-image';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
@@ -80,7 +80,15 @@ function Profile() {
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.body} scrollEnabled={false}>
-      <View style={styles.me}>
+      {/* Tap to edit your name and email. A missing email (Apple's "Hide my email") invites adding one. */}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Edit profile"
+        onPress={() => {
+          router.back();
+          router.push('/edit-profile');
+        }}
+        style={({ pressed }) => [styles.me, pressed && { opacity: 0.7 }]}>
         <View style={styles.avatar}>
           {me.data?.avatarUrl ? (
             <Image source={{ uri: me.data.avatarUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
@@ -90,11 +98,15 @@ function Profile() {
         </View>
         <View style={styles.flex}>
           <Text style={styles.name}>{name}</Text>
-          <Text variant="caption" color="muted" numberOfLines={1}>
-            {me.data?.email ?? ''} · Email
+          <Text variant="caption" color={me.data?.email ? 'muted' : 'accent'} numberOfLines={1}>
+            {me.data?.email ?? 'Add your email'}
           </Text>
         </View>
-      </View>
+        <View style={styles.edit}>
+          <Pencil size={14} color={colors.ink} />
+          <Text style={styles.editText}>Edit</Text>
+        </View>
+      </Pressable>
 
       {fromEvent && event && (
         <View style={styles.group}>
@@ -196,6 +208,8 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
   // The prototype's sheet: initials in DM Sans, the name semibold.
   avatarText: { fontFamily: fonts.sansSemiBold, fontSize: 15, lineHeight: 18, color: colors.ink },
   name: { fontFamily: fonts.sansSemiBold, fontSize: 17, lineHeight: 22, color: colors.ink },
+  edit: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 32, paddingHorizontal: 12, borderRadius: radius.full, backgroundColor: colors.sage },
+  editText: { fontFamily: fonts.sansSemiBold, fontSize: 13, lineHeight: 16, color: colors.ink },
   group: { gap: space.sm + 2 },
   card: {
     flexDirection: 'row',
