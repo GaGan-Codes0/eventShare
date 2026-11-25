@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Text } from '@/components/ui';
 import { monogram, shortDate } from '@/features/events/identity';
+import { PlanTag } from '@/features/events/plan';
 import { stableSource } from '@/features/gallery/stable-image';
 import { plural } from '@/utils/format';
 import { defaultTheme, makeStyles, themeFor, ThemeProvider, useTheme } from '@/theme';
@@ -55,6 +56,7 @@ function Row({ event, onPress }: { event: EventSummary; onPress: () => void }) {
           <View style={[styles.badge, { backgroundColor: host ? base.ink : base.sage }]}>
             <Text style={[styles.badgeText, { color: host ? base.paper : base.primary }]}>{ROLE[event.role]}</Text>
           </View>
+          {host && <PlanTag event={event} />}
           <Text variant="caption" style={styles.date}>
             {shortDate(event.startsAt)}
           </Text>

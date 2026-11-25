@@ -32,6 +32,16 @@ export class RevenueCatService {
 
   /** The payment for `productId` with this id (RevenueCat's or the store's) made by this user, or null. */
   async findPurchase(userId: string, productId: string, transactionId: string): Promise<VerifiedPurchase | null> {
+    const match = (await this.purchases(userId)).find(
+      (p) => p.productId === productId && (p.transactionId === transactionId || p.storeTransactionId === transactionId),
+    );
+    if (!match) return null;
+    const { storeTransactionId: _, ...paid } = match;
+    return paid;
+  }
+
+  /** Every one-off store payment this user has made, oldest first (Restore purchases uses the unused ones). */
+  async purchases(userId: string): Promise<(VerifiedPurchase & { storeTransactionId?: string })[]> {
     const key = this.env.REVENUECAT_SECRET_KEY;
     if (!key) throw new ServiceUnavailableException('Payments are not set up on this server yet.');
 
@@ -48,8 +58,17 @@ export class RevenueCatService {
     }
 
     const body = (await res.json()) as { subscriber?: { non_subscriptions?: Record<string, NonSubscription[]> } };
-    const match = body.subscriber?.non_subscriptions?.[productId]?.find((p) => p.id === transactionId || p.store_transaction_id === transactionId);
-    if (!match) return null;
-    return { transactionId: match.id, productId, store: match.store, sandbox: match.is_sandbox, purchasedAt: new Date(match.purchase_date) };
+    return Object.entries(body.subscriber?.non_subscriptions ?? {})
+      .flatMap(([productId, list]) =>
+        list.map((m) => ({
+          transactionId: m.id,
+          storeTransactionId: m.store_transaction_id,
+          productId,
+          store: m.store,
+          sandbox: m.is_sandbox,
+          purchasedAt: new Date(m.purchase_date),
+        })),
+      )
+      .sort((a, b) => a.purchasedAt.getTime() - b.purchasedAt.getTime());
   }
 }

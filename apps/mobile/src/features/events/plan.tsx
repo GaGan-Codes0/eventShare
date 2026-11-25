@@ -1,6 +1,6 @@
-import { PLANS, type EventSummary, type Plan } from '@eventshare/shared';
+import { PLANS, type EventSummary, type Plan, type PlanId } from '@eventshare/shared';
 import { router } from 'expo-router';
-import { Lock } from 'lucide-react-native';
+import { Lock, Star } from 'lucide-react-native';
 import { Pressable, View } from 'react-native';
 
 import { Text } from '@/components/ui';
@@ -47,6 +47,25 @@ export function LockedNote({ plan }: { plan: Plan }) {
   );
 }
 
+/** How many stars each paid package shows. */
+const STARS: Record<PlanId, number> = { free: 0, party: 1, celebration: 2, branded: 3 };
+
+/** A paid event's package as stars: one for Party, two for Celebration, three for Branded Event. Nothing for Free. */
+export function PlanTag({ event, onCover }: { event: Pick<EventSummary, 'plan'>; onCover?: boolean }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+  const count = STARS[event.plan];
+  if (!count) return null;
+  const color = onCover ? '#273C32' : colors.onPrimary;
+  return (
+    <View accessible accessibilityLabel={`${planOf(event).name} package`} style={[styles.tag, onCover && styles.tagCover]}>
+      {Array.from({ length: count }, (_, i) => (
+        <Star key={i} size={10} color={color} fill={color} strokeWidth={2} />
+      ))}
+    </View>
+  );
+}
+
 const useStyles = makeStyles(({ colors, fonts }) => ({
   lock: {
     flexDirection: 'row',
@@ -60,4 +79,15 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
   },
   lockText: { fontFamily: fonts.sansSemiBold, fontSize: 11.5, lineHeight: 14, color: colors.ink },
   note: { marginTop: 4 },
+  tag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: colors.primary,
+  },
+  tagCover: { backgroundColor: 'rgba(255,255,255,0.92)', paddingHorizontal: 8, paddingVertical: 5 },
 }));

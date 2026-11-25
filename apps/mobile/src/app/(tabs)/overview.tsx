@@ -9,7 +9,7 @@ import { radius, screenPadding, space } from '@/constants/theme';
 import { EventBadge } from '@/features/events/event-card';
 import { HostHeader } from '@/features/events/event-header';
 import { longDate } from '@/features/events/identity';
-import { openPlans, planOf, shortDate } from '@/features/events/plan';
+import { openPlans, planOf, PlanTag, shortDate } from '@/features/events/plan';
 import { useShootingPhase } from '@/features/events/shooting-window';
 import { NoEventYet } from '@/features/events/no-event';
 import { useCurrentEvent } from '@/features/events/use-current-event';
@@ -61,6 +61,9 @@ export default function Overview() {
                 <Text variant="eyebrow" style={styles.statusText}>
                   {closed ? 'Uploads closed' : live ? 'Live · uploads open' : 'Ready for guests'}
                 </Text>
+              </View>
+              <View style={styles.planTag}>
+                <PlanTag event={event} onCover />
               </View>
               <View style={styles.badge}>
                 <EventBadge event={event} size={40} />
@@ -306,6 +309,8 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
   statusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#3F9A4F' },
   statusText: { color: '#273C32', fontSize: 10, lineHeight: 14, letterSpacing: 1 },
   badge: { position: 'absolute', top: space.md, right: space.md },
+  // Under the status pill: the package this event was bought on.
+  planTag: { position: 'absolute', top: space.md + 30, left: space.md },
   coverName: { color: '#FFFFFF' },
   cardInfo: { padding: space.lg, gap: 6 },
   stats: { flexDirection: 'row', gap: space.sm },

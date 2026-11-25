@@ -19,6 +19,7 @@ import {
   upgradesFrom,
   upgradeProductId,
   type ChangePlanInput,
+  type RestorePlanResult,
   REFILL_RETRY_AFTER_MS,
   VIDEO_LIMIT_MS,
   VOICE_LIMIT_MS,
@@ -350,10 +351,6 @@ export class EventsService {
   }
 
   /**
-   * Moves the event to a bigger package. For now only when PLAN_SELF_UPGRADE is on (testing);
-   * paid upgrades will come from verified App Store / Google Play purchases.
-   */
-  /**
    * Host: move the event to a bigger package. Paid with a store payment (`transactionId`), which
    * RevenueCat must confirm was made by this host for this move, and which can only be used once.
    * Without one, only a test server (PLAN_SELF_UPGRADE) upgrades.
@@ -382,6 +379,42 @@ export class EventsService {
     }
     await this.realtime.touch(eventId, 'rev');
     return this.detail(eventId, hostId);
+  }
+
+  /**
+   * Host: Restore purchases. Looks for a store payment this host made that never reached an event
+   * (app closed or deleted mid-upgrade, a new phone) and fits this event's next step up, and applies
+   * the biggest one. `restored` is null when there was nothing to apply.
+   */
+  async restorePlan(eventId: string, hostId: string): Promise<RestorePlanResult> {
+    const { event } = await this.requireHost(eventId, hostId);
+    const targets = upgradesFrom(event.plan);
+    if (!targets.length) return { restored: null, event: await this.detail(eventId, hostId) };
+
+    const paid = await this.revenueCat.purchases(hostId);
+    const used = new Set(
+      (await this.db.select({ id: eventPurchases.transactionId }).from(eventPurchases).where(eq(eventPurchases.userId, hostId))).map((r) => r.id),
+    );
+    let best: { plan: PlanId; purchase: (typeof paid)[number] } | null = null;
+    for (const p of targets) {
+      const purchase = paid.find((x) => x.productId === upgradeProductId(event.plan, p.id) && !used.has(x.transactionId));
+      if (purchase) best = { plan: p.id, purchase };
+    }
+    if (!best) return { restored: null, event: await this.detail(eventId, hostId) };
+
+    const { storeTransactionId: _, ...purchase } = best.purchase;
+    const plan = best.plan;
+    await this.db.transaction(async (tx) => {
+      const [saved] = await tx
+        .insert(eventPurchases)
+        .values({ eventId, userId: hostId, plan, ...purchase })
+        .onConflictDoNothing({ target: eventPurchases.transactionId })
+        .returning({ id: eventPurchases.id });
+      if (!saved) throw new ConflictException('This payment has already been used for an upgrade.');
+      await tx.update(events).set({ plan }).where(eq(events.id, eventId));
+    });
+    await this.realtime.touch(eventId, 'rev');
+    return { restored: plan, event: await this.detail(eventId, hostId) };
   }
 
   /** Step 1 of a logo / poster / frame change: a signed upload. Step 2 is PATCH with the key. */

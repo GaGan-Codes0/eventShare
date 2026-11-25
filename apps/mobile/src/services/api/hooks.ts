@@ -3,6 +3,7 @@ import type {
   ArchiveScope,
   ArchiveSummary,
   ChangePlanInput,
+  RestorePlanResult,
   CreateEventInput,
   EventDetail,
   EventPreview,
@@ -148,6 +149,18 @@ export function useUpdateEvent(eventId: string) {
 }
 
 /** Host moves the event to a bigger package. */
+/** Host: Restore purchases. Applies a store payment that never reached this event. */
+export function useRestorePlan(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<RestorePlanResult>(`/events/${eventId}/plan/restore`, { method: 'POST' }),
+    onSuccess: ({ event }) => {
+      qc.setQueryData(keys.event(eventId), event);
+      void qc.invalidateQueries({ queryKey: keys.events });
+    },
+  });
+}
+
 export function useChangePlan(eventId: string) {
   const qc = useQueryClient();
   return useMutation({

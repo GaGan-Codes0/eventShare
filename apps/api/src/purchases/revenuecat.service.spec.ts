@@ -43,6 +43,25 @@ describe('RevenueCatService', () => {
     expect(await rc.findPurchase('user-1', PARTY, 'rc_other')).toBeNull();
   });
 
+  it('lists every one-off payment, oldest first', async () => {
+    const body = {
+      subscriber: {
+        non_subscriptions: {
+          ...subscriber.subscriber.non_subscriptions,
+          'in.co.klyra.eventshare.party_to_branded': [{ id: 'rc_0', purchase_date: '2026-11-01T10:00:00Z', store: 'app_store', is_sandbox: false }],
+        },
+      },
+    };
+    vi.stubGlobal('fetch', answer(body));
+    const rc = new RevenueCatService({ REVENUECAT_SECRET_KEY: 'sk_test' } as Env);
+    const all = await rc.purchases('user-1');
+    expect(all.map((p) => [p.transactionId, p.productId])).toEqual([
+      ['rc_0', 'in.co.klyra.eventshare.party_to_branded'],
+      ['rc_1', PARTY],
+    ]);
+    expect(all[1].storeTransactionId).toBe('2000000999');
+  });
+
   it('asks to try again when RevenueCat fails', async () => {
     vi.stubGlobal('fetch', answer({ message: 'nope' }, 500));
     const rc = new RevenueCatService({ REVENUECAT_SECRET_KEY: 'sk_test' } as Env);

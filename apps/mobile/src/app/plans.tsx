@@ -8,9 +8,9 @@ import { toast } from '@/components/toast';
 import { screenPadding, space } from '@/constants/theme';
 import { planOf, rupees, shortDate } from '@/features/events/plan';
 import { useCurrentEvent } from '@/features/events/use-current-event';
-import { buyPlan, paymentsEnabled, pendingUpgrade, setPendingUpgrade, storePrices } from '@/features/purchases/store';
+import { buyPlan, paymentsEnabled, pendingUpgrade, setPendingUpgrade, storePrices, syncStorePurchases } from '@/features/purchases/store';
 import { ApiRequestError } from '@/services/api/client';
-import { useChangePlan, useMe } from '@/services/api/hooks';
+import { useChangePlan, useMe, useRestorePlan } from '@/services/api/hooks';
 import { makeStyles, useTheme } from '@/theme';
 
 const secs = (ms: number) => `${Math.round(ms / 1000)}-second`;
@@ -35,6 +35,8 @@ export default function Plans() {
   const styles = useStyles();
   const { id, event } = useCurrentEvent();
   const change = useChangePlan(id ?? '');
+  const restore = useRestorePlan(id ?? '');
+  const [restoring, setRestoring] = useState(false);
   const me = useMe().data;
   const [picked, setPicked] = useState<string | null>(null);
   const [prices, setPrices] = useState<Partial<Record<PlanId, string>>>({});
@@ -98,6 +100,40 @@ export default function Plans() {
     }
   }
 
+  /**
+   * Restore purchases (App Store rule 3.1.1): finishes an upgrade the phone was still holding, then
+   * asks the store for this account's payments and applies any that never reached this event.
+   */
+  async function restorePurchases() {
+    if (!id || !me || restoring) return;
+    setRestoring(true);
+    try {
+      const pending = await pendingUpgrade();
+      if (pending?.eventId === id) {
+        try {
+          await change.mutateAsync({ plan: pending.plan, transactionId: pending.transactionId });
+          await setPendingUpgrade(null);
+          return toast(`Restored: ${event?.name ?? 'Your event'} is on ${PLANS[pending.plan].name}`);
+        } catch (e) {
+          if (e instanceof ApiRequestError && (e.status === 400 || e.status === 409)) await setPendingUpgrade(null);
+        }
+      }
+      await syncStorePurchases(me.id);
+      const { restored } = await restore.mutateAsync();
+      toast(
+        restored
+          ? `Restored: ${event?.name ?? 'Your event'} is on ${PLANS[restored].name}`
+          : current.id === 'free'
+            ? 'No unused purchases found for this account.'
+            : `Your purchase is already on this event: ${current.name}.`,
+      );
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not restore purchases. Please try again.');
+    } finally {
+      setRestoring(false);
+    }
+  }
+
   function upgrade(p: Plan) {
     // With real payments the store's own sheet is the confirmation.
     if (paymentsEnabled) return void pay(p);
@@ -153,6 +189,16 @@ export default function Plans() {
         );
       })}
 
+      {paymentsEnabled && (
+        <Button
+          label="Restore purchases"
+          variant="ghost"
+          fullWidth
+          loading={restoring}
+          disabled={picked !== null || change.isPending}
+          onPress={() => void restorePurchases()}
+        />
+      )}
       <Text variant="caption" color="muted" style={styles.foot}>
         More than 300 guests or several venues? Write to support@klyra.co.in for a custom package.
       </Text>

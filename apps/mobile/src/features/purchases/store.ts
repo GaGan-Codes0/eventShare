@@ -62,6 +62,17 @@ export async function buyPlan(userId: string, from: PlanId, to: Exclude<PlanId, 
   }
 }
 
+/** Restore purchases: re-sends this Apple ID's / Google account's store payments to RevenueCat under this user. */
+export async function syncStorePurchases(userId: string) {
+  if (!paymentsEnabled) return;
+  await ready(userId);
+  try {
+    await Purchases.restorePurchases();
+  } catch (e) {
+    throw new Error((e as Partial<PurchasesError>).message ?? 'Could not reach the store. Please try again.');
+  }
+}
+
 /**
  * A payment the server hasn't applied yet (no signal, app closed). Kept on the phone and sent
  * again the next time Packages opens, so a host never pays twice for one upgrade.

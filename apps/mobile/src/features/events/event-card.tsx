@@ -9,6 +9,7 @@ import { makeStyles, useTheme } from '@/theme';
 import { plural } from '@/utils/format';
 
 import { monogram, shortDate, TYPE_LABEL } from './identity';
+import { PlanTag } from './plan';
 import { ROLE_LABEL } from './roles';
 
 /** An event's badge: the host's logo, or its monogram in the event's heading font. */
@@ -70,9 +71,12 @@ export function EventCard({ event, onPress }: { event: EventSummary; onPress: ()
         </View>
       </View>
       <View style={styles.body}>
-        <Text variant="eyebrow" style={{ color: colors.primaryText }}>
-          {TYPE_LABEL[event.type]}
-        </Text>
+        <View style={styles.typeLine}>
+          <Text variant="eyebrow" style={{ color: colors.primaryText }}>
+            {TYPE_LABEL[event.type]}
+          </Text>
+          {event.role === 'host' && <PlanTag event={event} />}
+        </View>
         <Text variant="h2" numberOfLines={2} style={styles.name}>
           {event.name}
         </Text>
@@ -140,5 +144,6 @@ const useStyles = makeStyles(({ colors }) => ({
   badgeLogo: { width: '76%', height: '76%' },
   badgeText: { color: colors.primaryText },
   body: { paddingHorizontal: space.lg, paddingTop: space.md + 2, paddingBottom: space.lg, gap: 6 },
+  typeLine: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingRight: 50 },
   name: { paddingRight: 50 },
 }));

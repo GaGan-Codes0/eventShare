@@ -260,6 +260,9 @@ export function upgradePriceInr(from: PlanId, to: PlanId): number {
 
 /** `transactionId` is the store payment (from RevenueCat) that paid for it; only test servers upgrade without one. */
 export const changePlanSchema = z.object({ plan: z.enum(PLAN_IDS), transactionId: z.string().min(1).max(200).optional() });
+
+/** Restore purchases: the package a forgotten payment moved the event to (null: nothing to restore), and the event now. */
+export type RestorePlanResult = { restored: PlanId | null; event: EventDetail };
 export type ChangePlanInput = z.infer<typeof changePlanSchema>;
 
 const HOUR_MS = 60 * 60_000;

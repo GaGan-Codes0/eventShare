@@ -64,6 +64,13 @@ export class EventsController {
     return this.events.changePlan(id, user.id, body, this.env.PLAN_SELF_UPGRADE);
   }
 
+  /** Host: Restore purchases. Applies a paid upgrade that never reached this event (see EventsService.restorePlan). */
+  @Post('events/:id/plan/restore')
+  @HttpCode(200)
+  restorePlan(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.events.restorePlan(id, user.id);
+  }
+
   @Patch('events/:id')
   update(
     @CurrentUser() user: AuthUser,
