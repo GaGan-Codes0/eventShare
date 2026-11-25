@@ -1,10 +1,10 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { Calendar, ChevronRight, Download, Eye, MapPin, Package, Plus, QrCode, ShieldCheck } from 'lucide-react-native';
+import { ArrowUpRight, Calendar, Check, ChevronRight, Download, Eye, MapPin, Package, Plus, QrCode, ShieldCheck } from 'lucide-react-native';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import { Button, LoadingState, Text } from '@/components/ui';
-import { upgradesFrom } from '@eventshare/shared';
+import { upgradesFrom, type Plan } from '@eventshare/shared';
 import { radius, screenPadding, space } from '@/constants/theme';
 import { EventBadge } from '@/features/events/event-card';
 import { HostHeader } from '@/features/events/event-header';
@@ -33,6 +33,8 @@ export default function Overview() {
 
   const latest = (photos.data?.pages[0]?.items ?? []).filter((p) => !p.pendingReview).slice(0, 6);
   const live = event.memberCount > 1 && !closed;
+  /** The next package up, if there is one. */
+  const next = upgradesFrom(event.plan)[0];
 
   return (
     <View style={styles.screen}>
@@ -90,20 +92,21 @@ export default function Overview() {
           <Stat value={`${event.photographerCount}/${planOf(event).photographers}`} label="Photographers" />
         </View>
 
-        {/* The event's package, how full it is, and the way up. */}
-        <Pressable accessibilityRole="button" onPress={openPlans} style={({ pressed }) => [styles.guestView, pressed && { backgroundColor: colors.field }]}>
-          <View style={styles.guestViewIcon}>
-            <Package size={18} color={colors.ink} />
-          </View>
-          <View style={styles.flex}>
-            <Text style={styles.guestViewTitle}>{planOf(event).name}</Text>
-            <Text style={styles.guestViewCaption}>
-              {event.guestCount >= planOf(event).maxGuests ? 'Full. ' : ''}Gallery open until {shortDate(event.accessEndsAt)}
-              {upgradesFrom(event.plan).length ? ' · Upgrade' : ''}
-            </Text>
-          </View>
-          <ChevronRight size={16} color={colors.ink} />
-        </Pressable>
+        {/* While a bigger package exists: a solid Upgrade block with what it adds. On the top package: a plain row. */}
+        {next ? (
+          <UpgradeCard top={upgradesFrom(event.plan).at(-1) ?? next} full={event.guestCount >= planOf(event).maxGuests} />
+        ) : (
+          <Pressable accessibilityRole="button" onPress={openPlans} style={({ pressed }) => [styles.guestView, pressed && { backgroundColor: colors.field }]}>
+            <View style={styles.guestViewIcon}>
+              <Package size={18} color={colors.ink} />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.guestViewTitle}>{planOf(event).name}</Text>
+              <Text style={styles.guestViewCaption}>Gallery open until {shortDate(event.accessEndsAt)}</Text>
+            </View>
+            <ChevronRight size={16} color={colors.ink} />
+          </Pressable>
+        )}
 
         <View style={styles.actions}>
           <View style={styles.flex}>
@@ -225,6 +228,50 @@ function PhotographersCard({ eventId, slots, pool }: { eventId: string; slots: n
   );
 }
 
+/**
+ * The way up, compact and in the event's primary colour with a soft glow so it catches the eye:
+ * how far upgrading can take the event (the biggest package, "up to") on the left, an Upgrade button on the right.
+ * Prices and the packages in between live on the packages screen.
+ */
+function UpgradeCard({ top, full }: { top: Plan; full: boolean }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+  const specs = [
+    `${top.maxGuests} guests, ${top.maxGuestShots} photos each`,
+    `${top.photographers} photographers, ${top.photographerPhotos.toLocaleString('en-IN')} photos`,
+    `Gallery open ${top.accessDays === 365 ? '12 months' : `${top.accessDays} days`}`,
+  ];
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Upgrade. Up to ${specs.join(', ')}`}
+      onPress={openPlans}
+      style={({ pressed }) => [styles.up, { shadowColor: colors.primary }, pressed && styles.upPressed]}>
+      {/* A light sheen across the top-left edge. */}
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(255,255,255,0.16)', 'rgba(255,255,255,0)']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0.7, y: 1 }}
+        style={[StyleSheet.absoluteFill, styles.upSheen]}
+      />
+      <View style={styles.upSpecs}>
+        <Text style={styles.upFull}>{full ? 'Guest list full · upgrade for up to' : 'Upgrade for up to'}</Text>
+        {specs.map((s) => (
+          <View key={s} style={styles.row}>
+            <Check size={13} color={colors.onPrimary} strokeWidth={2.75} />
+            <Text style={styles.upSpec}>{s}</Text>
+          </View>
+        ))}
+      </View>
+      <View style={styles.upButton}>
+        <Text style={[styles.upButtonText, { color: colors.primary }]}>Upgrade</Text>
+        <ArrowUpRight size={16} color={colors.primary} strokeWidth={2.75} />
+      </View>
+    </Pressable>
+  );
+}
+
 function Stat({ value, label }: { value: string; label: string }) {
   const styles = useStyles();
   return (
@@ -280,6 +327,28 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
   guestViewIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: colors.sage, alignItems: 'center', justifyContent: 'center' },
   guestViewTitle: { fontFamily: fonts.sansSemiBold, fontSize: 14, lineHeight: 18, color: colors.ink },
   guestViewCaption: { fontFamily: fonts.sans, fontSize: 12, lineHeight: 16, color: colors.muted },
+  // The glow: a soft shadow in the card's own colour (iOS); Android gets elevation.
+  up: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingLeft: 16,
+    paddingRight: 12,
+    borderRadius: 16,
+    backgroundColor: colors.primary,
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
+  upPressed: { opacity: 0.92, transform: [{ scale: 0.99 }] },
+  upSheen: { borderRadius: 16 },
+  upFull: { fontFamily: fonts.sansSemiBold, fontSize: 11, lineHeight: 14, color: colors.onPrimary, opacity: 0.8, letterSpacing: 0.4 },
+  upSpecs: { flex: 1, gap: 4 },
+  upSpec: { flex: 1, fontFamily: fonts.sansMedium, fontSize: 13, lineHeight: 17, color: colors.onPrimary },
+  upButton: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 38, paddingHorizontal: 14, borderRadius: radius.full, backgroundColor: colors.onPrimary },
+  upButtonText: { fontFamily: fonts.sansSemiBold, fontSize: 14, lineHeight: 18 },
   // The prototype's card: 18 round, hairline edge, 14/16 padding, rows 12 apart.
   phCard: { borderRadius: 18, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, paddingVertical: 14, paddingHorizontal: 16, gap: 12 },
   phHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
