@@ -679,7 +679,7 @@ html[data-occ="corporate"] .gridbg { opacity: 1; }
         <p class="lede">Try it free with a few friends, then pick the package that fits the day. Guests always join free.</p>
       </div>
       <div class="plans" id="plans"></div>
-      <p class="plans-note">Prices include tax. Paid once through the App Store or Google Play, for one event. Move up any time and pay only the difference.</p>
+      <p class="plans-note">Prices include tax. Paid once through the App Store, for one event. Move up any time and pay only the difference.</p>
     </div>
   </section>
 
@@ -689,7 +689,7 @@ html[data-occ="corporate"] .gridbg { opacity: 1; }
       <h2 class="h2 load">Load the film.</h2>
       <p class="lede">Create your event in two minutes. Share one code. Keep every photo.</p>
       <div class="ctas">
-        <!-- Each goes to this phone's store (App Store on iPhone and computers, Google Play on Android) -->
+        <!-- The App Store (Klickers isn't on Google Play yet: Android visitors see "Coming soon on Android") -->
         <a class="btn" href="https://apps.apple.com/app/id6831151328" data-store>Create your event</a>
         <a class="btn alt" href="https://apps.apple.com/app/id6831151328" data-store>Get the app</a>
       </div>
@@ -1219,7 +1219,11 @@ function typeCode() {
    Boot
 ---------------------------------------------------------------- */
 (function boot() {
-  if (/android/i.test(navigator.userAgent)) $$('[data-store]').forEach(a => a.href = 'https://play.google.com/store/apps/details?id=in.co.klyra.eventshare');
+  if (/android/i.test(navigator.userAgent)) $$('[data-store]').forEach((a, i) => {
+    a.removeAttribute('href');
+    a.setAttribute('aria-disabled', 'true');
+    a.textContent = i === 0 ? 'Coming soon on Android' : 'iPhone only for now';
+  });
   const fromHash = location.hash.slice(1);
   if (OCC[fromHash]) { occ = fromHash; document.documentElement.dataset.occ = fromHash; }
   buildPickers(); buildTabs();

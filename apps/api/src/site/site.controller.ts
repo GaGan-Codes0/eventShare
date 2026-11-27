@@ -7,7 +7,8 @@ import { joinEventSchema } from '@eventshare/shared';
 const LANDING = readFileSync(new URL('../../site/index.html', import.meta.url), 'utf8');
 
 const APP_STORE = 'https://apps.apple.com/app/id6831151328';
-const PLAY_STORE = 'https://play.google.com/store/apps/details?id=in.co.klyra.eventshare';
+/** Klickers isn't on Google Play yet: Android visitors are told so rather than sent to a dead page. */
+const ANDROID_SOON = 'Coming soon on Android';
 
 /**
  * Lets iPhones open klickers.app/j/… links straight in Klickers once it's installed (Associated
@@ -69,7 +70,12 @@ function joinPage(code: string) {
 </main>
 <footer><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/support">Support</a></footer>
 <script>
-  if (/android/i.test(navigator.userAgent)) document.getElementById('store').href = '${PLAY_STORE}';
+  if (/android/i.test(navigator.userAgent)) {
+    const store = document.getElementById('store');
+    store.removeAttribute('href');
+    store.textContent = '${ANDROID_SOON}';
+    store.setAttribute('aria-disabled', 'true');
+  }
 </script>
 </body>
 </html>`;
