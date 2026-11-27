@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Klickers banners</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@500&family=Pinyon+Script&family=Space+Grotesk:wght@600;700&family=Syne:wght@800&display=block" rel="stylesheet">
+<style>
+  html,body{margin:0;overflow:hidden}
+  .b{position:relative;overflow:hidden;font-family:'DM Sans',sans-serif}
+  .txt{position:absolute;display:flex;flex-direction:column;gap:14px;z-index:5}
+  .k{font:500 12px 'DM Mono',monospace;letter-spacing:2.5px;text-transform:uppercase}
+  .h{margin:0;font:400 58px/58px 'DM Serif Display',serif;letter-spacing:-1.6px}
+  .h em{font-style:italic}
+  .s{font:400 17px/25px 'DM Sans';max-width:330px;opacity:.85}
+  .app{display:flex;align-items:center;gap:12px;margin-top:6px}
+  .app img{width:52px;height:52px;border-radius:12px;box-shadow:0 6px 16px -6px rgba(0,0,0,.5)}
+  .app b{display:block;font:600 16px 'DM Sans'}.app span{display:block;font:400 13px 'DM Sans';opacity:.75}
+  .app .get{margin-left:8px;height:32px;padding:0 18px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font:700 14px/1 'DM Sans';opacity:1;letter-spacing:.5px}
+  .pr{position:absolute;padding:8px 8px 26px;background:#FFFEFA;border-radius:3px;box-shadow:0 24px 40px -18px rgba(0,0,0,.6)}
+  .pr div{background-size:cover;background-position:center}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="photos.js"></script>
+<script src="kit.js"></script>
+<script>
+const k = new URLSearchParams(location.search).get('b') || 'feature';
+const S = window.SCREENS;
+const appRow = (ink, btnBg, btnInk) => `<div class="app"><img src="img/icon.png" alt=""><div><b style="color:${ink}">Klickers</b><span style="color:${ink}">Event Photo Sharing</span></div><span class="get" style="background:${btnBg};color:${btnInk}">GET</span></div>`;
+const print = (i, x, y, w, rot) => `<div class="pr" style="left:${x}px;top:${y}px;width:${w}px;transform:rotate(${rot}deg)"><div style="height:${w * 1.08}px;background-image:${i}"></div></div>`;
+const green = 'radial-gradient(70% 90% at 80% 60%, rgba(165,177,143,.35), transparent 70%),linear-gradient(160deg,#22352B,#15211B)';
+
+const heroWide = ({ bg, ink, acc, kick, h, s, btn, phones, prints = '', hFont = '' }) => `<div class="b" style="width:800px;height:450px;background:${bg};color:${ink}">
+  <div class="txt" style="left:52px;top:70px;width:380px"><div class="k" style="color:${acc}">${kick}</div><h1 class="h" style="${hFont}">${h.replace('<em>', `<em style="color:${acc}">`)}</h1><div class="s">${s}</div>${appRow(ink, btn[0], btn[1])}</div>
+  ${prints}${phones}</div>`;
+
+const B = {
+  feature: () => heroWide({ bg: green, ink: '#FAF9F5', acc: '#C9D3B0', kick: 'Weddings · Parties · Events', h: 'Every photo, <em>everyone’s.</em>', s: 'One shared camera roll for every guest. Scan, shoot, and watch the album fill up live.', btn: ['#FAF9F5', '#273C32'],
+    phones: phoneBox(S.camera(), 190, 'left:450px;top:70px;transform:rotate(-6deg)') + phoneBox(S.album(), 200, 'left:585px;top:40px;transform:rotate(5deg)') }),
+  'cpp-weddings': () => heroWide({ bg: 'radial-gradient(70% 90% at 80% 60%, rgba(246,201,210,.6), transparent 70%),linear-gradient(160deg,#FBF5F3,#F6E3DF)', ink: '#3D2428', acc: '#A3455A', kick: 'For weddings', h: 'Your wedding, <em>through every guest.</em>', s: 'A QR on every table. Every candid in one album, at full quality.', btn: ['#A3455A', '#fff'],
+    prints: print(P(3), 470, 60, 170, -8) + print(P(1), 600, 120, 150, 7), phones: phoneBox(S.guestHome(), 170, 'left:620px;top:150px;transform:rotate(4deg)') }),
+  'cpp-corporate': () => heroWide({ bg: 'radial-gradient(70% 90% at 80% 60%, rgba(31,79,209,.22), transparent 70%),linear-gradient(160deg,#F4F6F9,#E5ECF7)', ink: '#0E1A2C', acc: '#1F4FD1', kick: 'For conferences & offsites', h: 'Every angle of <em>your event.</em>', s: 'Your logo on every frame. Approve shots before they go live. Download it all.', btn: ['#1F4FD1', '#fff'], hFont: "font-family:'Space Grotesk';font-weight:600;letter-spacing:-2.4px;font-size:50px;line-height:52px",
+    prints: print(window.STAGE_PHOTO, 470, 70, 180, -7), phones: phoneBox(S.overview(), 190, 'left:600px;top:60px;transform:rotate(5deg)') }),
+  'cpp-birthdays': () => heroWide({ bg: 'radial-gradient(70% 90% at 80% 60%, rgba(195,238,79,.18), transparent 70%),linear-gradient(160deg,#191C19,#101210)', ink: '#EDF0E8', acc: '#C3EE4F', kick: 'For birthdays & parties', h: 'Catch <em>the chaos.</em>', s: 'Every guest gets their own roll of shots. Nobody misses the cake moment.', btn: ['#C3EE4F', '#101210'], hFont: "font-family:'Syne';font-weight:800;letter-spacing:-2px;font-size:54px;line-height:56px",
+    prints: print(P(6), 470, 80, 170, -9) + print(P(10), 560, 170, 150, 6), phones: phoneBox(S.camera({ photo: 10 }), 180, 'left:620px;top:50px;transform:rotate(5deg)') }),
+  promo: () => `<div class="b" style="width:512px;height:250px;background:${green};color:#FAF9F5">
+    <div class="txt" style="left:28px;top:40px;width:250px;gap:8px"><div class="k" style="color:#C9D3B0;font-size:9px">Klickers</div><h1 class="h" style="font-size:34px;line-height:35px">Every photo, <em style="color:#C9D3B0">everyone’s.</em></h1><div class="s" style="font-size:12px;line-height:17px">One shared camera roll for every guest.</div></div>
+    ${print(P(0), 290, 30, 110, -8)}${print(P(3), 370, 50, 110, 6)}</div>`,
+  'ads-square': () => `<div class="b" style="width:540px;height:540px;background:${green};color:#FAF9F5">
+    <div class="txt" style="left:36px;top:40px;right:36px;gap:10px"><div class="k" style="color:#C9D3B0">Weddings · Parties · Events</div><h1 class="h" style="font-size:46px;line-height:48px">Every photo, <em style="color:#C9D3B0">everyone’s.</em></h1></div>
+    ${phoneBox(S.album(), 200, 'left:60px;top:190px;transform:rotate(-5deg)')}${phoneBox(S.guestHome(), 200, 'left:280px;top:170px;transform:rotate(5deg)')}</div>`,
+};
+document.getElementById('root').innerHTML = B[k]();
+document.fonts.ready.then(() => Promise.all([...document.images].map((i) => i.decode().catch(() => {})))).then(() => setTimeout(() => (window.READY = true), 300));
+</script>
+</body>
+</html>

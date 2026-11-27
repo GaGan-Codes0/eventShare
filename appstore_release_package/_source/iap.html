@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Klickers IAP art</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@500&display=block" rel="stylesheet">
+<style>
+  html,body{margin:0;overflow:hidden}
+  .card{position:relative;width:512px;height:512px;overflow:hidden;font-family:'DM Sans',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .stack{position:absolute;left:50%;top:44%;width:0;height:0}
+  .pr{position:absolute;width:150px;padding:9px 9px 30px;background:#FFFEFA;border-radius:4px;box-shadow:0 24px 40px -20px rgba(0,0,0,.6),0 2px 6px rgba(0,0,0,.15)}
+  .pr div{aspect-ratio:1/1.08;background-size:cover;background-position:center}
+  .name{position:absolute;left:0;right:0;bottom:62px;text-align:center;font:400 54px/56px 'DM Serif Display',serif;letter-spacing:-1.4px}
+  .name em{font-style:italic}
+  .stars{position:absolute;left:0;right:0;bottom:30px;display:flex;justify-content:center;gap:8px}
+  .eyebrow{position:absolute;top:34px;left:0;right:0;text-align:center;font:500 13px 'DM Mono',monospace;letter-spacing:3px;text-transform:uppercase}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="photos.js"></script>
+<script src="kit.js"></script>
+<script>
+const k = new URLSearchParams(location.search).get('card') || 'party';
+const star = (c) => ic('star', 30, c, 1.8, c);
+const prints = (ids, spread) => `<div class="stack">${ids.map((p, i) => {
+  const n = ids.length, a = (i - (n - 1) / 2) * spread;
+  return `<div class="pr" style="left:${-75 + a * 4.2}px;top:${-110 + Math.abs(a) * 1.4}px;transform:rotate(${a}deg)"><div style="background-image:${P(p)}"></div></div>`;
+}).join('')}</div>`;
+const C = {
+  party: { bg: 'radial-gradient(90% 70% at 50% 35%, #3E5A4C, #1B2A22)', ink: '#FAF9F5', acc: '#C9D3B0', stars: 1, ids: [4, 0], spread: 9, name: 'Party', eb: 'Klickers package' },
+  celebration: { bg: 'radial-gradient(90% 70% at 50% 35%, #F6EFDF, #E3D9C2)', ink: '#273C32', acc: '#385447', stars: 2, ids: [6, 3, 1], spread: 10, name: 'Celebration', eb: 'Klickers package' },
+  branded: { bg: 'radial-gradient(90% 70% at 50% 35%, #1F2A44, #0E1424)', ink: '#F2EDDE', acc: '#D6B36C', stars: 3, ids: [8, 7, 11, 2], spread: 9, name: 'Branded <em>Event</em>', eb: 'Klickers package' },
+  offer: { bg: 'radial-gradient(90% 70% at 50% 35%, #A3455A, #5E2131)', ink: '#FFF6F2', acc: '#F6C9D2', stars: 0, ids: [3, 10, 5], spread: 11, name: 'Launch <em>offer</em>', eb: 'Klickers · offer code' },
+  upgrade: { bg: 'radial-gradient(90% 70% at 50% 35%, #385447, #1B2A22)', ink: '#FAF9F5', acc: '#C9D3B0', stars: 0, ids: [0, 12, 9], spread: 10, name: 'Upgrade <em>your event</em>', eb: 'Pay only the difference' },
+}[k];
+document.getElementById('root').innerHTML = `<div class="card" style="background:${C.bg};color:${C.ink}">
+  <div class="eyebrow" style="color:${C.acc}">${C.eb}</div>
+  ${prints(C.ids, C.spread)}
+  <div class="name">${C.name.replace('<em>', `<em style="color:${C.acc}">`)}</div>
+  <div class="stars">${C.stars ? Array.from({ length: C.stars }, () => star(C.acc)).join('') : `<span style="font:500 14px 'DM Mono',monospace;letter-spacing:2px;color:${C.acc}">EVERY PHOTO, EVERYONE’S</span>`}</div>
+</div>`;
+document.fonts.ready.then(() => setTimeout(() => (window.READY = true), 300));
+</script>
+</body>
+</html>
