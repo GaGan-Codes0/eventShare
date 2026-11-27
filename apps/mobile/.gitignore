@@ -41,3 +41,6 @@ example
 # generated native folders
 /ios
 /android
+
+# ONNX Runtime, downloaded and checksum-verified by modules/face-runtime/ios/FaceRuntime.podspec
+modules/face-runtime/ios/vendor/
