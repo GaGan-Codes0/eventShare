@@ -1,0 +1,219 @@
+{
+ "fields": {
+  "name": {
+   "label": "App Name",
+   "text": "Klickers: Event Photo Sharing",
+   "limit": 30,
+   "section": "App Information",
+   "count": 29
+  },
+  "subtitle": {
+   "label": "Subtitle",
+   "text": "Wedding & Party Guest Camera",
+   "limit": 30,
+   "section": "App Information",
+   "count": 28
+  },
+  "bundle": {
+   "label": "Bundle ID",
+   "text": "in.co.klyra.eventshare",
+   "limit": null,
+   "section": "App Information",
+   "count": 22
+  },
+  "sku": {
+   "label": "SKU",
+   "text": "KLICKERS-IOS-001",
+   "limit": null,
+   "section": "App Information",
+   "count": 16
+  },
+  "cat1": {
+   "label": "Primary Category",
+   "text": "Photo & Video",
+   "limit": null,
+   "section": "App Information",
+   "count": 13
+  },
+  "cat2": {
+   "label": "Secondary Category",
+   "text": "Lifestyle",
+   "limit": null,
+   "section": "App Information",
+   "count": 9
+  },
+  "privacy_url": {
+   "label": "Privacy Policy URL",
+   "text": "https://klickers.app/privacy",
+   "limit": null,
+   "section": "App Information",
+   "count": 28
+  },
+  "terms_url": {
+   "label": "License Agreement / Terms (in description + optional custom EULA)",
+   "text": "https://klickers.app/terms",
+   "limit": null,
+   "section": "App Information",
+   "count": 26
+  },
+  "promo": {
+   "label": "Promotional Text",
+   "text": "Every guest's photos in one album: scan a QR, shoot your roll, watch the shared gallery fill up live. Find every photo you're in with a selfie.",
+   "limit": 170,
+   "section": "iOS App Version",
+   "count": 143
+  },
+  "keywords": {
+   "label": "Keywords",
+   "text": "disposable,qr,album,gallery,film,roll,birthday,bridal,reception,corporate,pics,video,memories,cam",
+   "limit": 100,
+   "section": "iOS App Version",
+   "count": 97
+  },
+  "support_url": {
+   "label": "Support URL",
+   "text": "https://klickers.app/support",
+   "limit": null,
+   "section": "iOS App Version",
+   "count": 28
+  },
+  "marketing_url": {
+   "label": "Marketing URL",
+   "text": "https://klickers.app",
+   "limit": null,
+   "section": "iOS App Version",
+   "count": 20
+  },
+  "copyright": {
+   "label": "Copyright",
+   "text": "2026 Klyra Innovations Private Limited",
+   "limit": null,
+   "section": "iOS App Version",
+   "count": 38
+  },
+  "description": {
+   "label": "Description",
+   "text": "Every photo, everyone's.\n\nKlickers is the shared camera for weddings, parties and events. Guests scan one QR code, shoot their own roll, and every photo lands in one private album, live, at full quality. No more chasing friends for pictures the week after.\n\nHOW IT WORKS\n• The host creates the event in a minute: names, date, venue and a colour theme.\n• Guests join free with a QR code, a link or a 6-digit code.\n• Everyone shoots on their own roll, like a film camera, plus a short video and a voice message.\n• Every shot appears in the shared album for everyone, as it's taken.\n\nFOR GUESTS\n• Your own roll of shots, so every photo feels intentional\n• A live shared album with Everyone, Me and Mine views\n• \"Me\": take a selfie to see every photo you're in. Optional, and you can turn it off anytime\n• Save the original, or a framed copy with the event's names and date\n• Out of shots? Ask the host for more in one tap\n\nFOR HOSTS\n• Design studio: colour themes, name fonts, cover photo, photo frames and a date stamp\n• Review guest photos before they go live, or let them flow straight in\n• Up to 3 designated photographers with a much bigger allowance\n• Choose shots per guest and whether guests can add photos from their camera roll\n• Approve shot top-ups, hide or remove photos, remove guests at any time\n• Printable QR table cards, and invite links that open even without the app\n• Download every original as a ZIP (Celebration and Branded Event)\n\nORIGINALS, NEVER COMPRESSED\nKlickers keeps every photo exactly as the phone made it. The album shows quick previews; downloads are always the original.\n\nPRIVATE BY DESIGN\n• Albums are private to the people who joined the event\n• No ads, no tracking, and we never sell your data\n• Faceprints for \"Me\" are opt-in and deleted when you turn it off\n• Delete your account anytime from your profile\n\nPACKAGES: ONE PAYMENT PER EVENT, NOT A SUBSCRIPTION\nGuests and photographers always join free. Hosts can try Klickers free with up to 10 guests, then upgrade that event once:\n• Party: 75 guests, up to 24 shots each, gallery open 90 days\n• Celebration: 200 guests, up to 50 shots each, 2 photographers, your own colours and fonts, download everything, gallery open 12 months\n• Branded Event: 300 guests, 3 photographers, your logo, photo frames and photo approval\n\nMoving to a bigger package charges only the difference. Packages are one-time in-app purchases charged to your Apple Account. Nothing renews and there is no subscription.\n\nMade for weddings, receptions, sangeet and mehendi nights, birthdays, anniversaries, baby showers, reunions, trips, conferences, offsites and launches.\n\nQuestions? Write to support@klyra.co.in\nTerms of use: https://klickers.app/terms\nPrivacy policy: https://klickers.app/privacy",
+   "limit": 4000,
+   "section": "iOS App Version",
+   "count": 2759
+  },
+  "whats_new": {
+   "label": "What's New in This Version",
+   "text": "Welcome to Klickers, the shared camera for your event.\n\n• Create an event and invite guests with a QR code, link or 6-digit code\n• Every guest gets their own roll, plus a video and a voice message\n• One live album for everyone, at full original quality\n• \"Me\": find every photo you're in with a selfie (optional)\n• Design studio: themes, fonts, frames and your logo\n• Review photos, add photographers, top up guests' shots\n• One-time packages per event. Guests always join free\n\nTell us what you think: support@klyra.co.in",
+   "limit": 4000,
+   "section": "iOS App Version",
+   "count": 522
+  },
+  "review_notes": {
+   "label": "App Review Notes",
+   "text": "Thank you for reviewing Klickers, a shared camera for events (weddings, parties, conferences).\n\nSIGN-IN\nUse the demo account below (email + password on the sign-in screen). Sign in with Apple is also available. Account deletion: Profile > Delete account.\n\nDEMO EVENTS ON THIS ACCOUNT\n1) \"App Review Wedding\" (the reviewer is the HOST, Free package). Shows the host tabs: Overview, Gallery, Camera, Design, People. Its date is set to the review window, so the camera is open.\n2) To test as a GUEST: tap Join > Enter code and type [GUEST_JOIN_CODE]. This event already has sample photos, a video and a voice note.\n\nCAMERA WINDOW\nGuests can shoot on the event day and for 48 hours after it; hosts and photographers can shoot any time before that. Both demo events are dated inside your review window. If the camera says it is closed, open event 1 as the host.\n\nIN-APP PURCHASES (consumable, one per event, no subscriptions)\nEvent 1 > Overview > Upgrade (or Design/People lock pills) opens Packages. Products: in.co.klyra.eventshare.party / .celebration / .branded, plus upgrade products (e.g. .party_to_celebration) that charge only the difference for an event already on a paid package. \"Restore purchases\" re-applies a payment that was made but not yet applied to the event (handled server-side through RevenueCat).\n\n\"ME\" (FACE MATCHING) - OPTIONAL\nAlbum > Me > \"I agree, take a selfie\". After explicit consent, the phone turns faces into a numeric faceprint used only to show this person the photos they appear in within that one event. Faceprints are never used outside the event, never shared or sold, and are deleted when the user turns Me off, leaves the event, deletes their account, or the host turns Find my photos off. This is described in the privacy policy (https://klickers.app/privacy).\n\nUSER-GENERATED CONTENT\nAlbums are private and invite-only. Hosts moderate their event: review guest photos before they appear (Rules > Review guest photos first), hide or delete any photo, and remove any guest. Users can delete their own photos. Our terms forbid objectionable content and we remove it, and the accounts that post it, when reported to support@klyra.co.in.\n\nPERMISSIONS\nCamera (photos/videos, QR scan), microphone (video sound and voice notes), photo library (add photos to an event; save photos you download). All requested only when the feature is used.\n\nContact: support@klyra.co.in",
+   "limit": 4000,
+   "section": "App Review",
+   "count": 2400
+  },
+  "review_user": {
+   "label": "Demo Account: User name",
+   "text": "[REVIEW_EMAIL e.g. appreview@klyra.co.in]",
+   "limit": null,
+   "section": "App Review",
+   "count": 41
+  },
+  "review_pass": {
+   "label": "Demo Account: Password",
+   "text": "[REVIEW_PASSWORD]",
+   "limit": null,
+   "section": "App Review",
+   "count": 17
+  },
+  "review_contact": {
+   "label": "Contact: Email",
+   "text": "support@klyra.co.in",
+   "limit": null,
+   "section": "App Review",
+   "count": 19
+  },
+  "review_phone": {
+   "label": "Contact: Phone",
+   "text": "[+91 PHONE NUMBER]",
+   "limit": null,
+   "section": "App Review",
+   "count": 18
+  },
+  "iap_review": {
+   "label": "IAP Review Notes (paste on each product)",
+   "text": "Consumable: one purchase upgrades one event (hosts can buy the same package again for a different event). To find it: sign in with the demo account, open \"App Review Wedding\" (you are the host) > Overview > Upgrade, or Packages from any lock pill. The store sheet confirms the purchase; the event's limits update at once (guest cap, gallery days, features). Upgrade products charge only the price difference for an event already on a paid package. Restore purchases is on the same screen.",
+   "limit": 4000,
+   "section": "In-App Purchases",
+   "count": 488
+  }
+ },
+ "iaps": [
+  {
+   "ref": "Party (from Free)",
+   "id": "in.co.klyra.eventshare.party",
+   "type": "Consumable",
+   "name": "Party Package",
+   "name_count": 13,
+   "desc": "75 guests and a 90-day gallery, one event",
+   "desc_count": 41,
+   "inr": 999,
+   "usd": 9.99
+  },
+  {
+   "ref": "Celebration (from Free)",
+   "id": "in.co.klyra.eventshare.celebration",
+   "type": "Consumable",
+   "name": "Celebration Package",
+   "name_count": 19,
+   "desc": "200 guests, 2 photographers, 12-month album",
+   "desc_count": 43,
+   "inr": 2499,
+   "usd": 24.99
+  },
+  {
+   "ref": "Branded Event (from Free)",
+   "id": "in.co.klyra.eventshare.branded",
+   "type": "Consumable",
+   "name": "Branded Event Package",
+   "name_count": 21,
+   "desc": "300 guests, your logo, frames and approvals",
+   "desc_count": 43,
+   "inr": 4999,
+   "usd": 49.99
+  },
+  {
+   "ref": "Upgrade Party to Celebration",
+   "id": "in.co.klyra.eventshare.party_to_celebration",
+   "type": "Consumable",
+   "name": "Party to Celebration",
+   "name_count": 20,
+   "desc": "Upgrade this event, pay only the difference",
+   "desc_count": 43,
+   "inr": 1500,
+   "usd": 14.99
+  },
+  {
+   "ref": "Upgrade Party to Branded",
+   "id": "in.co.klyra.eventshare.party_to_branded",
+   "type": "Consumable",
+   "name": "Party to Branded Event",
+   "name_count": 22,
+   "desc": "Upgrade this event, pay only the difference",
+   "desc_count": 43,
+   "inr": 4000,
+   "usd": 39.99
+  },
+  {
+   "ref": "Upgrade Celebration to Branded",
+   "id": "in.co.klyra.eventshare.celebration_to_branded",
+   "type": "Consumable",
+   "name": "Celebration to Branded Event",
+   "name_count": 28,
+   "desc": "Upgrade this event, pay only the difference",
+   "desc_count": 43,
+   "inr": 2500,
+   "usd": 24.99
+  }
+ ]
+}

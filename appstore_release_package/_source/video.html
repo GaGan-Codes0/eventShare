@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Klickers video</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@500&family=Pinyon+Script&family=Cormorant+Garamond:ital,wght@1,500&family=Space+Grotesk:wght@600;700&family=Syne:wght@800&display=block" rel="stylesheet">
+<style>
+  html,body{margin:0;overflow:hidden;background:#15211B}
+  #stage{position:relative;overflow:hidden;font-family:'DM Sans',sans-serif;color:#FAF9F5}
+  .bg{position:absolute;inset:0;background:radial-gradient(110% 55% at 50% 100%, rgba(165,177,143,.35), transparent 60%),radial-gradient(80% 40% at 0% 0%, rgba(116,128,99,.32), transparent 70%),linear-gradient(180deg,#22352B 0%,#1B2A22 55%,#15211B 100%)}
+  .scene{position:absolute;inset:0;opacity:0}
+  .ui.dev{position:absolute;width:400px;height:872px;transform-origin:top left;border-radius:44px;overflow:hidden;box-shadow:0 40px 80px -30px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.06)}
+  .ui .dev-scr{border-radius:0}
+  .vcap{position:absolute;left:28px;right:28px;display:flex;flex-direction:column;gap:10px;z-index:20}
+  .vcap .k{font:500 11px 'DM Mono',monospace;letter-spacing:2.4px;color:#A5B18F;text-transform:uppercase}
+  .vcap h2{margin:0;font:400 44px/46px 'DM Serif Display',serif;letter-spacing:-1.3px;color:#FAF9F5}
+  .vcap h2 em{font-style:italic;color:#C9D3B0}
+  .w{display:inline-block;will-change:transform,opacity}
+  .tap{position:absolute;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:999px;border:3px solid rgba(255,255,255,.95);background:rgba(255,255,255,.25);opacity:0;z-index:40;box-shadow:0 0 0 1px rgba(0,0,0,.15)}
+  .flash{position:absolute;inset:0;background:#fff;opacity:0;z-index:30;pointer-events:none}
+  .pill{position:absolute;display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:999px;background:#FFFEFA;color:#273C32;font:600 14px 'DM Sans';box-shadow:0 14px 30px -10px rgba(0,0,0,.5);z-index:35;opacity:0}
+  .scanline{position:absolute;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,#A5B18F,transparent);box-shadow:0 0 18px 4px rgba(165,177,143,.6);z-index:30}
+  .end{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center}
+  .end img{width:132px;height:132px;border-radius:30px;box-shadow:0 30px 60px -20px rgba(0,0,0,.7)}
+  .end .n{font:400 54px/56px 'DM Serif Display',serif;letter-spacing:-1.4px}
+  .end .t{font:400 26px/30px 'DM Serif Display',serif;font-style:italic;color:#C9D3B0}
+  .end .f{font:500 12px 'DM Mono',monospace;letter-spacing:2.2px;text-transform:uppercase;color:#A5B18F}
+  .pr{position:absolute;padding:8px 8px 26px;background:#FFFEFA;border-radius:3px;box-shadow:0 24px 40px -18px rgba(0,0,0,.6)}
+  .pr div{background-size:cover;background-position:center}
+</style>
+</head>
+<body>
+<div id="stage"><div class="bg"></div></div>
+<script src="photos.js"></script>
+<script src="kit.js"></script>
+<script>
+const q = new URLSearchParams(location.search);
+const V = q.get('v') || 'preview';
+const W = +(q.get('w') || 443), H = +(q.get('h') || 960);
+const stage = document.getElementById('stage');
+stage.style.width = W + 'px'; stage.style.height = H + 'px';
+const S = window.SCREENS;
+
+// ---------- helpers ----------
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const ease = (x) => { x = clamp(x); return 1 - Math.pow(1 - x, 3); };
+const inOut = (x) => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const el = (html) => { const d = document.createElement('div'); d.innerHTML = html.trim(); return d.firstElementChild; };
+const words = (h) => h.replace(/(<em>)|(<\/em>)|([^\s<]+)/g, (m, a, b, w) => (a || b ? m : `<span class="w">${w}</span>`));
+function caption(k, h, top) {
+  return el(`<div class="vcap" style="top:${top}px"><div class="k">${k}</div><h2>${words(h)}</h2></div>`);
+}
+function animCaption(node, t) {
+  node.querySelectorAll('.w').forEach((w, i) => {
+    const p = ease((t - 0.1 - i * 0.07) / 0.45);
+    w.style.opacity = p; w.style.transform = `translateY(${(1 - p) * 22}px)`;
+  });
+  const k = node.querySelector('.k'); k.style.opacity = ease(t / 0.4);
+}
+// A screen in an un-framed rounded card (App Preview) or a titanium frame (ads).
+function uiCard(html, x, y, scale) {
+  const n = el(`<div class="ui dev" style="left:${x}px;top:${y}px;transform:scale(${scale})"><div class="dev-scr">${html}</div></div>`);
+  n.dataset.x = x; n.dataset.y = y; n.dataset.s = scale;
+  return n;
+}
+function framed(html, x, y, width) {
+  return el(`<div style="position:absolute;left:${x}px;top:${y}px;width:${width}px;height:${width * 932 / 430}px">${phone(html, width)}</div>`);
+}
+function tap(parent, x, y) { const n = el(`<div class="tap" style="left:${x}px;top:${y}px"></div>`); parent.appendChild(n); return n; }
+function animTap(n, t, at) {
+  const d = t - at;
+  if (d < -0.25 || d > 0.6) { n.style.opacity = 0; return; }
+  const p = clamp((d + 0.25) / 0.85);
+  n.style.opacity = d < 0 ? (d + 0.25) / 0.25 : 1 - p;
+  n.style.transform = `scale(${d < 0 ? 1 : 1 + (d / 0.6) * 0.8})`;
+}
+
+const scenes = [];
+function scene(a, b, build, update) {
+  const root = el('<div class="scene"></div>');
+  stage.appendChild(root);
+  const ctx = build(root) || {};
+  scenes.push({ a, b, root, ctx, update });
+}
+
+// ================= APP PREVIEW (886×1920 / 1080×1920) =================
+if (V === 'preview') {
+  const sc = 0.8, uw = 400 * sc, ux = (W - uw) / 2, uy = 236;
+  const cap = (k, h) => caption(k, h, 64);
+  const uiAt = (html) => uiCard(html, ux, uy, sc);
+  const kb = (n, t, d, z = 0.035) => { // slow push-in on the screen
+    const s = +n.dataset.s * (1 + z * inOut(t / d));
+    n.style.transform = `scale(${s})`; n.style.left = (+n.dataset.x - (400 * (s - +n.dataset.s)) / 2) + 'px';
+  };
+
+  scene(0, 3.4, (r) => {
+    const c = cap('Join in seconds', 'Scan the QR. <em>You’re in.</em>'); r.appendChild(c);
+    const a = uiAt(S.invite()), b = uiAt(S.joinPreview()); r.append(a, b);
+    const line = el('<div class="scanline"></div>'); a.querySelector('.dev-scr').appendChild(line);
+    const tp = tap(b.querySelector('.dev-scr'), 200, 612);
+    return { c, a, b, line, tp };
+  }, (t, d, x) => {
+    animCaption(x.c, t);
+    x.line.style.top = (300 + ((t * 260) % 230)) + 'px'; x.line.style.opacity = t < 1.6 ? 1 : 0;
+    const sw = ease((t - 1.6) / 0.35); x.b.style.opacity = sw; x.a.style.opacity = 1 - sw;
+    kb(x.a, t, d); kb(x.b, t, d); animTap(x.tp, t, 2.7);
+  });
+
+  scene(3.4, 7.4, (r) => {
+    const c = cap('Every guest', 'Your own <em>roll of film.</em>'); r.appendChild(c);
+    const u = uiAt(S.guestHome()); r.appendChild(u);
+    const tp = tap(u.querySelector('.dev-scr'), 200, 612);
+    return { c, u, tp, num: u.querySelector('.mono'), fill: u.querySelector('.fill') };
+  }, (t, d, x) => {
+    animCaption(x.c, t); kb(x.u, t, d, 0.05);
+    const left = Math.round(36 - 12 * ease((t - 0.4) / 1.6));
+    x.num.textContent = left; x.fill.style.width = (left / 36) * 100 + '%';
+    animTap(x.tp, t, 3.3);
+  });
+
+  scene(7.4, 11.4, (r) => {
+    const c = cap('Shoot', 'Snap it. <em>It’s live.</em>'); r.appendChild(c);
+    const u = uiAt(S.camera()); r.appendChild(u);
+    const scr = u.querySelector('.dev-scr');
+    const f = el('<div class="flash"></div>'); scr.appendChild(f);
+    const tp = tap(scr, 200, 744);
+    const pill = el(`<div class="pill" style="left:${W / 2 - 112}px;top:${uy + 470}px">${ic('zap', 16, '#273C32')}Live in the album · 1s</div>`); r.appendChild(pill);
+    return { c, u, f, tp, pill, cnt: scr.querySelectorAll('.mono')[0] };
+  }, (t, d, x) => {
+    animCaption(x.c, t); kb(x.u, t, d, 0.03);
+    animTap(x.tp, t, 1.4);
+    const fl = t - 1.45; x.f.style.opacity = fl > 0 && fl < 0.4 ? 0.9 * (1 - fl / 0.4) : 0;
+    x.cnt.textContent = t > 1.5 ? '23 / 36' : '24 / 36';
+    const p = ease((t - 1.9) / 0.4); x.pill.style.opacity = p; x.pill.style.transform = `translateY(${(1 - p) * 16}px)`;
+  });
+
+  scene(11.4, 17.6, (r) => {
+    const c = cap('Every guest · one album', 'The whole night, <em>full quality.</em>'); r.appendChild(c);
+    const u = uiAt(S.album()); r.appendChild(u);
+    return { c, u, tiles: [...u.querySelectorAll('.ptile')], grid: u.querySelector('.grid3') };
+  }, (t, d, x) => {
+    animCaption(x.c, t); kb(x.u, t, d, 0.03);
+    x.tiles.forEach((n, i) => { const p = ease((t - 0.25 - i * 0.14) / 0.4); n.style.opacity = p; n.style.transform = `scale(${0.85 + 0.15 * p})`; });
+    x.grid.style.transform = `translateY(${-110 * inOut((t - 3.6) / 2)}px)`;
+  });
+
+  scene(17.6, 21.4, (r) => {
+    const c = cap('“Me”', 'Find every photo <em>you’re in.</em>'); r.appendChild(c);
+    const u = uiAt(S.findMe()); r.appendChild(u);
+    return { c, u, boxes: [...u.querySelectorAll('.facebox')], tiles: [...u.querySelectorAll('.ptile')] };
+  }, (t, d, x) => {
+    animCaption(x.c, t); kb(x.u, t, d, 0.04);
+    x.tiles.forEach((n, i) => { const p = ease((t - 0.2 - i * 0.1) / 0.35); n.style.opacity = p; });
+    x.boxes.forEach((n, i) => { const p = ease((t - 1.0 - i * 0.12) / 0.3); n.style.opacity = p; n.style.transform = `scale(${1.4 - 0.4 * p})`; });
+  });
+
+  scene(21.4, 25.2, (r) => {
+    const c = cap('For hosts', 'Your look. <em>Your rules.</em>'); r.appendChild(c);
+    const a = uiAt(S.design()), b = uiAt(S.overview()); r.append(a, b);
+    const tp = tap(b.querySelector('.dev-scr'), 356, 561);
+    return { c, a, b, tp };
+  }, (t, d, x) => {
+    animCaption(x.c, t);
+    const sw = ease((t - 1.8) / 0.35); x.b.style.opacity = sw; x.a.style.opacity = 1 - sw;
+    kb(x.a, t, d); kb(x.b, t, d); animTap(x.tp, t, 3.0);
+  });
+
+  scene(25.2, 29.0, (r) => {
+    const e = el(`<div class="end"><img src="img/icon.png" alt=""><div class="n">Klickers</div><div class="t">Every photo, everyone’s.</div><div class="f">Guests join free</div></div>`); r.appendChild(e);
+    return { kids: [...e.children] };
+  }, (t, d, x) => {
+    x.kids.forEach((n, i) => { const p = ease((t - 0.15 - i * 0.18) / 0.5); n.style.opacity = p; n.style.transform = `translateY(${(1 - p) * 18}px)`; });
+  });
+}
+
+// ================= SEARCH ADS / SOCIAL (1080×1080 / 1080×1920) =================
+if (V === 'ad') {
+  const square = W === H;
+  const capTop = square ? 44 : 120;
+  const pw = square ? 200 : 300;
+  const px = square ? W - pw - 40 : (W - pw) / 2, py = square ? 120 : 300;
+  const capW = (h) => { const c = caption('Klickers', h, capTop); c.querySelector('h2').style.fontSize = square ? '46px' : '54px'; c.querySelector('h2').style.lineHeight = square ? '48px' : '56px'; if (square) c.style.right = (pw + 50) + 'px'; return c; };
+  const pop = (n, t, at) => { const p = ease((t - at) / 0.5); n.style.opacity = p; n.style.transform = `translateY(${(1 - p) * 60}px) rotate(${n.dataset.r}deg)`; };
+
+  scene(0, 3, (r) => {
+    const c = capW('Your event. <em>Every guest.</em>'); if (square) c.style.right = '28px'; r.appendChild(c);
+    const prints = [[0, -9], [3, 6], [6, -4], [10, 8], [1, -7], [7, 5]].map(([i, rot], k) => {
+      const cols = 3, w = square ? 140 : 150, gx = (W - cols * w) / 2;
+      const n = el(`<div class="pr" style="left:${gx + (k % cols) * w + (k % 2 ? 6 : -6)}px;top:${(square ? 200 : 420) + Math.floor(k / cols) * (w * 1.18)}px;width:${w - 30}px"><div style="height:${(w - 30) * 1.08}px;background-image:${P(i)}"></div></div>`);
+      n.dataset.r = rot; r.appendChild(n); return n;
+    });
+    return { c, prints };
+  }, (t, d, x) => { animCaption(x.c, t); x.prints.forEach((n, i) => pop(n, t, 0.3 + i * 0.12)); });
+
+  scene(3, 6, (r) => {
+    const c = capW('One shared <em>camera roll.</em>'); r.appendChild(c);
+    const f = framed(S.camera(), px, py, pw); r.appendChild(f);
+    const fl = el('<div class="flash"></div>'); r.appendChild(fl);
+    return { c, f, fl, cnt: f.querySelectorAll('.mono')[0] };
+  }, (t, d, x) => {
+    animCaption(x.c, t);
+    const p = ease(t / 0.5); x.f.style.transform = `translateY(${(1 - p) * 80}px) rotate(${-3 * p}deg)`;
+    const fl = t - 1.5; x.fl.style.opacity = fl > 0 && fl < 0.35 ? 0.8 * (1 - fl / 0.35) : 0;
+    x.cnt.textContent = t > 1.55 ? '23 / 36' : '24 / 36';
+  });
+
+  scene(6, 9, (r) => {
+    const c = capW('Live, at <em>full quality.</em>'); r.appendChild(c);
+    const f = framed(S.album(), px, py, pw); r.appendChild(f);
+    return { c, f, tiles: [...f.querySelectorAll('.ptile')] };
+  }, (t, d, x) => {
+    animCaption(x.c, t); x.f.style.transform = `rotate(${2 * ease(t / 0.6)}deg)`;
+    x.tiles.forEach((n, i) => { const p = ease((t - 0.2 - i * 0.08) / 0.3); n.style.opacity = p; n.style.transform = `scale(${0.8 + 0.2 * p})`; });
+  });
+
+  scene(9, 12, (r) => {
+    const c = capW('Find every photo <em>you’re in.</em>'); r.appendChild(c);
+    const f = framed(S.findMe(), px, py, pw); r.appendChild(f);
+    return { c, f, boxes: [...f.querySelectorAll('.facebox')] };
+  }, (t, d, x) => {
+    animCaption(x.c, t); x.f.style.transform = `rotate(${-2 * ease(t / 0.6)}deg)`;
+    x.boxes.forEach((n, i) => { const p = ease((t - 0.6 - i * 0.1) / 0.3); n.style.opacity = p; n.style.transform = `scale(${1.4 - 0.4 * p})`; });
+  });
+
+  scene(12, 15, (r) => {
+    const e = el(`<div class="end"><img src="img/icon.png" alt=""><div class="n">Klickers</div><div class="t">Every photo, everyone’s.</div><div class="f">Free for guests · On the App Store</div></div>`); r.appendChild(e);
+    return { kids: [...e.children] };
+  }, (t, d, x) => {
+    x.kids.forEach((n, i) => { const p = ease((t - 0.1 - i * 0.15) / 0.45); n.style.opacity = p; n.style.transform = `translateY(${(1 - p) * 18}px)`; });
+  });
+}
+
+// ---------- timeline ----------
+const XF = 0.3;
+window.DURATION = scenes[scenes.length - 1].b;
+window.seek = (t) => {
+  for (const s of scenes) {
+    if (t < s.a - XF || t > s.b + XF) { s.root.style.opacity = 0; s.root.style.visibility = 'hidden'; continue; }
+    s.root.style.visibility = 'visible';
+    const last = s === scenes[scenes.length - 1], first = s === scenes[0];
+    const fin = first ? 1 : clamp((t - s.a + XF) / (2 * XF));
+    const fout = last ? 1 : clamp((s.b + XF - t) / (2 * XF));
+    s.root.style.opacity = Math.min(fin, fout);
+    s.update(Math.max(0, t - s.a), s.b - s.a, s.ctx);
+  }
+};
+window.seek(0);
+document.fonts.ready.then(() => Promise.all([...document.images].map((i) => i.decode().catch(() => {})))).then(() => setTimeout(() => (window.READY = true), 500));
+</script>
+</body>
+</html>

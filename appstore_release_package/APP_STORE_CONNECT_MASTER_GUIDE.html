@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Klickers · App Store Connect guide</title>
+<style>
+  :root{--bg:#0F1613;--panel:#16201B;--panel2:#1C2822;--line:#2A3830;--ink:#EEF1E8;--muted:#A3AD9C;--sage:#C9D3B0;--acc:#8FB08A;--ok:#7BC67E;--warn:#E3B95C;--bad:#E07A6A;--r:14px}
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  a{color:var(--sage)}
+  code,pre,.mono{font-family:ui-monospace,"SF Mono",Menlo,monospace}
+  .layout{display:flex;flex-wrap:wrap;max-width:1440px;margin:0 auto}
+  nav{flex:1 1 260px;max-width:300px;padding:28px 20px;position:sticky;top:0;align-self:flex-start;max-height:100vh;overflow:auto}
+  main{flex:999 1 560px;min-width:0;padding:28px 24px 120px}
+  @media (max-width:860px){nav{position:static;max-width:none;max-height:none;padding:20px 16px 0}main{padding:16px 16px 80px}}
+  .brand{display:flex;align-items:center;gap:12px;margin-bottom:22px}
+  .brand img{width:44px;height:44px;border-radius:11px}
+  .brand b{display:block;font-size:17px}.brand span{font-size:12.5px;color:var(--muted)}
+  .prog{height:8px;border-radius:4px;background:var(--panel2);overflow:hidden;margin:6px 0 4px}
+  .prog i{display:block;height:100%;background:var(--acc);width:0;transition:width .3s}
+  .progl{font-size:12.5px;color:var(--muted)}
+  nav ol{list-style:none;padding:0;margin:18px 0 0;display:flex;flex-direction:column;gap:2px;counter-reset:s}
+  nav li a{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;color:var(--ink);text-decoration:none;font-size:14px}
+  nav li a:hover{background:var(--panel)}
+  nav li a::before{counter-increment:s;content:counter(s);width:22px;height:22px;border-radius:999px;background:var(--panel2);display:inline-flex;align-items:center;justify-content:center;font-size:11.5px;color:var(--muted);flex:none}
+  nav li a .n{margin-left:auto;font-size:11.5px;color:var(--muted)}
+  h1{font-size:30px;line-height:1.15;margin:0 0 6px;letter-spacing:-.5px}
+  h2{font-size:22px;margin:0;letter-spacing:-.3px}
+  h3{font-size:15px;margin:22px 0 10px;color:var(--sage);text-transform:uppercase;letter-spacing:1.2px;font-weight:600}
+  .lede{color:var(--muted);max-width:70ch;margin:0 0 18px}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:22px;margin:0 0 20px;scroll-margin-top:16px}
+  .sh{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+  .sh .where{font-size:13px;color:var(--muted)}
+  .f{border:1px solid var(--line);background:var(--panel2);border-radius:var(--r);margin:12px 0;overflow:hidden}
+  .fh{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .fh label{font-weight:600;font-size:14px}
+  .badge{font:600 12px ui-monospace,Menlo,monospace;padding:3px 8px;border-radius:999px;background:#22322A;color:var(--ok)}
+  .badge.warn{color:var(--warn);background:#33301F}.badge.bad{color:var(--bad);background:#3A2420}
+  .fh .sp{margin-left:auto}
+  button{font:inherit;cursor:pointer}
+  .copy{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:999px;border:0;background:var(--sage);color:#17221C;font-weight:650;font-size:13px}
+  .copy:hover{filter:brightness(1.07)}.copy.done{background:var(--ok)}
+  .copy:focus-visible,.chk input:focus-visible+span,nav a:focus-visible{outline:2px solid var(--warn);outline-offset:2px}
+  textarea{display:block;width:100%;border:0;background:transparent;color:var(--ink);padding:12px;font:13.5px/1.55 ui-monospace,Menlo,monospace;resize:vertical;min-height:44px}
+  textarea:focus{outline:none;background:#1F2C25}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12.5px;text-transform:uppercase;letter-spacing:.8px}
+  .tw{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r)}
+  .yes{color:var(--warn);font-weight:600}.no{color:var(--muted)}
+  .gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+  .gal.wide{grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+  figure{margin:0;background:var(--panel2);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  figure img,figure video{display:block;width:100%;height:auto;background:#0b0f0d}
+  figcaption{padding:8px 10px;font-size:12px;color:var(--muted);word-break:break-all}
+  figcaption b{display:block;color:var(--ink);font-size:12.5px;word-break:normal}
+  .vids{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+  .chk{display:flex;gap:12px;align-items:flex-start;padding:10px 4px;border-bottom:1px solid var(--line);cursor:pointer}
+  .chk input{position:absolute;opacity:0}
+  .chk span.box{width:22px;height:22px;border-radius:7px;border:2px solid #4A5A50;flex:none;display:flex;align-items:center;justify-content:center;margin-top:1px}
+  .chk input:checked+span.box{background:var(--acc);border-color:var(--acc)}
+  .chk input:checked+span.box::after{content:"";width:6px;height:11px;border:solid #0F1613;border-width:0 2.5px 2.5px 0;transform:rotate(45deg) translate(-1px,-1px)}
+  .chk input:checked~.t{color:var(--muted);text-decoration:line-through}
+  .chk .t b{font-weight:600}
+  .chk small{display:block;color:var(--muted);text-decoration:none}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--panel2);border:1px solid var(--line);font-size:12px;color:var(--muted);margin-right:6px}
+  .alert{border:1px solid #5A4A26;background:#2A2516;color:#F0DDA8;border-radius:var(--r);padding:12px 14px;margin:12px 0;font-size:14px}
+  .alert.red{border-color:#5E3129;background:#2C1A17;color:#F3C1B8}
+  .kv{display:grid;grid-template-columns:minmax(140px,220px) 1fr;gap:6px 16px;font-size:14px}
+  .kv div:nth-child(odd){color:var(--muted)}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);opacity:0;background:var(--sage);color:#17221C;padding:10px 16px;border-radius:999px;font-weight:650;transition:.25s;pointer-events:none}
+  .toast.on{opacity:1;transform:translateX(-50%)}
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav aria-label="Sections">
+    <div class="brand"><img src="_source/img/icon.png" alt=""><div><b>Klickers 1.0</b><span>App Store Connect submission</span></div></div>
+    <div class="progl"><span id="pc">0</span> of <span id="pt">0</span> done</div>
+    <div class="prog" aria-hidden="true"><i id="pb"></i></div>
+    <ol id="toc"></ol>
+  </nav>
+  <main>
+    <h1>Submit Klickers in 15 minutes</h1>
+    <p class="lede">Work top to bottom: the sections follow App Store Connect's left sidebar. Every text box copies with one click and shows its live character count against Apple's limit (edits here are for trying wording; the source of truth is <code>_source/listing.py</code>). Ticks are saved in this browser.</p>
+    <div id="app"></div>
+  </main>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script id="data" type="application/json">{"fields": {"name": {"label": "App Name", "text": "Klickers: Event Photo Sharing", "limit": 30, "section": "App Information", "count": 29}, "subtitle": {"label": "Subtitle", "text": "Wedding & Party Guest Camera", "limit": 30, "section": "App Information", "count": 28}, "bundle": {"label": "Bundle ID", "text": "in.co.klyra.eventshare", "limit": null, "section": "App Information", "count": 22}, "sku": {"label": "SKU", "text": "KLICKERS-IOS-001", "limit": null, "section": "App Information", "count": 16}, "cat1": {"label": "Primary Category", "text": "Photo & Video", "limit": null, "section": "App Information", "count": 13}, "cat2": {"label": "Secondary Category", "text": "Lifestyle", "limit": null, "section": "App Information", "count": 9}, "privacy_url": {"label": "Privacy Policy URL", "text": "https://klickers.app/privacy", "limit": null, "section": "App Information", "count": 28}, "terms_url": {"label": "License Agreement / Terms (in description + optional custom EULA)", "text": "https://klickers.app/terms", "limit": null, "section": "App Information", "count": 26}, "promo": {"label": "Promotional Text", "text": "Every guest's photos in one album: scan a QR, shoot your roll, watch the shared gallery fill up live. Find every photo you're in with a selfie.", "limit": 170, "section": "iOS App Version", "count": 143}, "keywords": {"label": "Keywords", "text": "disposable,qr,album,gallery,film,roll,birthday,bridal,reception,corporate,pics,video,memories,cam", "limit": 100, "section": "iOS App Version", "count": 97}, "support_url": {"label": "Support URL", "text": "https://klickers.app/support", "limit": null, "section": "iOS App Version", "count": 28}, "marketing_url": {"label": "Marketing URL", "text": "https://klickers.app", "limit": null, "section": "iOS App Version", "count": 20}, "copyright": {"label": "Copyright", "text": "2026 Klyra Innovations Private Limited", "limit": null, "section": "iOS App Version", "count": 38}, "description": {"label": "Description", "text": "Every photo, everyone's.\n\nKlickers is the shared camera for weddings, parties and events. Guests scan one QR code, shoot their own roll, and every photo lands in one private album, live, at full quality. No more chasing friends for pictures the week after.\n\nHOW IT WORKS\n• The host creates the event in a minute: names, date, venue and a colour theme.\n• Guests join free with a QR code, a link or a 6-digit code.\n• Everyone shoots on their own roll, like a film camera, plus a short video and a voice message.\n• Every shot appears in the shared album for everyone, as it's taken.\n\nFOR GUESTS\n• Your own roll of shots, so every photo feels intentional\n• A live shared album with Everyone, Me and Mine views\n• \"Me\": take a selfie to see every photo you're in. Optional, and you can turn it off anytime\n• Save the original, or a framed copy with the event's names and date\n• Out of shots? Ask the host for more in one tap\n\nFOR HOSTS\n• Design studio: colour themes, name fonts, cover photo, photo frames and a date stamp\n• Review guest photos before they go live, or let them flow straight in\n• Up to 3 designated photographers with a much bigger allowance\n• Choose shots per guest and whether guests can add photos from their camera roll\n• Approve shot top-ups, hide or remove photos, remove guests at any time\n• Printable QR table cards, and invite links that open even without the app\n• Download every original as a ZIP (Celebration and Branded Event)\n\nORIGINALS, NEVER COMPRESSED\nKlickers keeps every photo exactly as the phone made it. The album shows quick previews; downloads are always the original.\n\nPRIVATE BY DESIGN\n• Albums are private to the people who joined the event\n• No ads, no tracking, and we never sell your data\n• Faceprints for \"Me\" are opt-in and deleted when you turn it off\n• Delete your account anytime from your profile\n\nPACKAGES: ONE PAYMENT PER EVENT, NOT A SUBSCRIPTION\nGuests and photographers always join free. Hosts can try Klickers free with up to 10 guests, then upgrade that event once:\n• Party: 75 guests, up to 24 shots each, gallery open 90 days\n• Celebration: 200 guests, up to 50 shots each, 2 photographers, your own colours and fonts, download everything, gallery open 12 months\n• Branded Event: 300 guests, 3 photographers, your logo, photo frames and photo approval\n\nMoving to a bigger package charges only the difference. Packages are one-time in-app purchases charged to your Apple Account. Nothing renews and there is no subscription.\n\nMade for weddings, receptions, sangeet and mehendi nights, birthdays, anniversaries, baby showers, reunions, trips, conferences, offsites and launches.\n\nQuestions? Write to support@klyra.co.in\nTerms of use: https://klickers.app/terms\nPrivacy policy: https://klickers.app/privacy", "limit": 4000, "section": "iOS App Version", "count": 2759}, "whats_new": {"label": "What's New in This Version", "text": "Welcome to Klickers, the shared camera for your event.\n\n• Create an event and invite guests with a QR code, link or 6-digit code\n• Every guest gets their own roll, plus a video and a voice message\n• One live album for everyone, at full original quality\n• \"Me\": find every photo you're in with a selfie (optional)\n• Design studio: themes, fonts, frames and your logo\n• Review photos, add photographers, top up guests' shots\n• One-time packages per event. Guests always join free\n\nTell us what you think: support@klyra.co.in", "limit": 4000, "section": "iOS App Version", "count": 522}, "review_notes": {"label": "App Review Notes", "text": "Thank you for reviewing Klickers, a shared camera for events (weddings, parties, conferences).\n\nSIGN-IN\nUse the demo account below (email + password on the sign-in screen). Sign in with Apple is also available. Account deletion: Profile > Delete account.\n\nDEMO EVENTS ON THIS ACCOUNT\n1) \"App Review Wedding\" (the reviewer is the HOST, Free package). Shows the host tabs: Overview, Gallery, Camera, Design, People. Its date is set to the review window, so the camera is open.\n2) To test as a GUEST: tap Join > Enter code and type [GUEST_JOIN_CODE]. This event already has sample photos, a video and a voice note.\n\nCAMERA WINDOW\nGuests can shoot on the event day and for 48 hours after it; hosts and photographers can shoot any time before that. Both demo events are dated inside your review window. If the camera says it is closed, open event 1 as the host.\n\nIN-APP PURCHASES (consumable, one per event, no subscriptions)\nEvent 1 > Overview > Upgrade (or Design/People lock pills) opens Packages. Products: in.co.klyra.eventshare.party / .celebration / .branded, plus upgrade products (e.g. .party_to_celebration) that charge only the difference for an event already on a paid package. \"Restore purchases\" re-applies a payment that was made but not yet applied to the event (handled server-side through RevenueCat).\n\n\"ME\" (FACE MATCHING) - OPTIONAL\nAlbum > Me > \"I agree, take a selfie\". After explicit consent, the phone turns faces into a numeric faceprint used only to show this person the photos they appear in within that one event. Faceprints are never used outside the event, never shared or sold, and are deleted when the user turns Me off, leaves the event, deletes their account, or the host turns Find my photos off. This is described in the privacy policy (https://klickers.app/privacy).\n\nUSER-GENERATED CONTENT\nAlbums are private and invite-only. Hosts moderate their event: review guest photos before they appear (Rules > Review guest photos first), hide or delete any photo, and remove any guest. Users can delete their own photos. Our terms forbid objectionable content and we remove it, and the accounts that post it, when reported to support@klyra.co.in.\n\nPERMISSIONS\nCamera (photos/videos, QR scan), microphone (video sound and voice notes), photo library (add photos to an event; save photos you download). All requested only when the feature is used.\n\nContact: support@klyra.co.in", "limit": 4000, "section": "App Review", "count": 2400}, "review_user": {"label": "Demo Account: User name", "text": "[REVIEW_EMAIL e.g. appreview@klyra.co.in]", "limit": null, "section": "App Review", "count": 41}, "review_pass": {"label": "Demo Account: Password", "text": "[REVIEW_PASSWORD]", "limit": null, "section": "App Review", "count": 17}, "review_contact": {"label": "Contact: Email", "text": "support@klyra.co.in", "limit": null, "section": "App Review", "count": 19}, "review_phone": {"label": "Contact: Phone", "text": "[+91 PHONE NUMBER]", "limit": null, "section": "App Review", "count": 18}, "iap_review": {"label": "IAP Review Notes (paste on each product)", "text": "Consumable: one purchase upgrades one event (hosts can buy the same package again for a different event). To find it: sign in with the demo account, open \"App Review Wedding\" (you are the host) > Overview > Upgrade, or Packages from any lock pill. The store sheet confirms the purchase; the event's limits update at once (guest cap, gallery days, features). Upgrade products charge only the price difference for an event already on a paid package. Restore purchases is on the same screen.", "limit": 4000, "section": "In-App Purchases", "count": 488}}, "iaps": [{"ref": "Party (from Free)", "id": "in.co.klyra.eventshare.party", "type": "Consumable", "name": "Party Package", "name_count": 13, "desc": "75 guests and a 90-day gallery, one event", "desc_count": 41, "inr": 999, "usd": 9.99}, {"ref": "Celebration (from Free)", "id": "in.co.klyra.eventshare.celebration", "type": "Consumable", "name": "Celebration Package", "name_count": 19, "desc": "200 guests, 2 photographers, 12-month album", "desc_count": 43, "inr": 2499, "usd": 24.99}, {"ref": "Branded Event (from Free)", "id": "in.co.klyra.eventshare.branded", "type": "Consumable", "name": "Branded Event Package", "name_count": 21, "desc": "300 guests, your logo, frames and approvals", "desc_count": 43, "inr": 4999, "usd": 49.99}, {"ref": "Upgrade Party to Celebration", "id": "in.co.klyra.eventshare.party_to_celebration", "type": "Consumable", "name": "Party to Celebration", "name_count": 20, "desc": "Upgrade this event, pay only the difference", "desc_count": 43, "inr": 1500, "usd": 14.99}, {"ref": "Upgrade Party to Branded", "id": "in.co.klyra.eventshare.party_to_branded", "type": "Consumable", "name": "Party to Branded Event", "name_count": 22, "desc": "Upgrade this event, pay only the difference", "desc_count": 43, "inr": 4000, "usd": 39.99}, {"ref": "Upgrade Celebration to Branded", "id": "in.co.klyra.eventshare.celebration_to_branded", "type": "Consumable", "name": "Celebration to Branded Event", "name_count": 28, "desc": "Upgrade this event, pay only the difference", "desc_count": 43, "inr": 2500, "usd": 24.99}]}</script>
+<script>
+const D = JSON.parse(document.getElementById('data').textContent);
+const F = D.fields;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let uid = 0;
+function field(label, text, limit, rows) {
+  const id = 'f' + (uid++);
+  const r = rows || Math.min(18, Math.max(1, Math.ceil(text.length / 90) + (text.match(/\n/g) || []).length));
+  return `<div class="f"><div class="fh"><label for="${id}">${esc(label)}</label>${limit ? `<span class="badge" data-for="${id}" data-limit="${limit}"></span>` : ''}<span class="sp"></span><button class="copy" data-copy="${id}" aria-label="Copy ${esc(label)}">Copy</button></div><textarea id="${id}" rows="${r}" spellcheck="false">${esc(text)}</textarea></div>`;
+}
+const fk = (k, rows) => field(F[k].label, F[k].text, F[k].limit, rows);
+const chk = (id, title, note = '') => `<label class="chk"><input type="checkbox" data-id="${id}"><span class="box" aria-hidden="true"></span><span class="t"><b>${title}</b>${note ? `<small>${note}</small>` : ''}</span></label>`;
+const fig = (src, cap, sub = '') => `<figure><a href="${src}" target="_blank" rel="noopener"><img loading="lazy" src="${src}" alt="${esc(cap)}"></a><figcaption><b>${esc(cap)}</b>${esc(sub || src)}</figcaption></figure>`;
+const vid = (src, cap, poster = '') => `<figure><video controls preload="metadata" playsinline ${poster ? `poster="${poster}"` : ''} src="${src}"></video><figcaption><b>${esc(cap)}</b>${esc(src)}</figcaption></figure>`;
+const table = (head, rows) => `<div class="tw"><table><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+
+const SHOTS = ['01_hero', '02_scan_to_join', '03_shoot_live', '04_one_album', '05_find_me', '06_design_studio', '07_host_control', '08_packages'];
+const sections = [];
+const sec = (id, title, where, html) => sections.push({ id, title, where, html });
+
+sec('info', 'App Information', 'General › App Information', `
+  ${fk('name')}${fk('subtitle')}
+  <h3>Identity</h3>
+  <div class="kv"><div>Bundle ID</div><div class="mono">${F.bundle.text}</div><div>SKU</div><div class="mono">${F.sku.text}</div><div>Primary category</div><div>${F.cat1.text}</div><div>Secondary category</div><div>${F.cat2.text}</div><div>Content rights</div><div>No third-party content</div></div>
+  ${fk('privacy_url', 1)}
+  <h3>Age rating (Edit › questionnaire)</h3>
+  ${table(['Question', 'Answer'], [['Parental controls · Age assurance · Unrestricted web access', '<span class="no">No</span>'], ['User-generated content', '<span class="yes">Yes</span>'], ['Messaging and chat · Advertising', '<span class="no">No</span>'], ['All violence, sexual, profanity, mature, horror, medical, alcohol/drug, gambling, contest, loot box questions', '<span class="no">None / No</span>'], ['Made for Kids', '<span class="no">No</span>']])}
+  <h3>Do it</h3>
+  ${chk('info-name', 'Name and subtitle pasted', 'Both under 30 characters')}
+  ${chk('info-cat', 'Categories: Photo & Video, Lifestyle')}
+  ${chk('info-age', 'Age rating questionnaire answered')}
+  ${chk('info-privacy', 'Privacy Policy URL opens in Safari')}
+  ${chk('info-uk', 'Optional: English (U.K.) localization added with the second keyword set', 'See 01_metadata_and_aso.md')}`);
+
+sec('pricing', 'Pricing and Availability', 'General › Pricing and Availability', `
+  <div class="kv"><div>Price</div><div>Free (revenue comes from per-event packages)</div><div>Base country</div><div>India</div><div>Availability</div><div>All countries and regions except China mainland (needs an ICP filing)</div><div>Apple silicon Mac</div><div>Off</div><div>Apple Vision Pro</div><div>Off</div><div>Pre-order</div><div>Off</div></div>
+  <h3>Do it</h3>
+  ${chk('pr-free', 'Price set to Free, base country India')}
+  ${chk('pr-avail', 'Availability: all except China mainland')}
+  ${chk('pr-mac', 'Mac and Vision Pro availability turned off')}`);
+
+sec('privacy', 'App Privacy', 'General › App Privacy', `
+  <p class="lede">Collect data: <b>Yes</b>. Tracking: <b>No</b> for every type. Everything is <b>Linked to you</b>, purpose <b>App Functionality</b> only.</p>
+  ${table(['Category', 'Data type', 'Linked', 'Tracking', 'Purpose', 'From the code'], [
+    ['Contact Info', 'Name', 'Yes', 'No', 'App Functionality', 'Account name; invitee names'],
+    ['Contact Info', 'Email Address', 'Yes', 'No', 'App Functionality', 'Sign-in, invitations'],
+    ['User Content', 'Photos or Videos', 'Yes', 'No', 'App Functionality', 'The album'],
+    ['User Content', 'Audio Data', 'Yes', 'No', 'App Functionality', 'Voice notes, video sound'],
+    ['User Content', 'Other User Content', 'Yes', 'No', 'App Functionality', 'Event details, logos, likes'],
+    ['Sensitive Info', 'Sensitive Info', 'Yes', 'No', 'App Functionality', 'Opt-in faceprints for “Me”'],
+    ['Location', 'Precise Location', 'Yes', 'No', 'App Functionality', 'GPS EXIF kept in originals'],
+    ['Identifiers', 'User ID', 'Yes', 'No', 'App Functionality', 'Account id, RevenueCat app user id'],
+    ['Purchases', 'Purchase History', 'Yes', 'No', 'App Functionality', 'Event packages'],
+  ])}
+  <div class="alert">No analytics, crash, ads or tracking SDKs are in the app, so Usage Data, Diagnostics and Device ID stay unticked. Add Crash and Performance Data if Sentry ships later.</div>
+  <h3>Do it</h3>
+  ${chk('pv-types', 'Nine data types entered as above')}
+  ${chk('pv-track', 'Tracking: No for all; no ATT prompt needed')}
+  ${chk('pv-manifest', 'App-level privacy manifest added (ios.privacyManifests in app.json)', 'Avoids the ITMS-91053 warning email')}
+  ${chk('pv-publish', 'Privacy answers published')}`);
+
+const shotRows = SHOTS.map((s, i) => fig(`screenshots/iphone_6_9/${s}_1320x2868.png`, `${i + 1}. ${s.slice(3).replace(/_/g, ' ')}`, '1320×2868')).join('');
+const shot65 = SHOTS.map((s, i) => fig(`screenshots/iphone_6_5/${s}_1284x2778.png`, `${i + 1}. ${s.slice(3).replace(/_/g, ' ')}`, '1284×2778')).join('');
+sec('version', 'iOS App Version 1.0', 'iOS App › 1.0 Prepare for Submission', `
+  <h3>App Previews and Screenshots · iPhone 6.9" display</h3>
+  <div class="vids">${vid('app_previews_video/app_preview_6_9_886x1920.mp4', 'App Preview · 29 s · 886×1920', 'app_previews_video/poster_frame_886x1920.png')}</div>
+  <div class="gal" style="margin-top:12px">${shotRows}</div>
+  <h3>iPhone 6.5" display</h3>
+  <div class="gal">${shot65}</div>
+  <p class="lede" style="margin-top:12px">Upload in this order. Slides 2 and 3 are one panorama: keep them side by side. Poster frame: the end card (26.5 s). No iPad slot: the app is iPhone only.</p>
+  ${fk('promo')}${fk('description')}${fk('keywords', 2)}${fk('support_url', 1)}${fk('marketing_url', 1)}${fk('whats_new')}${fk('copyright', 1)}
+  <h3>Do it</h3>
+  ${chk('v-prev', 'App Preview uploaded to 6.9" (and 6.5") with the end-card poster frame')}
+  ${chk('v-69', '8 screenshots uploaded at 1320×2868')}
+  ${chk('v-65', '8 screenshots uploaded at 1284×2778')}
+  ${chk('v-text', 'Promotional text, description, keywords pasted')}
+  ${chk('v-urls', 'Support and marketing URLs open')}
+  ${chk('v-build', 'Build 18 (or later) selected; export compliance auto-answered by ITSAppUsesNonExemptEncryption = false')}`);
+
+const iapRows = D.iaps.map((i) => [esc(i.ref), `<span class="mono">${i.id}</span>`, i.type, `${esc(i.name)} <span class="pill">${i.name_count}/30</span>`, `${esc(i.desc)} <span class="pill">${i.desc_count}/45</span>`, `₹${i.inr.toLocaleString('en-IN')}`, `$${i.usd}`]);
+const iapFields = D.iaps.map((i) => `<h3>${esc(i.ref)}</h3>${field('Reference Name', i.ref, 64, 1)}${field('Product ID', i.id, null, 1)}${field('Display Name', i.name, 30, 1)}${field('Description', i.desc, 45, 1)}`).join('');
+sec('subs', 'Subscriptions', 'Monetization › Subscriptions', `
+  <div class="alert">Klickers has <b>no subscriptions</b>. Hosts pay once per event (consumable in-app purchases, next section). Do not create a subscription group. Introductory and promotional offers only exist for subscriptions, so there is nothing to set here; the free “Try Klickers” package is the trial.</div>
+  ${chk('s-none', 'Confirmed: no subscription group created')}`);
+
+sec('iap', 'In-App Purchases', 'Monetization › In-App Purchases', `
+  ${table(['Reference name', 'Product ID', 'Type', 'Display name', 'Description', 'India', 'U.S.'], iapRows)}
+  <h3>Promotional images · 1024×1024</h3>
+  <div class="gal">${[['iap_party', 'Party'], ['iap_celebration', 'Celebration'], ['iap_branded', 'Branded Event'], ['promo_upgrade_difference', 'Upgrade products'], ['offer_code_launch', 'Offer code art']].map(([f, c]) => fig(`subscription_banners/${f}_1024x1024.png`, c)).join('')}${fig('subscription_banners/iap_review_screenshot_packages_1200x2616.png', 'Review screenshot (all six)', '1200×2616')}</div>
+  ${field(F.iap_review.label, F.iap_review.text, F.iap_review.limit)}
+  ${iapFields}
+  <h3>Do it</h3>
+  ${chk('i-create', 'Six consumables created with the exact product ids')}
+  ${chk('i-price', 'Prices: India base, rich storefronts overridden', 'Table in 03_subscriptions_and_iap.md')}
+  ${chk('i-img', 'Review screenshot and notes on every product')}
+  ${chk('i-rc', 'Same six ids added in RevenueCat; sandbox purchase applied to an event')}
+  ${chk('i-attach', 'All six attached to version 1.0 (“In-App Purchases” box on the version page)')}`);
+
+sec('review', 'App Review', 'iOS App › 1.0 › App Review Information', `
+  <div class="alert red"><b>Fix before submitting if you can:</b> guests have no “Report photo” or “Block” action (Guideline 1.2). Hosts can review, hide and remove photos and guests, which the notes explain, but a report button removes the most likely rejection.</div>
+  ${fk('review_user', 1)}${fk('review_pass', 1)}${fk('review_contact', 1)}${fk('review_phone', 1)}${fk('review_notes')}
+  <h3>Do it</h3>
+  ${chk('r-acct', 'Demo account created on production and signed in once')}
+  ${chk('r-events', 'Host event and guest event (with photos) dated inside the review window')}
+  ${chk('r-code', 'Guest join code filled into the notes')}
+  ${chk('r-report', 'Report photo / block added (recommended)')}
+  ${chk('r-submit', 'Add for Review › Submit')}`);
+
+sec('marketing', 'Marketing assets', 'Search Ads · Today tab · Custom Product Pages', `
+  <h3>Search Ads and social video · 15 s</h3>
+  <div class="vids">${vid('editorial_and_search_banners/search_ads_promo_1080x1920.mp4', '1080×1920 vertical')}${vid('editorial_and_search_banners/search_ads_promo_1080x1080.mp4', '1080×1080 square')}${vid('app_previews_video/app_preview_1080x1920.mp4', 'App Preview cut · 1080×1920')}</div>
+  <h3>Editorial and CPP headers</h3>
+  <div class="gal wide">${[['today_tab_feature_1600x900', 'Today tab / feature · 1600×900'], ['promo_banner_1024x500', 'Promo banner · 1024×500'], ['cpp_hero_weddings_1600x900', 'CPP · Weddings'], ['cpp_hero_corporate_1600x900', 'CPP · Corporate'], ['cpp_hero_birthdays_1600x900', 'CPP · Birthdays'], ['search_ads_square_1080x1080', 'Search Ads / social square · 1080×1080']].map(([f, c]) => fig(`editorial_and_search_banners/${f}.png`, c)).join('')}</div>
+  <h3>Do it</h3>
+  ${chk('m-cpp', 'Custom Product Pages created (Weddings, Corporate, Birthdays)', 'Screenshot orders in 01_metadata_and_aso.md')}
+  ${chk('m-ads', 'Search Ads campaign uses the CPPs for matching keywords')}
+  ${chk('m-feature', 'Featuring nomination submitted with the Today tab art (App Store Connect › Featuring)')}`);
+
+sec('ready', 'Readiness check', 'Before you press Submit', `
+  ${chk('c-res', 'Every image is the exact size App Store Connect asks for', '1320×2868, 1284×2778, 1024×1024')}
+  ${chk('c-vid', 'Preview is 15–30 s, H.264, 30 fps, AAC stereo, under 500 MB', 'Ours: 29.0 s, High profile, 48 kHz, 11 MB')}
+  ${chk('c-true', 'Screens and copy match the build (no features that are not in it)')}
+  ${chk('c-noprice', 'No prices or “free trial” claims in screenshots that the store could contradict')}
+  ${chk('c-legal', 'Privacy policy, terms and support pages load at klickers.app')}
+  ${chk('c-delete', 'Account deletion works in the release build')}
+  ${chk('c-siwa', 'Sign in with Apple works on the release build')}
+  ${chk('c-restore', 'Restore purchases is visible on Packages')}
+  ${chk('c-perm', 'Permission prompts read correctly (camera, microphone, photos)')}
+  ${chk('c-prod', 'The build points at production, not pre-prod')}`);
+
+document.getElementById('app').innerHTML = sections.map((s) => `<section id="${s.id}"><div class="sh"><h2>${s.title}</h2><span class="where">${s.where}</span></div>${s.html}</section>`).join('');
+document.getElementById('toc').innerHTML = sections.map((s) => `<li><a href="#${s.id}">${s.title}<span class="n" data-n="${s.id}"></span></a></li>`).join('');
+
+// live counts
+function count(ta) {
+  const b = document.querySelector(`.badge[data-for="${ta.id}"]`);
+  if (!b) return;
+  const n = [...ta.value].length, lim = +b.dataset.limit;
+  b.textContent = `${n}/${lim} chars`;
+  b.className = 'badge' + (n > lim ? ' bad' : n > lim * 0.97 ? ' warn' : '');
+}
+document.querySelectorAll('textarea').forEach((t) => { count(t); t.addEventListener('input', () => count(t)); });
+
+// copy
+const toast = (m) => { const t = document.getElementById('toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), 1400); };
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-copy]'); if (!b) return;
+  const ta = document.getElementById(b.dataset.copy);
+  try { await navigator.clipboard.writeText(ta.value); } catch { ta.select(); document.execCommand('copy'); }
+  b.textContent = 'Copied'; b.classList.add('done'); setTimeout(() => { b.textContent = 'Copy'; b.classList.remove('done'); }, 1200);
+  toast('Copied ' + b.getAttribute('aria-label').replace('Copy ', ''));
+});
+
+// checklist with saved progress
+const KEY = 'klickers-asc-checklist-v1';
+let saved = {};
+try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch {}
+const boxes = [...document.querySelectorAll('input[type=checkbox]')];
+function progress() {
+  const done = boxes.filter((b) => b.checked).length;
+  document.getElementById('pc').textContent = done; document.getElementById('pt').textContent = boxes.length;
+  document.getElementById('pb').style.width = (done / boxes.length) * 100 + '%';
+  sections.forEach((s) => { const bs = [...document.querySelectorAll(`#${s.id} input[type=checkbox]`)]; const n = document.querySelector(`[data-n="${s.id}"]`); n.textContent = bs.length ? `${bs.filter((b) => b.checked).length}/${bs.length}` : ''; });
+}
+boxes.forEach((b) => { b.checked = !!saved[b.dataset.id]; b.addEventListener('change', () => { saved[b.dataset.id] = b.checked; try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch {} progress(); }); });
+progress();
+</script>
+</body>
+</html>

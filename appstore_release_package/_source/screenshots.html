@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Klickers screenshots</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@500&family=Pinyon+Script&family=Cormorant+Garamond:ital,wght@1,500&family=Space+Grotesk:wght@600;700&family=Syne:wght@800&display=block" rel="stylesheet">
+<style>
+  html,body{margin:0;padding:0;overflow:hidden;background:#1B2A22}
+  #root{position:absolute;left:0;top:0;width:440px;height:956px;transform-origin:top left;overflow:hidden}
+  .bg{position:absolute;inset:0;background:
+      radial-gradient(120% 60% at 50% 105%, rgba(165,177,143,.38), transparent 60%),
+      radial-gradient(80% 40% at 0% 0%, rgba(116,128,99,.35), transparent 70%),
+      linear-gradient(180deg,#22352B 0%,#1B2A22 55%,#15211B 100%)}
+  .grain{position:absolute;inset:0;opacity:.07;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='160' height='160' filter='url(%23n)'/></svg>")}
+  .copy{position:absolute;left:30px;right:30px;top:62px;display:flex;flex-direction:column;gap:12px;z-index:5}
+  .kick{font:500 11px 'DM Mono',monospace;letter-spacing:2px;color:#A5B18F;text-transform:uppercase;display:flex;gap:10px;align-items:center}
+  .kick i{width:22px;height:1px;background:#A5B18F;opacity:.7}
+  h1{margin:0;font:400 44px/46px 'DM Serif Display',serif;letter-spacing:-1.3px;color:#FAF9F5}
+  h1 em{font-style:italic;color:#C9D3B0}
+  .sub{font:400 16px/23px 'DM Sans',sans-serif;color:rgba(250,249,245,.78);max-width:330px}
+  .call{position:absolute;z-index:8;display:flex;align-items:center;gap:10px;padding:11px 14px 11px 11px;border-radius:16px;background:rgba(255,254,250,.96);box-shadow:0 18px 40px -16px rgba(0,0,0,.55),0 2px 6px rgba(0,0,0,.12);font-family:'DM Sans',sans-serif;color:#273C32}
+  .call .ct{width:34px;height:34px;border-radius:11px;background:#E9EDDF;display:flex;align-items:center;justify-content:center;flex:none}
+  .call b{display:block;font:600 14px/18px 'DM Sans'}
+  .call span{display:block;font:400 12px/16px 'DM Sans';color:#6E7464}
+  .call.dark{background:#273C32;color:#FAF9F5}.call.dark .ct{background:#385447}.call.dark span{color:#C9D3B0}
+  .stage{position:absolute;top:0;left:0;height:956px}
+  .path{position:absolute;z-index:4}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="photos.js"></script>
+<script src="kit.js"></script>
+<script>
+const q = new URLSearchParams(location.search);
+const slide = +(q.get('slide') || 1);
+const W = 440;
+const S = window.SCREENS;
+const call = (icon, title, sub, style, dark) =>
+  `<div class="call ${dark ? 'dark' : ''}" style="${style}"><span class="ct">${ic(icon, 18, dark ? '#FAF9F5' : '#273C32')}</span><div><b>${title}</b>${sub ? `<span>${sub}</span>` : ''}</div></div>`;
+const copy = (n, h, sub, align = 'left', pos = '') =>
+  `<div class="copy" style="${pos};text-align:${align};${align === 'right' ? 'align-items:flex-end' : ''}"><div class="kick" style="${align === 'right' ? 'flex-direction:row-reverse' : ''}"><i></i>${String(n).padStart(2, '0')} · Klickers</div><h1>${h}</h1><div class="sub">${sub}</div></div>`;
+
+const slides = {
+  1: () => `${copy(1, 'Every photo, <em>everyone’s.</em>', 'One shared camera roll for every guest at your wedding, party or event.')}
+    ${phoneBox(S.guestHome(), 318, 'left:61px;top:262px')}
+    ${call('sparkles', 'Original quality', 'Never compressed', 'right:10px;top:330px')}
+    ${call('zap', 'Live for everyone', '2,318 photos so far', 'left:10px;top:800px', true)}`,
+  4: () => `${copy(4, 'The whole night, <em>one album.</em>', 'Photos, videos and voice notes from every guest, at full quality.')}
+    ${phoneBox(S.album({ highlight: 0 }), 318, 'left:61px;top:262px')}
+    ${call('images', 'Riya added 3 photos', 'just now · Everyone', 'right:14px;top:500px')}
+    ${call('mic', 'Voice note · 0:24', '“Congratulations, you two!”', 'left:14px;top:700px', true)}`,
+  5: () => `${copy(5, 'Find every photo <em>you’re in.</em>', 'Take one selfie and “Me” shows every shot your face is in. Opt-in and private.')}
+    ${phoneBox(S.findMe(), 318, 'left:61px;top:262px')}
+    ${call('face', '23 photos found', 'from guests and photographers', 'left:14px;top:560px', true)}
+    ${call('shield', 'Turn it off anytime', 'and your faceprint is deleted', 'right:12px;top:760px')}`,
+  6: () => `${copy(6, 'Make it look like <em>your day.</em>', 'Colour themes, name fonts, photo frames and your own logo.')}
+    ${phoneBox(S.design(), 318, 'left:61px;top:262px')}
+    ${call('palette', '6 colour themes', 'Sage, Blush, Marigold, Midnight…', 'left:10px;top:660px')}
+    ${call('download', 'Save in the host’s frame', 'or keep the clean original', 'right:10px;top:820px', true)}`,
+  7: () => `${copy(7, 'You stay <em>in control.</em>', 'Approve photos, add photographers and top up guests’ shots.')}
+    ${phoneBox(S.overview(), 318, 'left:61px;top:262px')}
+    ${call('check', 'Review guest photos first', 'Photographers skip the queue', 'right:12px;top:560px', true)}
+    ${call('aperture', 'Up to 3 photographers', '5,000 photos and 50 videos', 'left:14px;top:760px')}`,
+  8: () => `${copy(8, 'Guests join free. <em>Always.</em>', 'One payment per event. No subscription, no ads, no tracking.')}
+    ${phoneBox(S.plans(), 318, 'left:61px;top:262px')}
+    ${call('download', 'Every original as a ZIP', 'Celebration and up', 'left:10px;top:836px', true)}
+    ${call('lock', 'Private to your guests', 'Albums are invite-only', 'right:10px;top:470px')}`,
+};
+
+// Slides 2 and 3: one 880-px panorama, cut down the middle.
+const panorama = () => {
+  const flying = `<div style="position:absolute;left:392px;top:470px;width:96px;height:120px;border-radius:10px;background:${P(3)} center/cover;box-shadow:0 0 0 5px #FFFEFA,0 24px 40px -14px rgba(0,0,0,.6);transform:rotate(8deg);z-index:7"></div>`;
+  const path = `<svg class="path" style="left:150px;top:380px" width="600" height="300" viewBox="0 0 600 300" aria-hidden="true"><path d="M20 250 C 160 40, 420 20, 580 200" fill="none" stroke="#C9D3B0" stroke-width="2.5" stroke-dasharray="2 9" stroke-linecap="round" opacity=".8"/></svg>`;
+  return `<div class="stage" style="width:880px;transform:translateX(${slide === 3 ? -W : 0}px)">
+    <div class="bg" style="background:radial-gradient(60% 40% at 50% 70%, rgba(165,177,143,.35), transparent 70%),radial-gradient(50% 35% at 0% 0%, rgba(116,128,99,.35), transparent 70%),linear-gradient(180deg,#22352B 0%,#1B2A22 55%,#15211B 100%)"></div>
+    ${copy(2, 'Scan the QR. <em>You’re in.</em>', 'Guests join with a QR, a link or a 6-digit code. No app hunt.', 'left', 'left:30px;right:470px')}
+    ${copy(3, 'Shoot your roll. <em>It’s live.</em>', 'Every guest gets their own roll. Each shot lands in the shared album, instantly.', 'left', 'left:470px;right:30px')}
+    ${phoneBox(S.invite(), 300, 'left:22px;top:292px;transform:rotate(-5deg)')}
+    ${phoneBox(S.camera(), 290, 'left:300px;top:330px;transform:rotate(4deg)')}
+    ${phoneBox(S.album({ ids: [3, 0, 2, 7, 4, 5, 6, 1, 8, 9, 10, 11, 12, 13, 14, 15], highlight: 0 }), 300, 'left:560px;top:292px;transform:rotate(3deg)')}
+    ${path}${flying}
+    ${call('qr', 'Code 482 917', 'works without the app', 'left:14px;top:820px')}
+    ${call('zap', 'In the album in seconds', 'for every guest', 'left:520px;top:850px', true)}
+  </div>`;
+};
+
+const root = document.getElementById('root');
+const outW = +(q.get('w') || 440);
+root.style.transform = `scale(${outW / 440})`;
+root.innerHTML = `<div class="bg"></div>` + (slide === 2 || slide === 3 ? panorama() : slides[slide]()) + `<div class="grain"></div>`;
+document.fonts.ready.then(() => Promise.all([...document.images].map((i) => i.decode().catch(() => {})))).then(() => setTimeout(() => (window.READY = true), 300));
+</script>
+</body>
+</html>
