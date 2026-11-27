@@ -7,9 +7,6 @@ import {
 } from '@expo-google-fonts/dm-sans';
 import { BodoniModa_500Medium_Italic } from '@expo-google-fonts/bodoni-moda';
 import { CormorantGaramond_500Medium_Italic } from '@expo-google-fonts/cormorant-garamond';
-// Clerk is switched off for now (own email + password login instead).
-// import { ClerkProvider } from '@clerk/expo';
-// import { tokenCache } from '@clerk/expo/token-cache';
 import { DMSerifDisplay_400Regular, DMSerifDisplay_400Regular_Italic } from '@expo-google-fonts/dm-serif-display';
 import { PinyonScript_400Regular } from '@expo-google-fonts/pinyon-script';
 import { SpaceGrotesk_600SemiBold } from '@expo-google-fonts/space-grotesk';
@@ -32,9 +29,6 @@ import { loadPreferences } from '@/store/preferences';
 import { defaultTheme, ThemeProvider, useTheme } from '@/theme';
 
 void SplashScreen.preventAutoHideAsync();
-
-// const CLERK_KEY: string = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? '';
-// if (!CLERK_KEY) throw new Error('Set EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY in apps/mobile/.env');
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 2 } },
@@ -102,7 +96,8 @@ export default function RootLayout() {
   const [stateLoaded, setStateLoaded] = useState(false);
 
   useEffect(() => {
-    void Promise.all([loadSession(), loadCurrentEvent(), loadPreferences()]).then(() => {
+    // allSettled: one store that can't be read must never keep the app on its splash screen.
+    void Promise.allSettled([loadSession(), loadCurrentEvent(), loadPreferences()]).then(() => {
       setStateLoaded(true);
       void initUploadQueue();
     });
@@ -115,7 +110,6 @@ export default function RootLayout() {
   if (!fontsLoaded || !stateLoaded) return null;
 
   return (
-    // <ClerkProvider publishableKey={CLERK_KEY} tokenCache={tokenCache}>
     <QueryClientProvider client={queryClient}>
       {/* Lets screens keep the field being typed in above the keyboard, on Android too. */}
       <KeyboardProvider>
@@ -128,7 +122,6 @@ export default function RootLayout() {
       </ThemeProvider>
       </KeyboardProvider>
     </QueryClientProvider>
-    // </ClerkProvider>
   );
 }
 
@@ -153,6 +146,7 @@ function AppStack() {
           history, so Back after signing out can't reach a signed-in screen (it leaves the app). */}
       <Stack.Protected guard={!signedIn}>
         <Stack.Screen name="sign-in" options={{ animation: 'fade' }} />
+        <Stack.Screen name="forgot-password" />
       </Stack.Protected>
       <Stack.Protected guard={signedIn}>
         <Stack.Screen name="events" options={{ animation: 'fade' }} />

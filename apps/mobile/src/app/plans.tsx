@@ -5,6 +5,7 @@ import { Alert, ScrollView, View } from 'react-native';
 
 import { Button, LoadingState, Text } from '@/components/ui';
 import { toast } from '@/components/toast';
+import { SUPPORT_EMAIL } from '@/constants/links';
 import { screenPadding, space } from '@/constants/theme';
 import { planOf, rupees, shortDate } from '@/features/events/plan';
 import { useCurrentEvent } from '@/features/events/use-current-event';
@@ -41,6 +42,8 @@ export default function Plans() {
   const [picked, setPicked] = useState<string | null>(null);
   const [prices, setPrices] = useState<Partial<Record<PlanId, string>>>({});
   const retried = useRef(false);
+  /** Set the moment Pay or Restore is tapped, before the screen redraws: a second tap does nothing. */
+  const busy = useRef(false);
 
   // The store's own price (in the person's currency) once it loads; our rupee price until then.
   const currentPlan = event?.plan;
@@ -53,15 +56,15 @@ export default function Plans() {
   useEffect(() => {
     if (!id || retried.current) return;
     retried.current = true;
-    void pendingUpgrade().then(async (pending) => {
-      if (pending?.eventId !== id) return;
+    void pendingUpgrade(id).then(async (pending) => {
+      if (!pending) return;
       try {
         await change.mutateAsync({ plan: pending.plan, transactionId: pending.transactionId });
-        await setPendingUpgrade(null);
+        await setPendingUpgrade(id, null);
         toast(`Your payment went through: now on ${PLANS[pending.plan].name}`);
       } catch (e) {
         // Already applied, or not a payment we can use: stop retrying. Anything else retries next time.
-        if (e instanceof ApiRequestError && (e.status === 400 || e.status === 409)) await setPendingUpgrade(null);
+        if (e instanceof ApiRequestError && (e.status === 400 || e.status === 409)) await setPendingUpgrade(id, null);
       }
     });
   }, [id, change]);
@@ -71,9 +74,18 @@ export default function Plans() {
   const currentIndex = PLAN_IDS.indexOf(current.id);
   /** What moving to `p` costs this event: the store's price once loaded, else ours (only the difference from a paid package). */
   const priceOf = (p: Plan) => prices[p.id] ?? rupees(upgradePriceInr(current.id, p.id));
+  /**
+   * The card's headline price. Once the store's prices load, a card never shows our rupee list
+   * price next to a button in the store's currency (₹4,999 above "Upgrade for $49.99"): bigger
+   * packages show what the store will charge; ones already reached show none.
+   */
+  const storePriced = Object.keys(prices).length > 0;
+  const headPrice = (p: Plan, i: number) =>
+    p.priceInr === 0 ? 'Free' : i > currentIndex ? priceOf(p) : storePriced ? null : rupees(p.priceInr);
 
   async function pay(p: Plan) {
-    if (!id || !me || p.id === 'free') return;
+    if (!id || !me || p.id === 'free' || busy.current) return;
+    busy.current = true;
     setPicked(p.id);
     try {
       let transactionId: string | undefined;
@@ -81,21 +93,22 @@ export default function Plans() {
         const paid = await buyPlan(me.id, current.id, p.id);
         if (!paid) return; // Backed out of the store sheet.
         transactionId = paid;
-        await setPendingUpgrade({ eventId: id, plan: p.id, transactionId });
+        await setPendingUpgrade(id, { eventId: id, plan: p.id, transactionId });
       }
       await change.mutateAsync({ plan: p.id, transactionId });
-      if (transactionId) await setPendingUpgrade(null);
+      if (transactionId) await setPendingUpgrade(id, null);
       toast(`${event?.name ?? 'Your event'} is now on ${p.name}`);
     } catch (e) {
       const paidButNotApplied = paymentsEnabled && !(e instanceof ApiRequestError && e.status < 500);
       toast(
-        paidButNotApplied && (await pendingUpgrade())?.eventId === id
+        paidButNotApplied && (await pendingUpgrade(id))
           ? "Payment received. We'll finish the upgrade next time you open Packages."
           : e instanceof Error
             ? e.message
             : 'Could not upgrade. Please try again.',
       );
     } finally {
+      busy.current = false;
       setPicked(null);
     }
   }
@@ -105,17 +118,18 @@ export default function Plans() {
    * asks the store for this account's payments and applies any that never reached this event.
    */
   async function restorePurchases() {
-    if (!id || !me || restoring) return;
+    if (!id || !me || busy.current) return;
+    busy.current = true;
     setRestoring(true);
     try {
-      const pending = await pendingUpgrade();
-      if (pending?.eventId === id) {
+      const pending = await pendingUpgrade(id);
+      if (pending) {
         try {
           await change.mutateAsync({ plan: pending.plan, transactionId: pending.transactionId });
-          await setPendingUpgrade(null);
+          await setPendingUpgrade(id, null);
           return toast(`Restored: ${event?.name ?? 'Your event'} is on ${PLANS[pending.plan].name}`);
         } catch (e) {
-          if (e instanceof ApiRequestError && (e.status === 400 || e.status === 409)) await setPendingUpgrade(null);
+          if (e instanceof ApiRequestError && (e.status === 400 || e.status === 409)) await setPendingUpgrade(id, null);
         }
       }
       await syncStorePurchases(me.id);
@@ -130,6 +144,7 @@ export default function Plans() {
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not restore purchases. Please try again.');
     } finally {
+      busy.current = false;
       setRestoring(false);
     }
   }
@@ -162,7 +177,7 @@ export default function Plans() {
           <View key={p.id} style={[styles.card, isCurrent && styles.cardCurrent, below && styles.cardBelow]}>
             <View style={styles.cardHead}>
               <Text style={styles.name}>{p.name}</Text>
-              <Text style={styles.price}>{p.priceInr === 0 ? 'Free' : rupees(p.priceInr)}</Text>
+              {headPrice(p, i) && <Text style={styles.price}>{headPrice(p, i)}</Text>}
             </View>
             {features(p).map((f) => (
               <View key={f} style={styles.feature}>
@@ -181,7 +196,7 @@ export default function Plans() {
                 label={current.priceInr > 0 ? `Upgrade for ${priceOf(p)} more` : `Upgrade for ${priceOf(p)}`}
                 fullWidth
                 loading={picked === p.id}
-                disabled={picked !== null || change.isPending}
+                disabled={picked !== null || restoring || change.isPending}
                 onPress={() => upgrade(p)}
               />
             )}
@@ -195,12 +210,12 @@ export default function Plans() {
           variant="ghost"
           fullWidth
           loading={restoring}
-          disabled={picked !== null || change.isPending}
+          disabled={picked !== null || restoring || change.isPending}
           onPress={() => void restorePurchases()}
         />
       )}
       <Text variant="caption" color="muted" style={styles.foot}>
-        More than 300 guests or several venues? Write to support@klyra.co.in for a custom package.
+        More than 300 guests or several venues? Write to {SUPPORT_EMAIL} for a custom package.
       </Text>
     </ScrollView>
   );

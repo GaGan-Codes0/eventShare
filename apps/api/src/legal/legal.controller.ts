@@ -2,7 +2,7 @@ import { Controller, Get, Header } from '@nestjs/common';
 
 const COMPANY = 'Klyra Innovations Private Limited';
 const EMAIL = 'support@klyra.co.in';
-const UPDATED = '18 November 2026';
+const UPDATED = '27 November 2026';
 
 /** One plain, readable page in Klickers' colours. The text is ours, never user input. */
 function page(title: string, body: string) {
@@ -48,6 +48,7 @@ const PRIVACY = page(
   <li><strong>What you add to an event:</strong> photos, videos, voice messages, likes, and for hosts the event details, logo, poster and frame.</li>
   <li><strong>Photo details:</strong> we keep your originals exactly as your phone made them, including their date and, if your camera recorded it, the location where the photo was taken. Everyone in the event can download the original.</li>
   <li><strong>Faceprints for "Me", only if you choose it:</strong> when you turn on "Me" with a selfie, your phone turns faces into a list of numbers (a faceprint). We store faceprints only to show you the photos you are in. We never use them to identify you anywhere else. You can turn "Me" off at any time and your faceprint is deleted.</li>
+  <li><strong>Reports and blocks:</strong> when you report a photo or block someone, we keep who reported or blocked, the photo or person, the reason and when, so we can review it and keep their content hidden from you. The person you report or block is not told it was you.</li>
   <li><strong>Purchases:</strong> which event package was bought and when. Payment is handled by Apple or Google; we never see your card or bank details.</li>
   <li><strong>Technical data:</strong> basic server logs (such as IP address and time of a request) kept for security, for up to 30 days.</li>
 </ul>
@@ -90,7 +91,11 @@ const TERMS = page(
   `<p class="updated">Last updated ${UPDATED}</p>
 <p>These terms apply when you use Klickers, run by ${COMPANY}. By using the app you agree to them.</p>
 <h2>Your content</h2>
-<p>You own the photos, videos and voice messages you add. You give us permission to store them and show them to the people in that event, only to run Klickers. Only add content you have the right to share, and nothing illegal, hateful or sexual involving minors. We may remove content or accounts that break these rules.</p>
+<p>You own the photos, videos and voice messages you add. You give us permission to store them and show them to the people in that event, only to run Klickers. Only add content you have the right to share.</p>
+<h2>No tolerance for objectionable content or abuse</h2>
+<p>Klickers has zero tolerance for objectionable content and abusive users. Do not add or share anything that is sexually explicit, involves minors in any sexual way, is violent or threatening, harasses or bullies anyone, is hateful or discriminatory, is illegal, or that you don't have the right to share. Anyone who does will have that content removed and their account closed.</p>
+<h2>Reporting and blocking</h2>
+<p>Open any photo, video or voice message and tap <strong>Report</strong> to tell us about it. It disappears for you at once and goes back to the event's hosts for review. Tap <strong>Block</strong> to stop seeing anything that person adds, in any event; you can unblock them from your profile. You can also write to <a href="mailto:${EMAIL}">${EMAIL}</a>. We review every report within 24 hours, remove content that breaks these rules, and close the accounts of the people who posted it.</p>
 <h2>Hosts</h2>
 <p>Hosts are responsible for who they invite and for the photos they allow in their event. Hosts can approve, hide and remove photos.</p>
 <h2>Packages and payments</h2>
@@ -109,6 +114,7 @@ const SUPPORT = page(
 <p><strong>Why can't I take more photos?</strong><br>The host sets how many shots each guest gets. You can ask the host for more shots from the camera screen.</p>
 <p><strong>How do I save photos?</strong><br>Open a photo and tap save. You can keep the original or a copy in the host's frame.</p>
 <p><strong>How do I find photos I'm in?</strong><br>Open "Me" in the event and take a selfie. This is optional and you can turn it off at any time.</p>
+<p><strong>How do I report a photo or block someone?</strong><br>Open the photo and tap Report or Block. Reported photos are hidden for you straight away and reviewed by us within 24 hours. You can unblock people from your profile.</p>
 <p><strong>How do I delete my account?</strong><br>In the app, open your profile and tap "Delete account". See our <a href="/privacy">privacy policy</a> for what gets deleted.</p>`,
 );
 

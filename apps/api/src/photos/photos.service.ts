@@ -24,6 +24,8 @@ import {
   type Photo,
   type PhotoLikes,
   type PhotoListFilter,
+  REPORT_REASON_LABEL,
+  type ReportReason,
   type UpdatePhotoInput,
   type UploadTicket,
 } from '@eventshare/shared';
@@ -31,9 +33,10 @@ import { and, count, desc, eq, inArray, isNull, lt, or, sql, type SQL } from 'dr
 import sharp from 'sharp';
 
 import { DB, type Db } from '../db/db.module.js';
-import { eventMembers, photoLikes, photos, users } from '../db/schema.js';
+import { eventMembers, photoLikes, photoReports, photos, users } from '../db/schema.js';
 import { albumOpen, EventsService, visibleTo } from '../events/events.service.js';
 import { FacesService } from '../faces/faces.service.js';
+import { MailService } from '../mail/mail.service.js';
 import { mediaDurationMs } from '../media/duration.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { QueueService } from '../redis/queue.service.js';
@@ -106,6 +109,7 @@ export class PhotosService implements OnModuleInit {
     private readonly faces: FacesService,
     private readonly queue: QueueService,
     private readonly realtime: RealtimeService,
+    private readonly mail: MailService,
   ) {}
 
   onModuleInit() {
@@ -476,6 +480,47 @@ export class PhotosService implements OnModuleInit {
       this.db.select({ n: count() }).from(photoLikes).where(and(eq(photoLikes.photoId, row.id), eq(photoLikes.userId, userId))),
     ]);
     return { likeCount: n?.n ?? 0, likedByMe: (mine?.n ?? 0) > 0 };
+  }
+
+  /**
+   * Report a photo as objectionable (App Store rule 1.2). The reporter stops seeing it at once, it
+   * goes back to the host's review queue (out of everyone else's album until approved), and
+   * Klickers is emailed to act on it. Reporting the same photo again changes nothing.
+   */
+  async report(photoId: string, userId: string, reason: ReportReason): Promise<void> {
+    const row = await this.findForUser(photoId, userId);
+    const { event, role } = await this.events.requireMember(row.eventId, userId);
+    if (row.uploaderId === userId) throw new BadRequestException("You can't report your own photo. You can delete it instead.");
+    // Already reported (and so hidden from them now): nothing more to do.
+    const before = await this.db.query.photoReports.findFirst({ where: and(eq(photoReports.photoId, row.id), eq(photoReports.reporterId, userId)), columns: { id: true } });
+    if (before) return;
+    if (row.status !== 'ready' || !this.canSee(row, event, role, userId)) throw new NotFoundException('Photo not found');
+
+    const [saved] = await this.db
+      .insert(photoReports)
+      .values({ photoId: row.id, eventId: row.eventId, reporterId: userId, reason })
+      .onConflictDoNothing()
+      .returning({ id: photoReports.id });
+    if (!saved) return;
+    // The host's own photos have no one above them in the event: Klickers reviews those from the email.
+    if (row.uploaderId !== event.ownerId) await this.db.update(photos).set({ pendingReview: true }).where(eq(photos.id, row.id));
+    await this.realtime.touch(row.eventId, 'rev');
+
+    const people = await this.db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, [row.uploaderId, userId]));
+    const nameOf = (id: string) => people.find((u) => u.id === id)?.name ?? 'Unknown';
+    const key = row.previewKey ?? row.thumbKey ?? row.storageKey;
+    void this.mail.photoReport({
+      reason: REPORT_REASON_LABEL[reason],
+      eventId: event.id,
+      eventName: event.name,
+      photoId: row.id,
+      kind: row.kind,
+      uploaderId: row.uploaderId,
+      uploaderName: nameOf(row.uploaderId),
+      reporterId: userId,
+      reporterName: nameOf(userId),
+      link: await this.storage.presignDownload(key).catch(() => null),
+    });
   }
 
   /** The same rule as visibleTo(), for one photo. */

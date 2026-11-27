@@ -1,12 +1,16 @@
 import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
 import {
   appleSignInSchema,
+  forgotPasswordSchema,
   googleSignInSchema,
   loginSchema,
+  resetPasswordSchema,
   signupSchema,
   type AppleSignInInput,
+  type ForgotPasswordInput,
   type GoogleSignInInput,
   type LoginInput,
+  type ResetPasswordInput,
   type SignupInput,
 } from '@eventshare/shared';
 import { ThrottlerGuard } from '@nestjs/throttler';
@@ -41,5 +45,19 @@ export class AuthController {
   @HttpCode(200)
   google(@Body(new ZodPipe(googleSignInSchema)) body: GoogleSignInInput) {
     return this.auth.signInWithGoogle(body);
+  }
+
+  /** Forgot password: emails a code. Always 204, so it never tells whether an email has an account. */
+  @Post('password/forgot')
+  @HttpCode(204)
+  async forgotPassword(@Body(new ZodPipe(forgotPasswordSchema)) body: ForgotPasswordInput) {
+    await this.auth.requestPasswordReset(body);
+  }
+
+  /** Forgot password: the emailed code and a new password; signs in and signs every other phone out. */
+  @Post('password/reset')
+  @HttpCode(200)
+  resetPassword(@Body(new ZodPipe(resetPasswordSchema)) body: ResetPasswordInput) {
+    return this.auth.resetPassword(body);
   }
 }

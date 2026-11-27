@@ -125,9 +125,3 @@ export function normalise(v: ArrayLike<number>) {
   const k = s > 0 ? 1 / Math.sqrt(s) : 0;
   return Array.from(v, (x) => x * k);
 }
-
-export function cosine(a: readonly number[], b: readonly number[]) {
-  let d = 0;
-  for (let i = 0; i < a.length; i++) d += a[i]! * b[i]!;
-  return d;
-}

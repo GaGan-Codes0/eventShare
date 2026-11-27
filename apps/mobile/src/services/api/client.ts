@@ -2,8 +2,14 @@ import type { ApiError, ApiErrorCode } from '@eventshare/shared';
 
 import { getAuthHeaders, setSession } from './session';
 
-/** Simulator reaches the Mac's localhost directly. Set EXPO_PUBLIC_API_URL for devices / staging. */
-export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000';
+import { SITE_URL } from '@/constants/links';
+
+/**
+ * Set EXPO_PUBLIC_API_URL at build time (devices, test servers). Without it, development builds
+ * use the Mac's localhost (the simulator reaches it directly) and release builds the live API on
+ * our own domain, over HTTPS: a release can never ship pointing at localhost.
+ */
+export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? (__DEV__ ? 'http://localhost:4000' : SITE_URL);
 
 export class ApiRequestError extends Error {
   constructor(

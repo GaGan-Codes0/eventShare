@@ -28,14 +28,21 @@ function FindMe() {
   const has = event.hasFaceProfile;
 
   async function takeSelfie() {
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) {
-      setStep({ kind: 'error', message: 'Klickers needs the camera for your selfie. You can allow it in Settings.' });
+    let uri: string | undefined;
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        setStep({ kind: 'error', message: 'Klickers needs the camera for your selfie. You can allow it in Settings.' });
+        return;
+      }
+      const shot = await ImagePicker.launchCameraAsync({ cameraType: ImagePicker.CameraType.front, mediaTypes: ['images'], quality: 0.9 });
+      if (shot.canceled) return;
+      uri = shot.assets?.[0]?.uri;
+    } catch {
+      setStep({ kind: 'error', message: 'The camera didn’t open. Please try again.' });
       return;
     }
-    const shot = await ImagePicker.launchCameraAsync({ cameraType: ImagePicker.CameraType.front, mediaTypes: ['images'], quality: 0.9 });
-    const uri = shot.assets?.[0]?.uri;
-    if (shot.canceled || !uri) return;
+    if (!uri) return;
     setStep({ kind: 'checking' });
     try {
       const { findFaces } = await import('@/features/faces/detect');
@@ -57,8 +64,13 @@ function FindMe() {
   }
 
   async function stop() {
-    await forget.mutateAsync();
-    router.back();
+    try {
+      await forget.mutateAsync();
+      router.back();
+    } catch {
+      // Say so: otherwise you'd think your faceprint was deleted when it wasn't.
+      setStep({ kind: 'error', message: 'Couldn’t turn it off. Check your connection and try again.' });
+    }
   }
 
   const checking = step.kind === 'checking';

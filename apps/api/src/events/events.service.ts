@@ -42,13 +42,15 @@ import {
   type EventIdentity,
   type EventRules,
   type UpdateEventData,
+  REMOVAL_REASON_LABEL,
+  type RemoveMemberData,
   type UpdateMemberInput,
 } from '@eventshare/shared';
-import { and, count, desc, eq, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import sharp from 'sharp';
 
 import { DB, type Db } from '../db/db.module.js';
-import { eventMembers, eventPurchases, events, faceProfiles, photographerInvites, photos, shotRefillRequests, users } from '../db/schema.js';
+import { eventMembers, eventPurchases, events, faceProfiles, photographerInvites, photoReports, photos, shotRefillRequests, userBlocks, users } from '../db/schema.js';
 import { MailService } from '../mail/mail.service.js';
 import { RevenueCatService } from '../purchases/revenuecat.service.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
@@ -102,13 +104,20 @@ export function albumOpen(event: Pick<EventRow, 'albumOpensAt'>, role: EventRole
 /**
  * Which photos of an event this person may see: the host sees all. Others never see hidden
  * photos; they see their own (even while waiting for review or before the album opens), and
- * everyone else's approved ones once the album is open.
+ * everyone else's approved ones once the album is open, except photos they reported and anything
+ * from people they blocked.
  */
 export function visibleTo(event: Pick<EventRow, 'id' | 'albumOpensAt'>, role: EventRole, userId: string): SQL {
   const base = and(eq(photos.eventId, event.id), eq(photos.status, 'ready'), isNull(photos.deletedAt))!;
   if (role === 'host') return base;
-  const others = albumOpen(event, role) ? eq(photos.pendingReview, false) : sql`false`;
+  const others = albumOpen(event, role) ? and(eq(photos.pendingReview, false), notMutedBy(userId))! : sql`false`;
   return and(base, eq(photos.visibility, 'visible'), or(eq(photos.uploaderId, userId), others))!;
+}
+
+/** Not reported by this person, and not added by someone they blocked. */
+export function notMutedBy(userId: string): SQL {
+  return sql`NOT EXISTS (SELECT 1 FROM ${photoReports} WHERE ${photoReports.photoId} = ${photos.id} AND ${photoReports.reporterId} = ${userId})
+    AND NOT EXISTS (SELECT 1 FROM ${userBlocks} WHERE ${userBlocks.blockerId} = ${userId} AND ${userBlocks.blockedId} = ${photos.uploaderId})`;
 }
 
 export function generateJoinCode(): string {
@@ -243,10 +252,12 @@ export class EventsService {
     const existing = await this.db.query.eventMembers.findFirst({
       where: and(eq(eventMembers.eventId, event.id), eq(eventMembers.userId, userId)),
     });
-    if (existing?.status === 'removed') {
+    if (existing?.status === 'removed' && existing.banned) {
       throw new ForbiddenException('The host removed you from this event');
     }
-    if (!existing) {
+    // Removed but not banned: they can come back, as a guest, if there's room.
+    const rejoining = existing?.status === 'removed';
+    if (!existing || rejoining) {
       // Invited photographers have their own slot; everyone else counts against the package.
       const user = await this.db.query.users.findFirst({ where: eq(users.id, userId) });
       const [invited] = user?.email
@@ -264,7 +275,14 @@ export class EventsService {
         };
         throw new ForbiddenException(body);
       }
-      await this.db.insert(eventMembers).values({ eventId: event.id, userId, role: 'member' }).onConflictDoNothing();
+      if (rejoining) {
+        await this.db
+          .update(eventMembers)
+          .set({ status: 'active', role: 'member', removedAt: null, removedReason: null, removedNote: null })
+          .where(and(eq(eventMembers.eventId, event.id), eq(eventMembers.userId, userId)));
+      } else {
+        await this.db.insert(eventMembers).values({ eventId: event.id, userId, role: 'member' }).onConflictDoNothing();
+      }
     }
     // Invited by email to shoot this event: they come in as the photographer.
     await this.claimInvite(event.id, userId);
@@ -730,15 +748,50 @@ export class EventsService {
     return kind === 'video' ? VIDEO_LIMIT_MS : VOICE_LIMIT_MS;
   }
 
-  async removeMember(eventId: string, hostId: string, targetUserId: string) {
+  /**
+   * Host removes someone, with a reason. Removed people can rejoin with the code; banned people
+   * can't. Optionally everything they added here goes too. Abuse reasons are sent to Klickers.
+   * Older app builds send no reason: that was always a ban.
+   */
+  async removeMember(eventId: string, hostId: string, targetUserId: string, input: RemoveMemberData | null = null) {
     const { event } = await this.requireHost(eventId, hostId);
     if (targetUserId === event.ownerId) throw new BadRequestException("The event's creator can't be removed");
+    const ban = input?.ban ?? true;
+    const note = input?.note || null;
     const updated = await this.db
       .update(eventMembers)
-      .set({ status: 'removed', removedAt: new Date() })
+      .set({ status: 'removed', removedAt: new Date(), banned: ban, removedReason: input?.reason ?? null, removedNote: note })
       .where(and(eq(eventMembers.eventId, eventId), eq(eventMembers.userId, targetUserId), eq(eventMembers.status, 'active')))
       .returning();
     if (updated.length === 0) throw new NotFoundException('Not a member of this event');
+
+    let photosDeleted = 0;
+    if (input?.deletePhotos) {
+      const gone = await this.db
+        .update(photos)
+        .set({ deletedAt: new Date() })
+        .where(and(eq(photos.eventId, eventId), eq(photos.uploaderId, targetUserId), isNull(photos.deletedAt)))
+        .returning({ id: photos.id });
+      photosDeleted = gone.length;
+    }
+    await this.realtime.touch(eventId, 'rev');
+
+    if (input && (input.reason === 'objectionable' || input.reason === 'harassment')) {
+      const people = await this.db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, [targetUserId, hostId]));
+      const nameOf = (id: string) => people.find((u) => u.id === id)?.name ?? 'Unknown';
+      void this.mail.memberRemoved({
+        eventId,
+        eventName: event.name,
+        reason: REMOVAL_REASON_LABEL[input.reason],
+        note,
+        banned: ban,
+        photosDeleted,
+        memberId: targetUserId,
+        memberName: nameOf(targetUserId),
+        hostId,
+        hostName: nameOf(hostId),
+      });
+    }
   }
 
   async rotateCode(eventId: string, hostId: string): Promise<EventDetail> {

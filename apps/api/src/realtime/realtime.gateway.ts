@@ -1,13 +1,10 @@
 import type { Server } from 'node:http';
 
-import { Inject, Injectable, Logger, type BeforeApplicationShutdown } from '@nestjs/common';
-import { and, eq, isNull } from 'drizzle-orm';
+import { Injectable, Logger, type BeforeApplicationShutdown } from '@nestjs/common';
 import { WebSocket, WebSocketServer } from 'ws';
 import { z } from 'zod';
 
 import { AuthService } from '../auth/auth.service.js';
-import { DB, type Db } from '../db/db.module.js';
-import { users } from '../db/schema.js';
 import { EventsService } from '../events/events.service.js';
 import { RealtimeService } from './realtime.service.js';
 
@@ -34,7 +31,6 @@ export class RealtimeGateway implements BeforeApplicationShutdown {
   private pinger?: ReturnType<typeof setInterval>;
 
   constructor(
-    @Inject(DB) private readonly db: Db,
     private readonly auth: AuthService,
     private readonly events: EventsService,
     private readonly realtime: RealtimeService,
@@ -90,8 +86,7 @@ export class RealtimeGateway implements BeforeApplicationShutdown {
     const message = parsed.data;
 
     if (message.t === 'auth') {
-      const userId = await this.auth.verifyToken(message.token).catch(() => null);
-      const user = userId && (await this.db.query.users.findFirst({ where: and(eq(users.id, userId), isNull(users.deletedAt)) }));
+      const user = await this.auth.userFromToken(message.token).catch(() => null);
       if (!user) return client.close(4401, 'invalid token');
       client.userId = user.id;
       return;

@@ -1,13 +1,25 @@
-import { invitePhotographerSchema, refillShotsFor, upgradesFrom, type EventDetail, type Member, type PhotographerInvite, type RefillRequest } from '@eventshare/shared';
+import {
+  invitePhotographerSchema,
+  refillShotsFor,
+  REMOVAL_NOTE_MAX,
+  REMOVAL_REASON_LABEL,
+  REMOVAL_REASONS,
+  upgradesFrom,
+  type EventDetail,
+  type Member,
+  type PhotographerInvite,
+  type RefillRequest,
+  type RemovalReason,
+} from '@eventshare/shared';
 import { router } from 'expo-router';
-import { Aperture, Mail, MoreHorizontal, Plus, Trash2, UserPlus, X } from 'lucide-react-native';
+import { Aperture, Ban, Check, Mail, MoreHorizontal, Plus, Trash2, UserMinus, UserPlus, X } from 'lucide-react-native';
 import { useState, type ReactNode } from 'react';
-import { Alert, Modal, Pressable, RefreshControl, ScrollView, TextInput, View } from 'react-native';
+import { Alert, Modal, Pressable, RefreshControl, ScrollView, Switch, TextInput, View } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { toast } from '@/components/toast';
-import { Button, initialsOf, LoadingState, Text } from '@/components/ui';
+import { Button, initialsOf, LoadingState, Text, TextField } from '@/components/ui';
 import { radius, screenPadding, space } from '@/constants/theme';
 import { HostHeader } from '@/features/events/event-header';
 import { planOf } from '@/features/events/plan';
@@ -38,6 +50,14 @@ function PeopleBody({ event }: { event: EventDetail }) {
   const decide = useDecideRefill(event.id);
   const [picking, setPicking] = useState(false);
   const [menuFor, setMenuFor] = useState<Member | null>(null);
+  /** The remove sheet: who, why (and the host's own words for "other"), ban or not, and their photos. */
+  const [removing, setRemoving] = useState<Member | null>(null);
+  const [removal, setRemoval] = useState<{ reason: RemovalReason | null; note: string; ban: boolean; deletePhotos: boolean }>({
+    reason: null,
+    note: '',
+    ban: false,
+    deletePhotos: false,
+  });
   const [form, setForm] = useState({ name: '', email: '' });
 
   const list = members.data ?? [];
@@ -128,23 +148,31 @@ function PeopleBody({ event }: { event: EventDetail }) {
     ]);
   }
 
-  function confirmRemove(m: Member) {
+  function startRemove(m: Member) {
     setMenuFor(null);
-    Alert.alert(`Remove ${m.name}?`, "They'll lose access to the album and can't rejoin with the code.", [
-      { text: 'Cancel', style: 'cancel' },
+    setRemoval({ reason: null, note: '', ban: false, deletePhotos: false });
+    setRemoving(m);
+  }
+
+  const noteNeeded = removal.reason === 'other' && removal.note.trim().length === 0;
+  const canRemove = removal.reason !== null && !noteNeeded;
+
+  function submitRemove() {
+    const m = removing;
+    if (!m || !removal.reason) return toast('Choose a reason first');
+    if (noteNeeded) return toast('Write a few words about why');
+    const first = m.name.split(' ')[0];
+    remove.mutate(
+      { userId: m.userId, reason: removal.reason, note: removal.note.trim() || undefined, ban: removal.ban, deletePhotos: removal.deletePhotos },
       {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: () =>
-          remove.mutate(m.userId, {
-            onSuccess: () => {
-              void members.refetch();
-              toast(`${m.name.split(' ')[0]} removed from the event`);
-            },
-            onError: (e) => Alert.alert("Couldn't remove", e.message),
-          }),
+        onSuccess: () => {
+          setRemoving(null);
+          void members.refetch();
+          toast(removal.ban ? `${first} is banned from the event` : `${first} removed. They can rejoin with the code`);
+        },
+        onError: (e) => Alert.alert("Couldn't remove", e.message),
       },
-    ]);
+    );
   }
 
   const used = (m: Member) => (limit === null ? `${m.photosUsed} shots` : `${m.photosUsed} of ${limit + m.bonusShots} shots`);
@@ -402,17 +430,130 @@ function PeopleBody({ event }: { event: EventDetail }) {
                   </Text>
                 </View>
               </Pressable>
-              <Pressable accessibilityRole="button" onPress={() => confirmRemove(menuFor)} style={[styles.menuRow, styles.menuDivider]}>
+              <Pressable accessibilityRole="button" onPress={() => startRemove(menuFor)} style={[styles.menuRow, styles.menuDivider]}>
                 <Trash2 size={19} color={colors.danger} />
                 <Text variant="body" color="danger">
-                  Remove from event
+                  Remove or ban
                 </Text>
               </Pressable>
             </View>
           </>
         )}
       </Sheet>
+
+      <Sheet visible={Boolean(removing)} onClose={() => setRemoving(null)}>
+        {removing && (
+          <>
+            <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={8} onPress={() => setRemoving(null)} style={styles.close}>
+              <X size={16} color={colors.ink} />
+            </Pressable>
+            <Text variant="eyebrow">Remove from event</Text>
+            <Text variant="h2">Remove {removing.name.split(' ')[0]}?</Text>
+            <Text variant="caption" color="muted">
+              Why are you removing them? They won&apos;t see your reason.
+            </Text>
+            <View style={styles.menu} accessibilityRole="radiogroup">
+              {REMOVAL_REASONS.map((r, i) => (
+                <Choice
+                  key={r}
+                  label={REMOVAL_REASON_LABEL[r]}
+                  selected={removal.reason === r}
+                  divider={i > 0}
+                  onPress={() => setRemoval((v) => ({ ...v, reason: r, ban: r === 'objectionable' || r === 'harassment' ? true : v.ban }))}
+                />
+              ))}
+            </View>
+            {removal.reason === 'other' && (
+              <TextField
+                label="Your reason"
+                value={removal.note}
+                onChangeText={(note) => setRemoval((v) => ({ ...v, note }))}
+                placeholder="A few words about why"
+                maxLength={REMOVAL_NOTE_MAX}
+                multiline
+                autoFocus
+                style={styles.noteInput}
+              />
+            )}
+            {removal.reason !== null && (removal.reason === 'objectionable' || removal.reason === 'harassment') && (
+              <Text variant="caption" color="muted">
+                We&apos;ll also let the Klickers team know, so they can check this person&apos;s account.
+              </Text>
+            )}
+
+            <View style={styles.menu} accessibilityRole="radiogroup">
+              <Choice icon={UserMinus} label="Remove" caption="They can rejoin later with the event code" selected={!removal.ban} onPress={() => setRemoval((v) => ({ ...v, ban: false }))} />
+              <Choice icon={Ban} label="Ban" caption="They can never rejoin this event" selected={removal.ban} divider onPress={() => setRemoval((v) => ({ ...v, ban: true }))} />
+            </View>
+
+            <View style={[styles.menu, styles.menuRow]}>
+              <Trash2 size={19} color={colors.danger} />
+              <View style={styles.flex}>
+                <Text variant="body">Also delete what they added</Text>
+                <Text variant="caption" color="muted">
+                  Their photos, videos and voice notes in this event
+                </Text>
+              </View>
+              <Switch
+                accessibilityLabel="Also delete what they added"
+                value={removal.deletePhotos}
+                onValueChange={(deletePhotos) => setRemoval((v) => ({ ...v, deletePhotos }))}
+                trackColor={{ true: colors.primary, false: colors.lineStrong }}
+                thumbColor={colors.surface}
+                ios_backgroundColor={colors.lineStrong}
+              />
+            </View>
+
+            <Button
+              label={removal.ban ? `Ban ${removing.name.split(' ')[0]}` : `Remove ${removing.name.split(' ')[0]}`}
+              variant="danger"
+              fullWidth
+              disabled={!canRemove}
+              loading={remove.isPending}
+              onPress={submitRemove}
+            />
+          </>
+        )}
+      </Sheet>
     </View>
+  );
+}
+
+/** One option in a list where only one can be picked. */
+function Choice({
+  label,
+  caption,
+  icon: Icon,
+  selected,
+  divider,
+  onPress,
+}: {
+  label: string;
+  caption?: string;
+  icon?: typeof Ban;
+  selected: boolean;
+  divider?: boolean;
+  onPress: () => void;
+}) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+  return (
+    <Pressable
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={({ pressed }) => [styles.menuRow, divider && styles.menuDivider, pressed && { backgroundColor: colors.field }]}>
+      {Icon && <Icon size={19} color={colors.accent} />}
+      <View style={styles.flex}>
+        <Text variant="body">{label}</Text>
+        {caption && (
+          <Text variant="caption" color="muted">
+            {caption}
+          </Text>
+        )}
+      </View>
+      <View style={[styles.radio, selected && styles.radioOn]}>{selected && <Check size={13} color={colors.onPrimary} strokeWidth={3} />}</View>
+    </Pressable>
   );
 }
 
@@ -540,4 +681,7 @@ const useStyles = makeStyles(({ colors }) => ({
   menu: { borderRadius: radius.lg + 2, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, overflow: 'hidden' },
   menuRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: 14 },
   menuDivider: { borderTopWidth: 0.5, borderTopColor: colors.line },
+  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: colors.lineStrong, alignItems: 'center', justifyContent: 'center' },
+  radioOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  noteInput: { height: 84, paddingTop: 12, textAlignVertical: 'top' },
 }));

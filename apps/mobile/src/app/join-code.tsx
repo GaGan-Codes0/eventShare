@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/ui';
 import { FocusStatusBar } from '@/components/focus-status-bar';
 import { radius, screenPadding, space } from '@/constants/theme';
+import { ApiRequestError } from '@/services/api/client';
 import { useJoinPreview } from '@/services/api/hooks';
 import { makeStyles, useTheme } from '@/theme';
 import { formatCode } from '@/utils/format';
@@ -35,7 +36,10 @@ export default function JoinCode() {
     setCode((c) => (key === 'back' ? c.slice(0, -1) : c.length < JOIN_CODE_LENGTH ? c + key : c));
   }
 
-  const error = preview.isError && complete ? `No event uses ${formatCode(code)}. Check the code with your host.` : null;
+  // Only a 404 means the code is wrong; offline or "too many tries" say so instead.
+  const notFound = preview.error instanceof ApiRequestError && preview.error.status === 404;
+  const error =
+    preview.isError && complete ? (notFound ? `No event uses ${formatCode(code)}. Check the code with your host.` : preview.error.message) : null;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom + space.md }]}>

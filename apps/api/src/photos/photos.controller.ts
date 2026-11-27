@@ -18,10 +18,12 @@ import {
   createUploadSchema,
   PHOTO_LIST_FILTERS,
   PHOTO_PAGE_SIZE,
+  reportPhotoSchema,
   updatePhotoSchema,
   type CompleteUploadInput,
   type CreateArchiveInput,
   type PhotoListFilter,
+  type ReportPhotoInput,
   type UpdatePhotoInput,
 } from '@eventshare/shared';
 import { z } from 'zod';
@@ -107,6 +109,17 @@ export class PhotosController {
   @Delete('photos/:id/like')
   unlike(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.photos.setLiked(id, user.id, false);
+  }
+
+  /** Report a photo as objectionable: hidden for you, back to the host's review, and Klickers is told. */
+  @Post('photos/:id/report')
+  @HttpCode(204)
+  report(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(reportPhotoSchema)) body: ReportPhotoInput,
+  ) {
+    return this.photos.report(id, user.id, body.reason);
   }
 
   @Delete('photos/:id')

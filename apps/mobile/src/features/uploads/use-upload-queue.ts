@@ -1,10 +1,15 @@
 import { useSyncExternalStore } from 'react';
 
-import { getQueue, subscribeQueue } from './queue';
+import { getSessionUser } from '@/services/api/session';
+
+import { getQueue, isMine, subscribeQueue } from './queue';
 
 /** Live view of photos, videos and voice notes still on this phone waiting to upload. */
 export function useUploadQueue(eventId?: string | null) {
-  const items = useSyncExternalStore(subscribeQueue, getQueue);
+  const all = useSyncExternalStore(subscribeQueue, getQueue);
+  // Only your own: someone else who signed in on this phone before you keeps theirs to themselves.
+  const me = getSessionUser()?.id;
+  const items = all.filter((i) => isMine(i, me));
   const scoped = eventId ? items.filter((i) => i.eventId === eventId) : items;
   // Waiting to reach the server, so not yet counted in the event's allowances.
   const waiting = scoped.filter((i) => !i.permanent && !i.reserved);

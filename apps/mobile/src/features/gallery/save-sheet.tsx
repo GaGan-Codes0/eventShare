@@ -46,6 +46,8 @@ export function SaveSheet({ photo, event, onClose }: Props) {
   const [uploadRatio, setFrameRatio] = useState<number | null>(null);
   const frameRatio = template ? TEMPLATE_RATIO : uploadRatio;
   const [hostPhotoLoaded, setHostPhotoLoaded] = useState(false);
+  /** The host's frame didn't load: that copy is skipped rather than holding Save back forever. */
+  const [frameFailed, setFrameFailed] = useState(false);
   const look = event?.filter ?? 'natural';
   const hasLook = look !== 'natural';
 
@@ -53,17 +55,25 @@ export function SaveSheet({ photo, event, onClose }: Props) {
   useEffect(() => {
     let cancelled = false;
     let file: File | null = null;
+    /** The full-size copy with the event's look, made here: deleted with the original. */
+    let lookedFile: File | null = null;
+    const drop = (f: File | null) => {
+      if (f?.exists) f.delete();
+    };
     void (async () => {
       try {
         const { url } = await getDownloadUrl(photo.id);
         const dir = new Directory(Paths.cache, 'downloads');
         dir.create({ intermediates: true, idempotent: true });
         file = await File.downloadFileAsync(url, dir, { idempotent: true });
-        if (cancelled) return;
+        // Closed while it was downloading: the cleanup below already ran, so tidy up here.
+        if (cancelled) return drop(file);
         setLocal(file);
         if (look !== 'natural') {
           const uri = await exportFiltered(file.uri, look).catch(() => null);
-          if (!cancelled) setLooked(uri);
+          if (uri && uri !== file.uri) lookedFile = new File(uri);
+          if (cancelled) return drop(lookedFile);
+          setLooked(uri);
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't download the photo");
@@ -71,12 +81,13 @@ export function SaveSheet({ photo, event, onClose }: Props) {
     })();
     return () => {
       cancelled = true;
-      if (file?.exists) file.delete();
+      drop(file);
+      drop(lookedFile);
     };
   }, [photo.id, look]);
 
   const wantLook = hasLook && prefs.saveFiltered;
-  const wantHostFrame = Boolean(frameUrl || template) && prefs.saveHostFrame;
+  const wantHostFrame = Boolean(frameUrl || template) && prefs.saveHostFrame && !frameFailed;
   const nothing = !prefs.saveOriginal && !prefs.saveFramed && !wantLook && !wantHostFrame;
   // The framed copies show the look too, so they wait for the looked copy.
   const ready =
@@ -169,6 +180,7 @@ export function SaveSheet({ photo, event, onClose }: Props) {
                       frameUrl={frameUrl}
                       frameRatio={frameRatio ?? 1}
                       onFrameLoad={(size) => size.width && size.height && setFrameRatio(size.width / size.height)}
+                      onFrameError={() => setFrameFailed(true)}
                       onPhotoLoad={() => setHostPhotoLoaded(true)}
                     />
                   ) : null}

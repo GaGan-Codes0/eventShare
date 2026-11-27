@@ -47,7 +47,7 @@ npx expo run:ios        # first build / after adding native packages
 npm start               # day to day: Metro only, then open the installed app
 ```
 
-Sign-in is our own email + password (`POST /auth/signup`, `POST /auth/login`), returning a JWT the app keeps in SecureStore. Clerk is installed but commented out (`apps/mobile/src/features/auth/clerk-sign-in.tsx`). `AUTH_DEV_BYPASS=true` (a test-user header) is switched on only by `test:e2e` and refused in production.
+Sign-in is our own email + password (`POST /auth/signup`, `POST /auth/login`) or Sign in with Apple / Google, returning a JWT the app keeps in SecureStore. (The earlier, switched-off Clerk integration was removed; it is in git history up to `bf46006`.) `AUTH_DEV_BYPASS=true` (a test-user header) is switched on only by `test:e2e` and refused in production.
 
 ## Checks
 

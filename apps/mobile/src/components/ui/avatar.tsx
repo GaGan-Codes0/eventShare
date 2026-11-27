@@ -6,11 +6,18 @@ import { defaultTheme, makeStyles, useTheme } from '@/theme';
 
 import { Text } from './text';
 
+/** A word's first character, whole: an emoji or accented letter is never cut in half. */
+const firstChar = (word: string) => Array.from(word)[0] ?? '';
+
 export function initialsOf(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  // Initials come from words that start with a letter, in any script ("Zoë Ñúñez 📸" → "ZÑ");
+  // a name of only emoji keeps its first one.
+  const lettered = words.filter((w) => /^\p{L}/u.test(w));
+  const parts = lettered.length ? lettered : words;
   if (parts.length === 0) return '?';
-  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  const picked = parts.length === 1 ? [parts[0]] : [parts[0], parts[parts.length - 1]];
+  return picked.map(firstChar).join('').toLocaleUpperCase();
 }
 
 /**

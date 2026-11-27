@@ -12,6 +12,7 @@ const row = (over: Partial<Row>): Row => ({
   email: 'asha@example.com',
   contactEmail: null,
   passwordHash: null,
+  sessionsValidAfter: null,
   avatarUrl: null,
   createdAt: new Date(),
   deletedAt: null,

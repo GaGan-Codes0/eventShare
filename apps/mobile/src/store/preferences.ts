@@ -33,7 +33,7 @@ export async function loadPreferences() {
 export function setPreference<K extends keyof Preferences>(key: K, value: Preferences[K]) {
   prefs = { ...prefs, [key]: value };
   listeners.forEach((l) => l());
-  void SecureStore.setItemAsync(KEY, JSON.stringify(prefs));
+  void SecureStore.setItemAsync(KEY, JSON.stringify(prefs)).catch(() => undefined);
 }
 
 export function usePreferences() {

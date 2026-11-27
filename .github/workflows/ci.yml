@@ -21,8 +21,9 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci -w @eventshare/api -w @eventshare/shared
-      - name: Start Postgres + local S3
-        run: docker compose up -d --wait postgres s3 && docker compose up s3-init
+      # Redis too: the API works without it, but live updates (pushed to phones) only travel through it.
+      - name: Start Postgres, Redis + local S3
+        run: docker compose up -d --wait postgres redis s3 && docker compose up s3-init
       - run: npm run build -w @eventshare/shared
       - name: Test config
         working-directory: apps/api

@@ -1,4 +1,4 @@
-import { ARCHIVE_SCOPES, EVENT_TYPES, MEDIA_KINDS, NAME_JOINERS, PHOTO_FILTERS, PLAN_IDS, REVEAL_MODES, type EventTheme, type FrameTemplate } from '@eventshare/shared';
+import { ARCHIVE_SCOPES, EVENT_TYPES, MEDIA_KINDS, NAME_JOINERS, PHOTO_FILTERS, PLAN_IDS, REMOVAL_REASONS, REPORT_REASONS, REVEAL_MODES, type EventTheme, type FrameTemplate } from '@eventshare/shared';
 import { sql } from 'drizzle-orm';
 import {
   bigint,
@@ -24,6 +24,7 @@ const timestamps = {
 
 export const memberRole = pgEnum('member_role', ['host', 'photographer', 'member']);
 export const memberStatus = pgEnum('member_status', ['active', 'removed']);
+export const removalReason = pgEnum('removal_reason', REMOVAL_REASONS);
 export const photoStatus = pgEnum('photo_status', ['pending', 'processing', 'ready', 'failed']);
 export const photoVisibility = pgEnum('photo_visibility', ['visible', 'hidden']);
 export const eventType = pgEnum('event_type', EVENT_TYPES);
@@ -37,8 +38,8 @@ export const archiveStatus = pgEnum('archive_status', ['building', 'ready', 'fai
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
   /**
-   * Who signs this user in: `local_<uuid>` for our own email + password accounts (Clerk's
-   * `user_...` ids if Clerk comes back). Our own `id` is what every other table references.
+   * Who signs this user in: `local_<uuid>` for our own email + password accounts, `apple_<sub>` /
+   * `google_<sub>` for Sign in with Apple / Google. Our own `id` is what every other table references.
    */
   authId: text('auth_id').notNull().unique(),
   name: text('name').notNull(),
@@ -52,6 +53,8 @@ export const users = pgTable('users', {
   contactEmail: text('contact_email'),
   /** argon2id hash. Null for accounts that sign in elsewhere (dev users). */
   passwordHash: text('password_hash'),
+  /** Login tokens issued before this moment are refused (set when the password is reset). */
+  sessionsValidAfter: timestamp('sessions_valid_after', { withTimezone: true }),
   avatarUrl: text('avatar_url'),
   ...timestamps,
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -127,6 +130,11 @@ export const eventMembers = pgTable(
     status: memberStatus('status').notNull().default('active'),
     joinedAt: timestamp('joined_at', { withTimezone: true }).notNull().defaultNow(),
     removedAt: timestamp('removed_at', { withTimezone: true }),
+    /** Removed by the host and never allowed back (a plain removal can rejoin with the code). */
+    banned: boolean('banned').notNull().default(false),
+    /** Why the host removed them, and their own words (required for "other"). */
+    removedReason: removalReason('removed_reason'),
+    removedNote: text('removed_note'),
     /**
      * Photos this person has started uploading here. Raised atomically, only while under their
      * limit, so concurrent uploads can't overshoot. Deleting a photo doesn't give the slot back.
@@ -303,6 +311,43 @@ export const photoLikes = pgTable(
   (t) => [primaryKey({ columns: [t.photoId, t.userId] })],
 );
 
+export const reportReason = pgEnum('report_reason', REPORT_REASONS);
+
+/** A member reporting a photo as objectionable. One report per person per photo. */
+export const photoReports = pgTable(
+  'photo_reports',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    photoId: uuid('photo_id')
+      .notNull()
+      .references(() => photos.id),
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => events.id),
+    reporterId: uuid('reporter_id')
+      .notNull()
+      .references(() => users.id),
+    reason: reportReason('reason').notNull(),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('photo_reports_photo_reporter_uidx').on(t.photoId, t.reporterId), index('photo_reports_reporter_idx').on(t.reporterId)],
+);
+
+/** Blocking: the blocker never sees what the blocked person adds, in any event. */
+export const userBlocks = pgTable(
+  'user_blocks',
+  {
+    blockerId: uuid('blocker_id')
+      .notNull()
+      .references(() => users.id),
+    blockedId: uuid('blocked_id')
+      .notNull()
+      .references(() => users.id),
+    ...timestamps,
+  },
+  (t) => [primaryKey({ columns: [t.blockerId, t.blockedId] }), check('user_blocks_not_self', sql`${t.blockerId} <> ${t.blockedId}`)],
+);
+
 /**
  * "Download all" ZIPs. One per event and choice is reused while its photos haven't changed
  * (same fingerprint); each is deleted after a few days.
@@ -351,4 +396,24 @@ export const eventPurchases = pgTable(
     ...timestamps,
   },
   (t) => [uniqueIndex('event_purchases_transaction_idx').on(t.transactionId), index('event_purchases_event_idx').on(t.eventId)],
+);
+
+/**
+ * Forgot password: a 6-digit code emailed to the account's address. Only a keyed hash is kept, it
+ * lasts 15 minutes, allows 5 tries, and works once. A newer code replaces older ones.
+ */
+export const passwordResets = pgTable(
+  'password_resets',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    codeHash: text('code_hash').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index('password_resets_user_idx').on(t.userId)],
 );

@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
+import { upgradeProductId, type PlanId } from '@eventshare/shared';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import sharp from 'sharp';
@@ -14,7 +15,10 @@ import type { App } from 'supertest/types.js';
 import { WebSocket } from 'ws';
 
 import { AppModule } from './../src/app.module.js';
+import { ENV, loadEnv } from './../src/config/env.js';
+import { MailService } from './../src/mail/mail.service.js';
 import { PhotosService } from './../src/photos/photos.service.js';
+import { RevenueCatService, type VerifiedPurchase } from './../src/purchases/revenuecat.service.js';
 import { RealtimeGateway } from './../src/realtime/realtime.gateway.js';
 import { StorageService } from './../src/storage/storage.service.js';
 
@@ -29,8 +33,38 @@ describe('core flow (e2e)', () => {
   let original: Buffer;
   let thumb: Buffer;
 
+  /**
+   * Stands in for RevenueCat (the app store's record of payments): the payments each test host
+   * has made. Everything after that is the real upgrade path, which checks the payment is this
+   * host's, for this exact move, and spends it once.
+   */
+  const payments = new Map<string, VerifiedPurchase[]>();
+  const store = {
+    purchases: async (userId: string) => payments.get(userId) ?? [],
+    findPurchase: async (userId: string, productId: string, transactionId: string) =>
+      (payments.get(userId) ?? []).find((p) => p.productId === productId && p.transactionId === transactionId) ?? null,
+  };
+  /** The host buys a bigger package for the event in the app, and the app hands the payment to the API. */
+  const upgrade = async (who: Record<string, string>, eventId: string, plan: PlanId) => {
+    const http = () => request(app.getHttpServer());
+    const userId = (await http().get('/me').set(who).expect(200)).body.id as string;
+    const from = (await http().get(`/events/${eventId}`).set(who).expect(200)).body.plan as PlanId;
+    const transactionId = `test-${randomUUID()}`;
+    const paid = { transactionId, productId: upgradeProductId(from, plan), store: 'test_store', sandbox: true, purchasedAt: new Date() };
+    payments.set(userId, [...(payments.get(userId) ?? []), paid]);
+    const res = await http().post(`/events/${eventId}/plan`).set(who).send({ plan, transactionId }).expect(200);
+    expect(res.body.plan).toBe(plan);
+    return { ...res.body, transactionId } as { plan: PlanId; transactionId: string };
+  };
+
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(RevenueCatService)
+      .useValue(store)
+      // As in production: no free upgrades, whatever the local .env says.
+      .overrideProvider(ENV)
+      .useFactory({ factory: () => ({ ...loadEnv(), PLAN_SELF_UPGRADE: false }) })
+      .compile();
     app = moduleRef.createNestApplication();
     app.get(RealtimeGateway).attach(app.getHttpServer() as unknown as Server);
     await app.listen(0);
@@ -126,15 +160,18 @@ describe('core flow (e2e)', () => {
         .send({ clientUploadId, contentType: 'image/jpeg', byteSize: original.length, thumbByteSize: thumb.length });
 
     await http().post('/events').set(as(host2)).send({ name: 'Sangeet', guestPhotoLimit: 30 }).expect(400);
+    // A new event starts on Free: 10 shots per guest whatever was asked for, and the host has 1,000.
     const created = await http().post('/events').set(as(host2)).send({ name: 'Sangeet', guestPhotoLimit: 24 }).expect(201);
     eventId = created.body.id;
-    expect(created.body).toMatchObject({ guestPhotoLimit: 24, photoLimit: null, photosUsed: 0 });
+    expect(created.body).toMatchObject({ plan: 'free', guestPhotoLimit: 10, photoLimit: 1000, photosUsed: 0 });
 
-    // Only the host changes the guest allowance, and only to 10, 24, 36, 50 or no limit.
+    // Only the host changes the guest allowance, only to 10, 24, 36 or 50, and only as far as the package goes.
     const joined = await http().post('/join').set(as(shooter)).send({ code: created.body.joinCode }).expect(201);
-    expect(joined.body).toMatchObject({ role: 'member', photoLimit: 24 });
+    expect(joined.body).toMatchObject({ role: 'member', photoLimit: 10 });
     await http().patch(`/events/${eventId}`).set(as(shooter)).send({ guestPhotoLimit: 36 }).expect(403);
     await http().patch(`/events/${eventId}`).set(as(host2)).send({ guestPhotoLimit: 40 }).expect(400);
+    const tooMany = await http().patch(`/events/${eventId}`).set(as(host2)).send({ guestPhotoLimit: 24 }).expect(403);
+    expect(tooMany.body).toMatchObject({ code: 'PLAN_REQUIRED', message: 'Party includes 24 shots per guest. Upgrade this event to use it.' });
     await http().patch(`/events/${eventId}`).set(as(host2)).send({ guestPhotoLimit: 10 }).expect(200);
 
     // 8 photos, then 5 at once with 2 slots left: exactly 2 get through.
@@ -146,6 +183,16 @@ describe('core flow (e2e)', () => {
       message: "You've used all 10 of your photos for this event",
     });
 
+    // Upgrading: only the host, only with a payment for this move, and never back down.
+    await http().post(`/events/${eventId}/plan`).set(as(shooter)).send({ plan: 'party' }).expect(403);
+    await http().post(`/events/${eventId}/plan`).set(as(host2)).send({ plan: 'party' }).expect(403); // no payment
+    await http().post(`/events/${eventId}/plan`).set(as(host2)).send({ plan: 'party', transactionId: `fake-${run}` }).expect(400);
+    const party = await upgrade(as(host2), eventId, 'party');
+    // One payment upgrades one event.
+    const other = await http().post('/events').set(as(host2)).send({ name: 'Mehndi' }).expect(201);
+    await http().post(`/events/${other.body.id}/plan`).set(as(host2)).send({ plan: 'party', transactionId: party.transactionId }).expect(409);
+    await http().post(`/events/${eventId}/plan`).set(as(host2)).send({ plan: 'free' }).expect(400);
+
     // A photo that already has its slot can still be retried at the limit; a new one can't.
     const kept = randomUUID();
     await http().patch(`/events/${eventId}`).set(as(host2)).send({ guestPhotoLimit: 24 }).expect(200);
@@ -154,7 +201,7 @@ describe('core flow (e2e)', () => {
     await startUpload(shooter, kept).expect(201);
     await startUpload(shooter).expect(403);
 
-    // Promoted to photographer: 1,000 photos, listed right after the host.
+    // Promoted to photographer: the package's photographer allowance (500 on Party), listed right after the host.
     const shooterId = (await http().get('/me').set(as(shooter))).body.id as string;
     const hostId = (await http().get('/me').set(as(host2))).body.id as string;
     await http().patch(`/events/${eventId}/members/${shooterId}`).set(as(shooter)).send({ role: 'photographer' }).expect(403);
@@ -168,7 +215,7 @@ describe('core flow (e2e)', () => {
     expect(promoted.body).toMatchObject({ role: 'photographer', photosUsed: 11 });
     await startUpload(shooter).expect(201);
     const asShooter = await http().get(`/events/${eventId}`).set(as(shooter)).expect(200);
-    expect(asShooter.body).toMatchObject({ role: 'photographer', photoLimit: 1000, photosUsed: 12 });
+    expect(asShooter.body).toMatchObject({ role: 'photographer', photoLimit: 500, photosUsed: 12 });
     const members = await http().get(`/events/${eventId}/members`).set(as(host2)).expect(200);
     expect(members.body.map((m: { role: string }) => m.role)).toEqual(['host', 'photographer']);
 
@@ -187,6 +234,10 @@ describe('core flow (e2e)', () => {
     await http().patch(`/events/${eventId}`).set(as(shooter)).send({ theme }).expect(403);
     await http().patch(`/events/${eventId}`).set(as(host2)).send({ theme: { ...theme, accent: 'pink' } }).expect(400);
     await http().patch(`/events/${eventId}`).set(as(host2)).send({ theme: { ...theme, frame: 'neon' } }).expect(400);
+    // Their own accent colour comes with Celebration; the logo (below) with Branded.
+    const ownLook = await http().patch(`/events/${eventId}`).set(as(host2)).send({ theme }).expect(403);
+    expect(ownLook.body.code).toBe('PLAN_REQUIRED');
+    await upgrade(as(host2), eventId, 'branded'); // pays only the difference from Party
     const themed = await http().patch(`/events/${eventId}`).set(as(host2)).send({ theme }).expect(200);
     expect(themed.body.theme).toEqual({ ...theme, accent: '#A2475E' });
     expect((await http().get(`/events/${eventId}`).set(as(shooter))).body.theme).toEqual(themed.body.theme);
@@ -263,7 +314,8 @@ describe('core flow (e2e)', () => {
       name: 'Tanya & Paul',
       type: 'wedding',
       joiner: '&',
-      guestPhotoLimit: 36,
+      plan: 'free',
+      guestPhotoLimit: 10, // Free's most; more shots come with a bigger package
       revealMode: 'live',
       albumOpen: true,
       requireReview: false,
@@ -278,10 +330,16 @@ describe('core flow (e2e)', () => {
     await http().post('/join').set(as(g1)).send({ code: created.body.joinCode }).expect(201);
     await http().post('/join').set(as(g2)).send({ code: created.body.joinCode }).expect(201);
 
-    // No limit: guests have no allowance number.
-    const unlimited = await http().patch(`/events/${eventId}`).set(as(h)).send({ guestPhotoLimit: null }).expect(200);
-    expect(unlimited.body.guestPhotoLimit).toBeNull();
-    expect((await http().get(`/events/${eventId}`).set(as(g1))).body.photoLimit).toBeNull();
+    // Review, 3 photographers and Download all need Branded: refused on Free, then the host upgrades.
+    const review = await http().patch(`/events/${eventId}`).set(as(h)).send({ requireReview: true }).expect(403);
+    expect(review.body.code).toBe('PLAN_REQUIRED');
+    await upgrade(as(h), eventId, 'branded');
+
+    // No limit isn't offered in any package any more; 50 is the most.
+    expect((await http().patch(`/events/${eventId}`).set(as(h)).send({ guestPhotoLimit: null }).expect(403)).body.code).toBe('PLAN_REQUIRED');
+    const most = await http().patch(`/events/${eventId}`).set(as(h)).send({ guestPhotoLimit: 50 }).expect(200);
+    expect(most.body.guestPhotoLimit).toBe(50);
+    expect((await http().get(`/events/${eventId}`).set(as(g1))).body.photoLimit).toBe(50);
 
     // Review first: a guest's photo waits for the host; its taker still sees it, others don't.
     await http().patch(`/events/${eventId}`).set(as(h)).send({ requireReview: true }).expect(200);
@@ -340,7 +398,7 @@ describe('core flow (e2e)', () => {
     const full = await http().patch(`/events/${eventId}/members/${ids[3]}`).set(as(h)).send({ role: 'photographer' }).expect(409);
     expect(full.body.code).toBe('PHOTOGRAPHER_SLOTS_FULL');
     const preview = await http().get(`/join/${created.body.joinCode}`).set(as(`late2${run}`)).expect(200);
-    expect(preview.body).toMatchObject({ name: 'Tanya and Paul', type: 'wedding', tagline: 'Shoot everything.', guestPhotoLimit: null });
+    expect(preview.body).toMatchObject({ name: 'Tanya and Paul', type: 'wedding', tagline: 'Shoot everything.', guestPhotoLimit: 50 });
     expect(preview.body.photographers).toHaveLength(3);
     expect(await album(g2, 'photographers')).toEqual([]);
     expect(await album(g2, 'guests')).toEqual(expect.arrayContaining([waiting, own]));
@@ -447,8 +505,16 @@ describe('core flow (e2e)', () => {
     await http().post(invites).set(as(host)).send({ name: 'Kabir again', email: kabir.email }).expect(409);
     await http().post(invites).set(as(host)).send({ name: 'No email', email: 'not-an-email' }).expect(400);
 
-    // Someone already in the event becomes the photographer straight away.
+    // Free has one photographer slot, and Kabir's invite holds it.
     await http().post('/join').set(meera.auth).send({ code: joinCode }).expect(201);
+    const freeFull = await http().post(invites).set(as(host)).send({ name: 'Meera', email: meera.email }).expect(409);
+    expect(freeFull.body).toMatchObject({
+      code: 'PHOTOGRAPHER_SLOTS_FULL',
+      message: 'The photographer slot is taken. Remove one first, or upgrade to Celebration for 2.',
+    });
+    await upgrade(as(host), eventId, 'branded'); // 3 slots
+
+    // Someone already in the event becomes the photographer straight away.
     const second = await http().post(invites).set(as(host)).send({ name: 'Meera', email: meera.email }).expect(201);
     expect(second.body).toMatchObject({ status: 'joined', member: { name: 'Meera', role: 'photographer' } });
     expect(await slots()).toBe(2);
@@ -522,23 +588,24 @@ describe('core flow (e2e)', () => {
       return http().post(`/photos/${ticket.body.photoId}/complete`).set(as(g));
     };
 
-    expect(await used()).toEqual({ video: 0, voice: 0, photos: 0, videoLimit: 300_000, voiceLimit: 60_000 });
+    // Every package gives each guest 30 seconds of video and a minute of voice notes.
+    expect(await used()).toEqual({ video: 0, voice: 0, photos: 0, videoLimit: 30_000, voiceLimit: 60_000 });
 
-    // A one-minute video: ready, with its length, and it doesn't use a photo shot.
-    const one = await send('video', media(60_000), 60_000, 'video/mp4');
+    // A 20-second video: ready, with its length, and it doesn't use a photo shot.
+    const one = await send('video', media(20_000), 20_000, 'video/mp4');
     expect(one.status).toBe(201);
-    expect(one.body).toMatchObject({ kind: 'video', durationMs: 60_000, status: 'ready' });
+    expect(one.body).toMatchObject({ kind: 'video', durationMs: 20_000, status: 'ready' });
     expect(one.body.thumbUrl).toBeTruthy();
-    expect(await used()).toMatchObject({ video: 60_000, photos: 0 });
+    expect(await used()).toMatchObject({ video: 20_000, photos: 0 });
 
-    // Claims 10 s but the file is 250 s long: past the 5 minutes, so it's refused and the time comes back.
-    const liar = await send('video', media(250_000), 10_000, 'video/quicktime');
+    // Claims 5 s but the file is 25 s long: past the 30 seconds, so it's refused and the time comes back.
+    const liar = await send('video', media(25_000), 5_000, 'video/quicktime');
     expect(liar.status).toBe(403);
     expect(liar.body.code).toBe('VIDEO_LIMIT_REACHED');
-    expect((await used()).video).toBe(60_000);
+    expect((await used()).video).toBe(20_000);
 
     // Asking for more than is left is refused up front.
-    const tooLong = await send('video', media(241_000), 241_000, 'video/mp4', 403);
+    const tooLong = await send('video', media(11_000), 11_000, 'video/mp4', 403);
     expect(tooLong.body.code).toBe('VIDEO_LIMIT_REACHED');
 
     // Voice notes: no thumbnail, their own minute, shared across all of a person's notes.
@@ -546,7 +613,7 @@ describe('core flow (e2e)', () => {
     expect(v1.body).toMatchObject({ kind: 'voice', durationMs: 40_000, thumbUrl: null });
     const v2 = await send('voice', media(30_000, 'M4A '), 30_000, 'audio/x-m4a', 403);
     expect(v2.body.code).toBe('VOICE_LIMIT_REACHED');
-    expect(await used()).toMatchObject({ video: 60_000, voice: 40_000, photos: 0 });
+    expect(await used()).toMatchObject({ video: 20_000, voice: 40_000, photos: 0 });
 
     // The wrong kind of file for the kind is rejected.
     await http()
@@ -872,6 +939,168 @@ describe('core flow (e2e)', () => {
     expect(old.body.original).toBeTruthy();
     expect(old.body.multipart).toBeNull();
   }, 60_000);
+
+  it('reports a photo and blocks a person: hidden for them, back to the host, gone with the account', async () => {
+    const http = () => request(app.getHttpServer());
+    const h = `modhost${run}`;
+    const a = `moda${run}`;
+    const b = `modb${run}`;
+    const created = await http().post('/events').set(as(h)).send({ name: 'Moderation party' }).expect(201);
+    const eventId = created.body.id as string;
+    for (const u of [a, b]) await http().post('/join').set(as(u)).send({ code: created.body.joinCode }).expect(201);
+    const upload = async (user: string) => {
+      const ticket = await http()
+        .post(`/events/${eventId}/photos/uploads`)
+        .set(as(user))
+        .send({ clientUploadId: randomUUID(), contentType: 'image/jpeg', byteSize: original.length, thumbByteSize: thumb.length })
+        .expect(201);
+      for (const [target, bytes] of [
+        [ticket.body.original, original],
+        [ticket.body.thumb, thumb],
+      ] as const) {
+        await fetch(target.url, { method: 'PUT', headers: target.headers, body: new Uint8Array(bytes) });
+      }
+      await http().post(`/photos/${ticket.body.photoId}/complete`).set(as(user)).expect(201);
+      return ticket.body.photoId as string;
+    };
+    const album = async (user: string, filter = 'all') =>
+      ((await http().get(`/events/${eventId}/photos?filter=${filter}`).set(as(user)).expect(200)).body.items as { id: string }[]).map((p) => p.id);
+    const idOf = async (user: string) => (await http().get('/me').set(as(user)).expect(200)).body.id as string;
+
+    const p1 = await upload(b);
+    const p2 = await upload(b);
+    expect(await album(a)).toEqual(expect.arrayContaining([p1, p2]));
+
+    // Reporting: never your own; a reason is required.
+    await http().post(`/photos/${p1}/report`).set(as(b)).send({ reason: 'spam' }).expect(400);
+    await http().post(`/photos/${p1}/report`).set(as(a)).send({ reason: 'nope' }).expect(400);
+    await http().post(`/photos/${p1}/report`).set(as(a)).send({ reason: 'harassment' }).expect(204);
+    await http().post(`/photos/${p1}/report`).set(as(a)).send({ reason: 'harassment' }).expect(204); // again: no change
+    // Gone for the reporter and (back in review) for other guests; the host sees it in the review queue; its owner still sees it.
+    expect(await album(a)).not.toContain(p1);
+    expect(await album(h, 'review')).toContain(p1);
+    expect(await album(b)).toContain(p1);
+    // The host approves: back for everyone else, but never again for the person who reported it.
+    await http().patch(`/photos/${p1}`).set(as(h)).send({ approved: true }).expect(200);
+    expect(await album(a)).not.toContain(p1);
+
+    // Blocking: everything that person adds disappears for you, including what they add later.
+    const bId = await idOf(b);
+    await http().put(`/me/blocks/${await idOf(a)}`).set(as(a)).expect(400); // not yourself
+    await http().put(`/me/blocks/${bId}`).set(as(a)).expect(204);
+    const p3 = await upload(b);
+    expect(await album(a)).toEqual(expect.not.arrayContaining([p1, p2, p3]));
+    expect(await album(h)).toEqual(expect.arrayContaining([p2, p3])); // only for the blocker
+    const blocked = await http().get('/me/blocks').set(as(a)).expect(200);
+    expect(blocked.body).toEqual([expect.objectContaining({ id: bId })]);
+    await http().delete(`/me/blocks/${bId}`).set(as(a)).expect(204);
+    expect(await album(a)).toEqual(expect.arrayContaining([p2, p3]));
+
+    // Deleting an account takes its reports and blocks with it.
+    await http().put(`/me/blocks/${bId}`).set(as(a)).expect(204);
+    await http().delete('/me').set(as(a)).expect(204);
+    await http().delete('/me').set(as(b)).expect(204);
+  }, 60_000);
+
+  it('lets the host remove or ban someone, always with a reason', async () => {
+    const http = () => request(app.getHttpServer());
+    const h = `rmhost${run}`;
+    const g = `rmg${run}`;
+    const created = await http().post('/events').set(as(h)).send({ name: 'Removal party' }).expect(201);
+    const { id: eventId, joinCode } = created.body as { id: string; joinCode: string };
+    await http().post('/join').set(as(g)).send({ code: joinCode }).expect(201);
+    const gId = (await http().get('/me').set(as(g)).expect(200)).body.id as string;
+    const ticket = await http()
+      .post(`/events/${eventId}/photos/uploads`)
+      .set(as(g))
+      .send({ clientUploadId: randomUUID(), contentType: 'image/jpeg', byteSize: original.length, thumbByteSize: thumb.length })
+      .expect(201);
+    for (const [target, bytes] of [
+      [ticket.body.original, original],
+      [ticket.body.thumb, thumb],
+    ] as const) {
+      await fetch(target.url, { method: 'PUT', headers: target.headers, body: new Uint8Array(bytes) });
+    }
+    await http().post(`/photos/${ticket.body.photoId}/complete`).set(as(g)).expect(201);
+    const remove = (body: unknown) => http().post(`/events/${eventId}/members/${gId}/remove`).set(as(h)).send(body as object);
+    const hostAlbum = async () => ((await http().get(`/events/${eventId}/photos`).set(as(h)).expect(200)).body.items as { id: string }[]).map((p) => p.id);
+
+    // A reason is required, and "other" needs the host's own words. Guests can't remove anyone.
+    await remove({}).expect(400);
+    await remove({ reason: 'other' }).expect(400);
+    await remove({ reason: 'other', note: '   ' }).expect(400);
+    await http().post(`/events/${eventId}/members/${gId}/remove`).set(as(g)).send({ reason: 'spam' }).expect(403);
+
+    // Removed (not banned): out of the event, but can come back with the code. Their photo stays.
+    await remove({ reason: 'other', note: 'Left early, rejoining later' }).expect(204);
+    await http().get(`/events/${eventId}`).set(as(g)).expect(404);
+    await http().post('/join').set(as(g)).send({ code: joinCode }).expect(201);
+    expect(await hostAlbum()).toContain(ticket.body.photoId);
+
+    // Banned, with their photos deleted: never back in.
+    await remove({ reason: 'objectionable', ban: true, deletePhotos: true }).expect(204);
+    expect(await hostAlbum()).not.toContain(ticket.body.photoId);
+    await http().post('/join').set(as(g)).send({ code: joinCode }).expect(403);
+
+    // Older app builds (no reason) still remove and ban.
+    const g2 = `rmg2${run}`;
+    await http().post('/join').set(as(g2)).send({ code: joinCode }).expect(201);
+    const g2Id = (await http().get('/me').set(as(g2)).expect(200)).body.id as string;
+    await http().delete(`/events/${eventId}/members/${g2Id}`).set(as(h)).expect(204);
+    await http().post('/join').set(as(g2)).send({ code: joinCode }).expect(403);
+  }, 60_000);
+
+  it('resets a forgotten password with an emailed code, and signs every other phone out', async () => {
+    const http = () => request(app.getHttpServer());
+    const sent: { to: string; code: string | null }[] = [];
+    const mail = vi.spyOn(app.get(MailService), 'passwordReset').mockImplementation(async (m) => {
+      sent.push({ to: m.to, code: m.code });
+      return true;
+    });
+    const email = `reset${run}@example.org`;
+    const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
+    const first = (await http().post('/auth/signup').send({ name: 'Reset Me', email, password: 'old-password-1' }).expect(201)).body.token as string;
+    await http().get('/me').set(bearer(first)).expect(200);
+
+    // Unknown emails get the same answer and no email; a second ask within a minute sends nothing.
+    await http().post('/auth/password/forgot').send({ email: `nobody${run}@example.org` }).expect(204);
+    expect(sent).toHaveLength(0);
+    await http().post('/auth/password/forgot').send({ email: email.toUpperCase() }).expect(204);
+    await http().post('/auth/password/forgot').send({ email }).expect(204);
+    expect(sent).toHaveLength(1);
+    const code = sent[0].code!;
+    expect(sent[0].to).toBe(email);
+    expect(code).toMatch(/^\d{6}$/);
+
+    // Tokens carry their issue time in whole seconds: let the first one be clearly older.
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    const wrong = code === '000000' ? '000001' : '000000';
+    await http().post('/auth/password/reset').send({ email, code: wrong, password: 'new-password-1' }).expect(400);
+    await http().post('/auth/password/reset').send({ email, code: '12', password: 'new-password-1' }).expect(400);
+    await http().post('/auth/password/reset').send({ email, code, password: 'short' }).expect(400);
+    const reset = await http().post('/auth/password/reset').send({ email, code, password: 'new-password-1' }).expect(200);
+
+    // Signed in on this phone, signed out everywhere else, and only the new password works.
+    await http().get('/me').set(bearer(reset.body.token as string)).expect(200);
+    await http().get('/me').set(bearer(first)).expect(401);
+    await http().post('/auth/login').send({ email, password: 'old-password-1' }).expect(401);
+    await http().post('/auth/login').send({ email, password: 'new-password-1' }).expect(200);
+    // A code works once.
+    await http().post('/auth/password/reset').send({ email, code, password: 'another-password-1' }).expect(400);
+
+    // Five wrong tries use a code up, even if the sixth is right.
+    const email2 = `reset2${run}@example.org`;
+    await http().post('/auth/signup').send({ name: 'Guess Me', email: email2, password: 'old-password-2' }).expect(201);
+    await http().post('/auth/password/forgot').send({ email: email2 }).expect(204);
+    const code2 = sent[1].code!;
+    const wrong2 = code2 === '000000' ? '000001' : '000000';
+    for (let i = 0; i < 5; i++) {
+      await http().post('/auth/password/reset').send({ email: email2, code: wrong2, password: 'new-password-2' }).expect(400);
+    }
+    await http().post('/auth/password/reset').send({ email: email2, code: code2, password: 'new-password-2' }).expect(400);
+    await http().post('/auth/login').send({ email: email2, password: 'old-password-2' }).expect(200);
+    mail.mockRestore();
+  });
 
   it('rejects bad input and missing auth', async () => {
     await request(app.getHttpServer()).post('/events').set(as(host)).send({ name: 'x' }).expect(400);

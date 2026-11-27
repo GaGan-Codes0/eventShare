@@ -1,7 +1,7 @@
 import { upgradesFrom, upgradeProductId, type PlanId } from '@eventshare/shared';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
-import Purchases, { PRODUCT_CATEGORY, PURCHASES_ERROR_CODE, type PurchasesError } from 'react-native-purchases';
+import Purchases, { LOG_LEVEL, PRODUCT_CATEGORY, PURCHASES_ERROR_CODE, type PurchasesError } from 'react-native-purchases';
 
 /**
  * RevenueCat's public SDK keys (Project settings → API keys). They are meant to ship inside the app.
@@ -18,13 +18,23 @@ const apiKey = Platform.OS === 'ios' ? KEYS.ios : Platform.OS === 'android' ? KE
 export const paymentsEnabled = !!apiKey;
 
 let configuredFor: string | null = null;
+/** One set-up at a time: prices loading while Pay is tapped must not configure RevenueCat twice. */
+let setUp: Promise<void> = Promise.resolve();
 
 /** RevenueCat knows the person by our user id, so the server can find their payments. */
-async function ready(userId: string) {
-  if (configuredFor === userId) return;
-  if (configuredFor === null) Purchases.configure({ apiKey, appUserID: userId });
-  else await Purchases.logIn(userId);
-  configuredFor = userId;
+function ready(userId: string) {
+  setUp = setUp
+    .catch(() => undefined)
+    .then(async () => {
+      if (configuredFor === userId) return;
+      if (configuredFor === null) {
+        // Release builds log only warnings and errors to the phone's log (no user ids or receipts).
+        if (!__DEV__) await Purchases.setLogLevel(LOG_LEVEL.WARN);
+        Purchases.configure({ apiKey, appUserID: userId });
+      } else await Purchases.logIn(userId);
+      configuredFor = userId;
+    });
+  return setUp;
 }
 
 /** Store price of moving up from `from` to each bigger package, e.g. "₹1,500.00". Empty if the store can't be reached. */
@@ -82,10 +92,13 @@ export interface PendingUpgrade {
   plan: Exclude<PlanId, 'free'>;
   transactionId: string;
 }
-const PENDING_KEY = 'pending-upgrade';
+/** One per event, so paying for a second event before the first went through can't lose the first. */
+const pendingKey = (eventId: string) => `pending-upgrade.${eventId}`;
+/** Where older builds kept the one pending payment. */
+const LEGACY_KEY = 'pending-upgrade';
 
-export async function pendingUpgrade(): Promise<PendingUpgrade | null> {
-  const raw = await SecureStore.getItemAsync(PENDING_KEY).catch(() => null);
+async function read(key: string): Promise<PendingUpgrade | null> {
+  const raw = await SecureStore.getItemAsync(key).catch(() => null);
   try {
     return raw ? (JSON.parse(raw) as PendingUpgrade) : null;
   } catch {
@@ -93,6 +106,17 @@ export async function pendingUpgrade(): Promise<PendingUpgrade | null> {
   }
 }
 
-export async function setPendingUpgrade(p: PendingUpgrade | null) {
-  await (p ? SecureStore.setItemAsync(PENDING_KEY, JSON.stringify(p)) : SecureStore.deleteItemAsync(PENDING_KEY)).catch(() => undefined);
+/** This event's payment that the server hasn't applied yet, if any. */
+export async function pendingUpgrade(eventId: string): Promise<PendingUpgrade | null> {
+  for (const key of [pendingKey(eventId), LEGACY_KEY]) {
+    const p = await read(key);
+    if (p?.eventId === eventId) return p;
+  }
+  return null;
+}
+
+export async function setPendingUpgrade(eventId: string, p: PendingUpgrade | null) {
+  if (p) return SecureStore.setItemAsync(pendingKey(eventId), JSON.stringify(p)).catch(() => undefined);
+  await SecureStore.deleteItemAsync(pendingKey(eventId)).catch(() => undefined);
+  if ((await read(LEGACY_KEY))?.eventId === eventId) await SecureStore.deleteItemAsync(LEGACY_KEY).catch(() => undefined);
 }

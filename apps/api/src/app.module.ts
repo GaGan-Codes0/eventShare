@@ -26,6 +26,7 @@ import { RedisService } from './redis/redis.service.js';
 import { StorageService } from './storage/storage.service.js';
 import { RevenueCatService } from './purchases/revenuecat.service.js';
 import { AccountService } from './users/account.service.js';
+import { BlocksService } from './users/blocks.service.js';
 import { UsersController } from './users/users.controller.js';
 import { UsersService } from './users/users.service.js';
 
@@ -42,10 +43,14 @@ function accountTracker(req: Record<string, any>): string {
     // Applied only where ThrottlerGuard is used (the auth routes). Password guessing is limited
     // per account. The per-IP limit is deliberately high: a whole wedding shares the venue's Wi-Fi
     // (and often one mobile-carrier address), so a tight one would lock guests out at the door.
-    ThrottlerModule.forRoot([
-      { name: 'account', ttl: 60_000, limit: 10, getTracker: accountTracker },
-      { name: 'ip', ttl: 60_000, limit: 600 },
-    ]),
+    ThrottlerModule.forRoot({
+      throttlers: [
+        { name: 'account', ttl: 60_000, limit: 10, getTracker: accountTracker },
+        { name: 'ip', ttl: 60_000, limit: 600 },
+      ],
+      // The app shows this as is.
+      errorMessage: 'Too many tries. Please wait a few minutes and try again.',
+    }),
   ],
   controllers: [HealthController, LegalController, SiteController, AuthController, UsersController, EventsController, PhotosController, FacesController, RefillsController],
   providers: [
@@ -53,6 +58,7 @@ function accountTracker(req: Record<string, any>): string {
     AuthGuard,
     UsersService,
     AccountService,
+    BlocksService,
     EventsService,
     RevenueCatService,
     RefillsService,

@@ -76,7 +76,14 @@ function DownloadAll() {
         const dir = new Directory(Paths.cache, 'archives');
         dir.create({ intermediates: true, idempotent: true });
         const file = await File.downloadFileAsync(link.url, dir, { idempotent: true });
-        await Share.share({ url: file.uri });
+        // A ZIP of every original can be gigabytes: it never stays on the phone after the share
+        // sheet (Save to Files keeps its own copy), and isn't offered once this screen has closed.
+        try {
+          if (open.current) await Share.share({ url: file.uri });
+        } finally {
+          if (file.exists) file.delete();
+        }
+        if (!open.current) return;
       } else {
         await Linking.openURL(link.url); // the browser saves it to Downloads
       }

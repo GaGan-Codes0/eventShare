@@ -21,6 +21,35 @@ export type PhotographerInviteMail = {
   dateLabel: string | null;
 };
 
+/** Where reported photos go: the support inbox named in the terms. */
+const MODERATION_EMAIL = 'support@klyra.co.in';
+
+export type PhotoReportMail = {
+  reason: string;
+  eventId: string;
+  eventName: string;
+  photoId: string;
+  kind: string;
+  uploaderId: string;
+  uploaderName: string;
+  reporterId: string;
+  reporterName: string;
+  link: string | null;
+};
+
+export type MemberRemovedMail = {
+  eventId: string;
+  eventName: string;
+  reason: string;
+  note: string | null;
+  banned: boolean;
+  photosDeleted: number;
+  memberId: string;
+  memberName: string;
+  hostId: string;
+  hostName: string;
+};
+
 /**
  * Sends Klickers' emails through Resend (https://resend.com/docs/api-reference/emails/send-email).
  * With no RESEND_API_KEY set, nothing is sent and callers are told so: invites still work, and
@@ -41,7 +70,9 @@ export class MailService {
     if (!this.enabled) return false;
     const code = formatCode(m.joinCode);
     const first = m.name.split(' ')[0] || m.name;
-    const link = `eventshare://join-preview?code=${encodeURIComponent(m.joinCode)}`;
+    // The invite page link, not eventshare://: mail apps drop custom-scheme links, and this one opens
+    // Klickers when it's installed and otherwise shows the code with the App Store button.
+    const link = `https://klickers.app/j/${encodeURIComponent(m.joinCode)}`;
     const subject = `${m.hostName} invited you to shoot ${m.eventName}`;
     const text = [
       `Hi ${first},`,
@@ -72,6 +103,127 @@ export class MailService {
       return true;
     } catch (err) {
       this.log.warn(`Couldn't send the invite to ${m.to}: ${String(err)}`);
+      return false;
+    }
+  }
+
+  /**
+   * Tells Klickers about a reported photo, to act on within 24 hours (App Store rule 1.2). Logged
+   * either way, so a report is never lost when email is off. Never throws.
+   */
+  async photoReport(r: PhotoReportMail): Promise<boolean> {
+    const lines = [
+      `A photo was reported in ${APP}. Please review it within 24 hours.`,
+      ``,
+      `Reason: ${r.reason}`,
+      `Event: ${r.eventName} (${r.eventId})`,
+      `Photo: ${r.photoId} (${r.kind})`,
+      `Posted by: ${r.uploaderName} (${r.uploaderId})`,
+      `Reported by: ${r.reporterName} (${r.reporterId})`,
+      ``,
+      `The photo went back to the host's review queue and is hidden from the person who reported it.`,
+      `To remove it for everyone, delete it as the host, or delete the account that posted it (scripts/admin/delete-accounts.mjs).`,
+      r.link ? `\nView it (link works for a short while): ${r.link}` : '',
+    ].join('\n');
+    this.log.warn(`Photo reported: ${r.photoId} in event ${r.eventId}, reason ${r.reason}`);
+    return this.toModeration(`Reported photo: ${r.reason} · ${r.eventName}`, lines);
+  }
+
+  /** A host removed someone for abuse: Klickers checks whether the account should be closed. Never throws. */
+  async memberRemoved(r: MemberRemovedMail): Promise<boolean> {
+    const text = [
+      `A host ${r.banned ? 'banned' : 'removed'} someone from their event in ${APP} for abuse. Please check whether their account should be closed.`,
+      ``,
+      `Reason: ${r.reason}`,
+      r.note ? `Host's note: ${r.note}` : null,
+      `Event: ${r.eventName} (${r.eventId})`,
+      `Removed: ${r.memberName} (${r.memberId})${r.banned ? ', banned from rejoining' : ', can rejoin with the code'}`,
+      `Their photos deleted from this event: ${r.photosDeleted}`,
+      `Host: ${r.hostName} (${r.hostId})`,
+      ``,
+      `To close the account: scripts/admin/delete-accounts.mjs`,
+    ]
+      .filter((l) => l !== null)
+      .join('\n');
+    this.log.warn(`Member removed for abuse: ${r.memberId} from event ${r.eventId}`);
+    return this.toModeration(`Member ${r.banned ? 'banned' : 'removed'}: ${r.reason} · ${r.eventName}`, text);
+  }
+
+  /**
+   * Forgot password: the 6-digit code. `code` is null for an account that signs in with Apple or
+   * Google (it has no password), which is told how it signs in instead. With email off, a non-live
+   * server logs the code so the flow can be tried locally. Never throws.
+   */
+  async passwordReset(m: { to: string; name: string; code: string | null }): Promise<boolean> {
+    if (!this.enabled) {
+      if (this.env.NODE_ENV !== 'production') {
+        this.log.warn(`Email is off. Password reset for ${m.to}: ${m.code ?? 'no password (signs in with Apple or Google)'}`);
+      }
+      return false;
+    }
+    const first = m.name.split(' ')[0] || m.name;
+    const subject = m.code ? `${m.code} is your ${APP} code` : `How you sign in to ${APP}`;
+    const lines = m.code
+      ? [
+          `Hi ${first},`,
+          ``,
+          `Your ${APP} code to set a new password is: ${m.code}`,
+          ``,
+          `It works for 15 minutes. If you didn't ask for it, ignore this email: your password stays the same.`,
+        ]
+      : [
+          `Hi ${first},`,
+          ``,
+          `Someone asked to reset the ${APP} password for this email, but this account has no password:`,
+          `it signs in with Apple or Google. Open ${APP} and tap Sign in with Apple or Sign in with Google.`,
+          ``,
+          `If you didn't ask, you can ignore this email.`,
+        ];
+    const sans = "'DM Sans', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+    const html = `<!doctype html><html><body style="margin:0;padding:28px 12px;background:#F3F2EC;font:400 15px/23px ${sans};color:#273C32">
+<div style="max-width:480px;margin:0 auto;background:#FAF9F5;border:1px solid #E3E4D8;border-radius:20px;padding:28px">
+<p style="margin:0 0 12px">Hi ${esc(first)},</p>
+${
+  m.code
+    ? `<p style="margin:0 0 16px">Your ${APP} code to set a new password:</p>
+<div style="font:500 32px/40px 'DM Mono', Menlo, Consolas, monospace;letter-spacing:6px;text-align:center;background:#FFFEFA;border:1px solid #E3E4D8;border-radius:14px;padding:14px">${esc(m.code)}</div>
+<p style="margin:16px 0 0;color:#6E6A5C">It works for 15 minutes. If you didn't ask for it, ignore this email: your password stays the same.</p>`
+    : `<p style="margin:0">This account has no password: it signs in with Apple or Google. Open ${APP} and tap <b>Sign in with Apple</b> or <b>Sign in with Google</b>.</p>
+<p style="margin:16px 0 0;color:#6E6A5C">If you didn't ask, you can ignore this email.</p>`
+}
+</div></body></html>`;
+    return this.send(m.to, subject, lines.join('\n'), html, 'password reset');
+  }
+
+  private async send(to: string, subject: string, text: string, html: string | undefined, what: string): Promise<boolean> {
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: this.env.MAIL_FROM, to: [to], subject, text, ...(html ? { html } : {}) }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) this.log.warn(`Resend refused a ${what} email: ${res.status} ${await res.text().catch(() => '')}`);
+      return res.ok;
+    } catch (err) {
+      this.log.warn(`Couldn't send a ${what} email: ${String(err)}`);
+      return false;
+    }
+  }
+
+  private async toModeration(subject: string, text: string): Promise<boolean> {
+    if (!this.enabled) return false;
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: this.env.MAIL_FROM, to: [MODERATION_EMAIL], subject, text }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) this.log.warn(`Resend refused a moderation email: ${res.status} ${await res.text().catch(() => '')}`);
+      return res.ok;
+    } catch (err) {
+      this.log.warn(`Couldn't send a moderation email: ${String(err)}`);
       return false;
     }
   }

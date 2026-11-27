@@ -89,6 +89,23 @@ export type AppleSignInInput = z.infer<typeof appleSignInSchema>;
 export const googleSignInSchema = z.object({ idToken: z.string().min(20).max(4096) });
 export type GoogleSignInInput = z.infer<typeof googleSignInSchema>;
 
+/** Forgot password, step 1: email a 6-digit code to this address (always answers the same way). */
+export const forgotPasswordSchema = z.object({ email });
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+
+export const RESET_CODE_LENGTH = 6;
+
+/** Forgot password, step 2: the emailed code and a new password. Answers with a session. */
+export const resetPasswordSchema = z.object({
+  email,
+  code: z
+    .string()
+    .trim()
+    .regex(new RegExp(`^\\d{${RESET_CODE_LENGTH}}$`), `Enter the ${RESET_CODE_LENGTH}-digit code from the email`),
+  password: z.string().min(PASSWORD_MIN_LENGTH, `Use at least ${PASSWORD_MIN_LENGTH} characters`).max(128),
+});
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+
 /** Returned by sign up and log in. Send `token` as `Authorization: Bearer <token>`. */
 export type AuthSession = { token: string; user: User };
 
@@ -471,6 +488,35 @@ export const updateMemberSchema = z.object({ role: z.enum(['photographer', 'memb
 export type UpdateMemberInput = z.infer<typeof updateMemberSchema>;
 
 /**
+ * Host removing someone from their event, always with a reason ("other" needs a few words).
+ * Removed people can come back with the code; banned people never can. Abuse reasons are also
+ * sent to Klickers to review.
+ */
+export const REMOVAL_REASONS = ['objectionable', 'harassment', 'spam', 'uninvited', 'other'] as const;
+export type RemovalReason = (typeof REMOVAL_REASONS)[number];
+export const REMOVAL_REASON_LABEL: Record<RemovalReason, string> = {
+  objectionable: 'Posted objectionable content',
+  harassment: 'Harassing or abusive to others',
+  spam: 'Spam or a fake account',
+  uninvited: "Wasn't invited to this event",
+  other: 'Something else',
+};
+export const REMOVAL_NOTE_MAX = 300;
+export const removeMemberSchema = z
+  .object({
+    reason: z.enum(REMOVAL_REASONS),
+    /** The host's own words: required for "other", optional otherwise. */
+    note: z.string().trim().max(REMOVAL_NOTE_MAX).optional(),
+    /** Banned: can never rejoin this event. Otherwise they can come back with the code. */
+    ban: z.boolean().default(false),
+    /** Also delete everything they added to this event. */
+    deletePhotos: z.boolean().default(false),
+  })
+  .refine((v) => v.reason !== 'other' || (v.note?.length ?? 0) > 0, { path: ['note'], message: 'Tell us why you’re removing them' });
+export type RemoveMemberInput = z.input<typeof removeMemberSchema>;
+export type RemoveMemberData = z.output<typeof removeMemberSchema>;
+
+/**
  * Host invites someone by email to be a designated photographer. The invite takes a slot at
  * once; when that email joins the event, they become the photographer.
  */
@@ -709,6 +755,26 @@ export const updatePhotoSchema = z
   .partial()
   .refine((v) => Object.keys(v).length > 0, 'Nothing to update');
 export type UpdatePhotoInput = z.infer<typeof updatePhotoSchema>;
+
+/**
+ * Reporting a photo you find objectionable (App Store rule 1.2). It goes back to the host's review
+ * queue, disappears for you at once, and Klickers is emailed to act on it within 24 hours.
+ */
+export const REPORT_REASONS = ['sexual', 'violent', 'harassment', 'hateful', 'spam', 'other'] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number];
+export const REPORT_REASON_LABEL: Record<ReportReason, string> = {
+  sexual: 'Nudity or sexual content',
+  violent: 'Violence or something dangerous',
+  harassment: 'Bullying or harassment',
+  hateful: 'Hate speech or symbols',
+  spam: 'Spam or misleading',
+  other: 'Something else',
+};
+export const reportPhotoSchema = z.object({ reason: z.enum(REPORT_REASONS) });
+export type ReportPhotoInput = z.infer<typeof reportPhotoSchema>;
+
+/** Someone you blocked: you no longer see anything they add, in any event. */
+export type BlockedUser = { id: string; name: string; blockedAt: string };
 
 /** Album filters. `review` and `hidden` are for the host. */
 /** `me`: photos you're in (Find my photos); `mine`: photos you took. */

@@ -36,8 +36,6 @@ const envSchema = z
       .preprocess((v) => (v === '' ? undefined : v), z.string().default(KLICKERS_GOOGLE_CLIENT_IDS))
       .transform((v) => v.split(',').map((s) => s.trim()).filter((s) => s && s !== 'none')),
 
-    // Clerk is switched off for now (own email + password login instead).
-    CLERK_SECRET_KEY: z.string().optional(),
     /** Local development / tests only: trust an `x-dev-user` header instead of a login token. */
     AUTH_DEV_BYPASS: z.stringbool().default(false),
     /** Testing only: hosts can switch packages without paying. Paid upgrades are checked with RevenueCat either way. */
@@ -85,10 +83,6 @@ const envSchema = z
     if (env.CLOUDFRONT_PRIVATE_KEY && !env.CLOUDFRONT_PRIVATE_KEY.includes('PRIVATE KEY')) {
       ctx.addIssue({ code: 'custom', path: ['CLOUDFRONT_PRIVATE_KEY'], message: 'is not a PEM private key (or its base64)' });
     }
-    // Clerk is switched off for now.
-    // if (!env.AUTH_DEV_BYPASS && !env.CLERK_SECRET_KEY) {
-    //   ctx.addIssue({ code: 'custom', path: ['CLERK_SECRET_KEY'], message: 'required unless AUTH_DEV_BYPASS=true' });
-    // }
   });
 
 export type Env = z.infer<typeof envSchema>;

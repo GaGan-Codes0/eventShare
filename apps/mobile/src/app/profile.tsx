@@ -1,15 +1,17 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { Aperture, CalendarClock, Grid3x3, LogOut, Pencil } from 'lucide-react-native';
+import { Aperture, CalendarClock, Grid3x3, LogOut, Pencil, UserX } from 'lucide-react-native';
 import { Image } from 'expo-image';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 
+import { LegalLinks } from '@/components/legal-links';
 import { initialsOf, Text } from '@/components/ui';
 import { radius, space } from '@/constants/theme';
 import { backToDashboard, backToMyEvents } from '@/features/events/open-event';
 import { useCurrentEvent } from '@/features/events/use-current-event';
 import { setGuestView, setShellTab, useGuestView } from '@/store/shell';
-import { useMe } from '@/services/api/hooks';
+import { useBlockedUsers, useMe, useSetBlocked } from '@/services/api/hooks';
+import { discardUserItems } from '@/features/uploads/queue';
 import { api } from '@/services/api/client';
 import { setSession } from '@/services/api/session';
 import { setCurrentEvent } from '@/store/current-event';
@@ -33,6 +35,18 @@ function Profile() {
   const fromEvent = useLocalSearchParams<{ from?: string }>().from === 'event';
   const name = me.data?.name ?? '';
   const [deleting, setDeleting] = useState(false);
+  const blocked = useBlockedUsers().data ?? [];
+  const setBlocked = useSetBlocked();
+  /**
+   * Each row here closes this sheet and then goes somewhere. A second quick tap would close what's
+   * under the sheet too (or push a screen twice), so only the first tap counts.
+   */
+  const leaving = useRef(false);
+  const once = (go: () => void) => () => {
+    if (leaving.current) return;
+    leaving.current = true;
+    go();
+  };
 
   async function signOut() {
     setCurrentEvent(null);
@@ -65,6 +79,7 @@ function Profile() {
     setDeleting(true);
     try {
       await api('/me', { method: 'DELETE' });
+      if (me.data) discardUserItems(me.data.id);
       await signOut();
     } catch (e) {
       setDeleting(false);
@@ -79,15 +94,15 @@ function Profile() {
   const used = event && (event.photoLimit === null ? `${event.photosUsed} shots taken` : `${event.photosUsed} of ${event.photoLimit} used`);
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.body} scrollEnabled={false}>
+    <ScrollView style={styles.screen} contentContainerStyle={styles.body} scrollEnabled={blocked.length > 0}>
       {/* Tap to edit your name and email. A missing email (Apple's "Hide my email") invites adding one. */}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Edit profile"
-        onPress={() => {
+        onPress={once(() => {
           router.back();
           router.push('/edit-profile');
-        }}
+        })}
         style={({ pressed }) => [styles.me, pressed && { opacity: 0.7 }]}>
         <View style={styles.avatar}>
           {me.data?.avatarUrl ? (
@@ -166,11 +181,11 @@ function Profile() {
           )}
           <Pressable
             accessibilityRole="button"
-            onPress={() => {
+            onPress={once(() => {
               router.back();
               if (hostGuestView) backToDashboard();
               else backToMyEvents();
-            }}
+            })}
             style={({ pressed }) => [styles.leave, pressed && { opacity: 0.85 }]}>
             <LogOut size={17} color={colors.ink} />
             <Text style={styles.leaveText}>{hostGuestView ? 'Back to the dashboard' : 'Back to my events'}</Text>
@@ -178,12 +193,42 @@ function Profile() {
         </View>
       )}
 
-      <Pressable accessibilityRole="button" onPress={signOut} style={styles.signOut}>
+      {/* People you blocked from a photo. Their photos come back everywhere once unblocked. */}
+      {blocked.length > 0 && (
+        <View style={styles.card}>
+          <View style={styles.cardIcon}>
+            <UserX size={18} color={colors.accent} />
+          </View>
+          <View style={[styles.flex, styles.blockedList]}>
+            <Text style={styles.cardTitle}>Blocked people</Text>
+            {blocked.map((p) => (
+              <View key={p.id} style={styles.blockedRow}>
+                <Text variant="caption" color="muted" style={styles.flex} numberOfLines={1}>
+                  {p.name}
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Unblock ${p.name}`}
+                  disabled={setBlocked.isPending}
+                  onPress={() =>
+                    setBlocked.mutate({ userId: p.id, blocked: false }, { onError: (e) => Alert.alert("Couldn't unblock", e.message) })
+                  }
+                  style={({ pressed }) => [styles.edit, pressed && { opacity: 0.7 }]}>
+                  <Text style={styles.editText}>Unblock</Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      <Pressable accessibilityRole="button" onPress={once(() => void signOut())} style={styles.signOut}>
         <Text style={styles.signOutText}>Sign out</Text>
       </Pressable>
       <Pressable accessibilityRole="button" onPress={confirmDelete} disabled={deleting} style={styles.delete}>
         {deleting ? <ActivityIndicator color={colors.muted} /> : <Text style={styles.deleteText}>Delete account</Text>}
       </Pressable>
+      <LegalLinks />
     </ScrollView>
   );
 }
@@ -223,6 +268,8 @@ const useStyles = makeStyles(({ colors, fonts }) => ({
   },
   cardIcon: { width: 38, height: 38, borderRadius: radius.md, backgroundColor: colors.sage, alignItems: 'center', justifyContent: 'center' },
   cardTitle: { fontFamily: fonts.sansSemiBold, fontSize: 14.5, lineHeight: 19, color: colors.ink },
+  blockedList: { gap: space.sm },
+  blockedRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   leave: { height: 48, borderRadius: 14, backgroundColor: colors.sage, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm },
   leaveText: { fontFamily: fonts.sansSemiBold, fontSize: 14.5, lineHeight: 18, color: colors.ink },
   signOut: { height: 44, alignItems: 'center', justifyContent: 'center' },

@@ -18,11 +18,17 @@ import { AppState, Platform } from 'react-native';
 
 import { setUploadKeepAlive } from '../../../modules/upload-keepalive';
 
-import { api, isRetryable } from '@/services/api/client';
+import { api, ApiRequestError, isRetryable } from '@/services/api/client';
+import { getSessionUser, subscribeSession } from '@/services/api/session';
 
 export type QueueItem = {
   id: string; // clientUploadId
   eventId: string;
+  /**
+   * Who took it. Only ever sent while that person is signed in, so another account on the same
+   * phone can't upload (or be credited with) their photos. Older items get the next signed-in user.
+   */
+  userId?: string;
   fileName: string;
   /** Empty for voice notes, which have no preview. */
   thumbName: string;
@@ -153,12 +159,12 @@ export function onPhotoUploaded(listener: (photo: Photo) => void) {
   };
 }
 
-/** Fires when the server counts a queued photo against its owner's allowance. */
 /** Something to do with each photo once it's uploaded, before the phone's copy is deleted. */
 export function setAfterUpload(fn: typeof afterUpload) {
   afterUpload = fn;
 }
 
+/** Fires when the server counts a queued photo against its owner's allowance. */
 export function onSlotReserved(listener: (eventId: string) => void) {
   reservedListeners.add(listener);
   return () => {
@@ -179,7 +185,24 @@ export async function initUploadQueue() {
   loaded = true;
   emit();
   AppState.addEventListener('change', (state) => state === 'active' && kick());
+  // Signing in (again) picks up that person's waiting uploads.
+  subscribeSession(kick);
   kick();
+}
+
+/** The waiting uploads that belong to whoever is signed in (and older items, which predate owners). */
+export function isMine(item: QueueItem, userId: string | null | undefined) {
+  return !!userId && (!item.userId || item.userId === userId);
+}
+
+/** Account deleted: its waiting uploads would only be refused, so their files go too. */
+export function discardUserItems(userId: string) {
+  const gone = items.filter((i) => i.userId === userId);
+  if (!gone.length) return;
+  gone.forEach(removeFiles);
+  items = items.filter((i) => i.userId !== userId);
+  persist();
+  emit();
 }
 
 export async function enqueuePhoto(input: {
@@ -198,6 +221,7 @@ export async function enqueuePhoto(input: {
   move?: boolean;
 }) {
   await initUploadQueue();
+  const userId = getSessionUser()?.id;
   const id = Crypto.randomUUID();
   const kind = input.kind ?? 'photo';
   const contentType = input.contentType && EXT[input.contentType] ? input.contentType : DEFAULT_TYPE[kind];
@@ -235,6 +259,7 @@ export async function enqueuePhoto(input: {
   items.push({
     id,
     eventId: input.eventId,
+    userId,
     fileName: original.name,
     thumbName: thumb?.name ?? '',
     previewName: preview?.name,
@@ -385,10 +410,17 @@ async function putInPieces(item: QueueItem, multipart: NonNullable<UploadTicket[
 /** Starts uploads up to the limit. Safe to call any time. */
 export function kick() {
   if (!loaded) return;
+  // Signed out: everything waits (on the phone) until its owner signs in again.
+  const me = getSessionUser()?.id;
+  if (!me) return;
   const now = Date.now();
   for (const item of items) {
     if (inFlight.size >= MAX_PARALLEL_UPLOADS) break;
-    if (item.permanent || item.nextAttemptAt > now || inFlight.has(item.id)) continue;
+    if (!isMine(item, me) || item.permanent || item.nextAttemptAt > now || inFlight.has(item.id)) continue;
+    if (!item.userId) {
+      item.userId = me;
+      persist();
+    }
     inFlight.add(item.id);
     void runOne(item).finally(() => {
       inFlight.delete(item.id);
@@ -399,6 +431,7 @@ export function kick() {
 }
 
 async function runOne(next: QueueItem) {
+  const owner = getSessionUser()?.id;
   try {
     const photo = await uploadOne(next);
     // Not awaited: the next upload starts while this one's faces are being found.
@@ -410,7 +443,10 @@ async function runOne(next: QueueItem) {
   } catch (err) {
     next.attempts += 1;
     next.error = err instanceof Error ? err.message : String(err);
-    if (isRetryable(err)) {
+    // Signed out (or the login expired) mid-upload: not the photo's fault, so it waits for sign-in.
+    // (Or someone else signed in while it was going: their login can't finish it.)
+    const signedOut = (err instanceof ApiRequestError && err.status === 401) || getSessionUser()?.id !== owner;
+    if (isRetryable(err) || signedOut) {
       // Randomised, so phones that lost the venue Wi-Fi together don't all come back together.
       next.nextAttemptAt = Date.now() + Math.min(2 ** next.attempts * 2000, 5 * 60_000) * (0.5 + Math.random());
     } else {
@@ -423,7 +459,8 @@ async function runOne(next: QueueItem) {
 
 function scheduleRetry() {
   if (timer) clearTimeout(timer);
-  const pending = items.filter((i) => !i.permanent);
+  const me = getSessionUser()?.id;
+  const pending = items.filter((i) => !i.permanent && isMine(i, me));
   if (pending.length === 0) return;
   const wait = Math.max(1000, Math.min(...pending.map((i) => i.nextAttemptAt)) - Date.now());
   timer = setTimeout(kick, wait);

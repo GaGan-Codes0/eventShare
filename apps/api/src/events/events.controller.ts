@@ -6,6 +6,7 @@ import {
   invitePhotographerSchema,
   joinEventSchema,
   updateEventSchema,
+  removeMemberSchema,
   updateMemberSchema,
   type ChangePlanInput,
   type CreateEventImageUploadInput,
@@ -13,14 +14,26 @@ import {
   type InvitePhotographerData,
   type JoinEventInput,
   type UpdateEventData,
+  type RemoveMemberData,
   type UpdateMemberInput,
 } from '@eventshare/shared';
+
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 
 import { AuthGuard, CurrentUser, type AuthUser } from '../auth/auth.guard.js';
 import { ENV, type Env } from '../config/env.js';
 import { ZodPipe } from '../common/zod.pipe.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { EventsService } from './events.service.js';
+
+/**
+ * Codes are 6 digits, so without a limit one account could try them all and walk into strangers'
+ * events. Counted per signed-in person (AuthGuard runs first), never per IP: a whole wedding shares
+ * the venue's Wi-Fi. 30 tries in 10 minutes is far more than a guest mistyping ever needs.
+ */
+const JOIN_CODE_LIMIT = {
+  account: { limit: 30, ttl: 10 * 60_000, getTracker: (req: Record<string, any>) => `join:${String(req.user?.id ?? req.ip)}` },
+};
 
 @UseGuards(AuthGuard)
 @Controller()
@@ -128,6 +141,19 @@ export class EventsController {
     return this.events.cancelPhotographerInvite(id, user.id, inviteId);
   }
 
+  /** Host removes someone with a reason, optionally banning them and deleting what they added. */
+  @Post('events/:id/members/:userId/remove')
+  @HttpCode(204)
+  removeMemberWithReason(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body(new ZodPipe(removeMemberSchema)) body: RemoveMemberData,
+  ) {
+    return this.events.removeMember(id, user.id, userId, body);
+  }
+
+  /** Older app builds: removes and bans, with no reason. */
   @Delete('events/:id/members/:userId')
   @HttpCode(204)
   removeMember(
@@ -144,6 +170,8 @@ export class EventsController {
   }
 
   @Get('join/:code')
+  @UseGuards(ThrottlerGuard)
+  @Throttle(JOIN_CODE_LIMIT)
   preview(@Param('code') code: string) {
     const parsed = joinEventSchema.safeParse({ code });
     if (!parsed.success) throw new BadRequestException('Codes are 6 digits');
@@ -151,6 +179,8 @@ export class EventsController {
   }
 
   @Post('join')
+  @UseGuards(ThrottlerGuard)
+  @Throttle(JOIN_CODE_LIMIT)
   join(@CurrentUser() user: AuthUser, @Body(new ZodPipe(joinEventSchema)) body: JoinEventInput) {
     return this.events.join(user.id, body.code);
   }

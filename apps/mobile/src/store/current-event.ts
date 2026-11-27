@@ -7,13 +7,18 @@ let current: string | null = null;
 const listeners = new Set<() => void>();
 
 export async function loadCurrentEvent() {
-  current = await SecureStore.getItemAsync(KEY);
+  try {
+    current = await SecureStore.getItemAsync(KEY);
+  } catch {
+    // Unreadable (e.g. the keychain is locked): open on Your events instead of never opening.
+    current = null;
+  }
 }
 
 export function setCurrentEvent(id: string | null) {
   current = id;
   listeners.forEach((l) => l());
-  void (id ? SecureStore.setItemAsync(KEY, id) : SecureStore.deleteItemAsync(KEY));
+  void (id ? SecureStore.setItemAsync(KEY, id) : SecureStore.deleteItemAsync(KEY)).catch(() => undefined);
 }
 
 export function useCurrentEventId() {

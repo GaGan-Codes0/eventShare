@@ -78,6 +78,8 @@ type HostFramedCopyProps = {
   /** Frame width / height, once its image has loaded. */
   frameRatio: number;
   onFrameLoad: (size: { width: number; height: number }) => void;
+  /** The frame couldn't be loaded (offline, removed): the copy can't be made. */
+  onFrameError?: () => void;
   onPhotoLoad?: () => void;
 };
 
@@ -85,7 +87,7 @@ type HostFramedCopyProps = {
  * The photo inside the host's own frame: the frame's shape and size, the photo filling it behind,
  * the frame (a PNG with a see-through window) on top. Captured to an image like FramedCopy.
  */
-export function HostFramedCopy({ ref, uri, frameUrl, frameRatio, onFrameLoad, onPhotoLoad }: HostFramedCopyProps) {
+export function HostFramedCopy({ ref, uri, frameUrl, frameRatio, onFrameLoad, onFrameError, onPhotoLoad }: HostFramedCopyProps) {
   return (
     <View ref={ref} collapsable={false} style={{ width: FRAMED_COPY_WIDTH, height: FRAMED_COPY_WIDTH / frameRatio, backgroundColor: '#FFFFFF' }}>
       <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" onLoad={() => onPhotoLoad?.()} />
@@ -94,6 +96,7 @@ export function HostFramedCopy({ ref, uri, frameUrl, frameRatio, onFrameLoad, on
         style={StyleSheet.absoluteFill}
         contentFit="fill"
         onLoad={(e) => onFrameLoad({ width: e.source.width, height: e.source.height })}
+        onError={() => onFrameError?.()}
       />
     </View>
   );

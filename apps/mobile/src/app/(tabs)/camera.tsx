@@ -5,6 +5,7 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import * as LegacyLibrary from 'expo-media-library/legacy';
 import { requestPermissionsAsync as requestLibraryAccess } from 'expo-media-library';
+import { File, Paths } from 'expo-file-system';
 import { router, useIsFocused } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Aperture, ArrowUpRight, Camera, CloudUpload, Film, Images, Mic, SwitchCamera, Zap, ZapOff } from 'lucide-react-native';
@@ -70,6 +71,20 @@ async function uploadable(file: { uri: string; contentType?: string }) {
   return { uri: jpeg.uri, contentType: 'image/jpeg' };
 }
 
+/**
+ * Deletes a temporary file once the queue has its own copy: camera captures, the picker's copies
+ * and RAW renders all land in the cache. Never touches anything outside it (e.g. the photo library).
+ */
+function discardTemp(uri: string) {
+  if (!uri.startsWith(Paths.cache.uri)) return;
+  try {
+    const f = new File(uri);
+    if (f.exists) f.delete();
+  } catch {
+    // Best effort: the system clears the cache eventually anyway.
+  }
+}
+
 type Shot = { uri: string; kind: MediaKind; contentType: string; width?: number; height?: number; durationMs?: number; takenAt: string };
 
 const MODES: { value: MediaKind; label: string }[] = [
@@ -106,6 +121,14 @@ export default function CameraScreen() {
   const [mic, requestMic] = useMicrophonePermissions();
   const voice = useVoiceNote();
   const stoppingVoice = useRef(false);
+  /** The last voice note handed to the queue: a second stop must never queue (and move) it again. */
+  const keptVoiceUri = useRef<string | null>(null);
+  const startingVoice = useRef(false);
+  /** Set the moment the shutter fires, before the screen redraws: one capture at a time. */
+  const shooting = useRef(false);
+  const picking = useRef(false);
+  /** Photos taken but still being copied into the queue: they already count against the roll. */
+  const [developing, setDeveloping] = useState(0);
   const wasRecordingVoice = useRef(false);
   const [flashMode, setFlashMode] = useState<FlashMode>('off');
   const [zoom, setZoom] = useState(0);
@@ -133,7 +156,7 @@ export default function CameraScreen() {
   // Photos still on this phone count too, until the server has counted them itself.
   const limit = event?.photoLimit ?? 0;
   // No limit for this person: Infinity keeps the arithmetic simple; it's shown as ∞.
-  const left = !event ? 0 : event.photoLimit === null ? Infinity : Math.max(0, event.photoLimit - event.photosUsed - queue.unreserved);
+  const left = !event ? 0 : event.photoLimit === null ? Infinity : Math.max(0, event.photoLimit - event.photosUsed - queue.unreserved - developing);
   const leftLabel = Number.isFinite(left) ? String(left) : '∞';
   const outOfShots = Boolean(event) && left === 0;
   // Video and voice time left, counting recordings still on this phone.
@@ -234,19 +257,29 @@ export default function CameraScreen() {
   async function toggleVoice() {
     if (!id) return;
     if (voice.recording) return finishVoice();
+    // The microphone can take seconds to start: a second tap meanwhile must not start it again.
+    if (startingVoice.current) return;
     if (voiceLeft < MIN_CLIP_MS) return toast('No voice-note time left for this event');
+    startingVoice.current = true;
     try {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       await voice.start(voiceLeft);
     } catch (err) {
       Alert.alert("Couldn't record", err instanceof Error ? err.message : 'Please try again.');
+    } finally {
+      startingVoice.current = false;
     }
   }
 
   async function finishVoice() {
+    if (stoppingVoice.current) return;
     stoppingVoice.current = true;
     try {
       const note = await voice.stop();
+      // A stop that comes after the note was already kept (a double tap, or the recorder's state
+      // catching up) hands back the same file, which the queue has already taken.
+      if (note && note.uri === keptVoiceUri.current) return;
+      if (note) keptVoiceUri.current = note.uri;
       if (note && note.durationMs >= 500) {
         void keep({ uri: note.uri, kind: 'voice', contentType: 'audio/mp4', durationMs: Math.min(note.durationMs, voiceLeft), takenAt: new Date().toISOString() });
       }
@@ -265,7 +298,8 @@ export default function CameraScreen() {
   }, [voice.recording]);
 
   async function shoot() {
-    if (!camera.current || !id || busy || outOfShots) return;
+    if (!camera.current || !id || shooting.current || busy || outOfShots) return;
+    shooting.current = true;
     setBusy(true);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     flash.set(withSequence(withTiming(0.85, { duration: 40 }), withTiming(0, { duration: 260 })));
@@ -273,10 +307,16 @@ export default function CameraScreen() {
       // quality 1 = the camera's full-quality capture; we never recompress it after this.
       const pic = await camera.current.takePictureAsync({ quality: 1, exif: true });
       showShot(pic.uri);
-      void keep({ uri: pic.uri, kind: 'photo', contentType: 'image/jpeg', width: pic.width, height: pic.height, takenAt: new Date().toISOString() });
+      setDeveloping((n) => n + 1);
+      void keep({ uri: pic.uri, kind: 'photo', contentType: 'image/jpeg', width: pic.width, height: pic.height, takenAt: new Date().toISOString() }).finally(() => {
+        setDeveloping((n) => n - 1);
+        // The queue has its own copy; the capture goes once the on-screen preview has faded.
+        setTimeout(() => discardTemp(pic.uri), SHOT_HOLD_MS + SHOT_FADE_MS + 500);
+      });
     } catch (err) {
       Alert.alert("Couldn't take the photo", err instanceof Error ? err.message : 'Please try again.');
     } finally {
+      shooting.current = false;
       setBusy(false);
     }
   }
@@ -331,11 +371,17 @@ export default function CameraScreen() {
 
   /** Holds on to background time from the start, in case they pocket the phone straight after choosing. */
   async function pickFromLibrary() {
+    // A second tap while the picker is opening must not open it twice.
+    if (picking.current) return;
+    picking.current = true;
     startPreparing();
     try {
       await addFromLibrary();
+    } catch (err) {
+      Alert.alert("Couldn't add from your library", err instanceof Error ? err.message : 'Please try again.');
     } finally {
       endPreparing();
+      picking.current = false;
     }
   }
 
@@ -380,35 +426,52 @@ export default function CameraScreen() {
         `You had ${Number.isFinite(left) ? plural(left, 'photo') : 'unlimited photos'} and ${clock(videoLeft)} of video time left, so the rest weren't added.`,
       );
     }
+    // One item that can't be read or copied (a RAW file, a full disk) never drops the rest.
+    let failed = 0;
     for (const asset of keptVideos) {
-      await enqueuePhoto({
-        eventId: id,
-        uri: asset.uri,
-        kind: 'video',
-        durationMs: Math.round(asset.duration ?? 0),
-        contentType: asset.mimeType ?? (asset.uri.toLowerCase().endsWith('.mov') ? 'video/quicktime' : 'video/mp4'),
-        width: asset.width,
-        height: asset.height,
-        source: 'library',
-      });
+      try {
+        await enqueuePhoto({
+          eventId: id,
+          uri: asset.uri,
+          kind: 'video',
+          durationMs: Math.round(asset.duration ?? 0),
+          contentType: asset.mimeType ?? (asset.uri.toLowerCase().endsWith('.mov') ? 'video/quicktime' : 'video/mp4'),
+          width: asset.width,
+          height: asset.height,
+          source: 'library',
+          // The picker's export is ours to take: a long video is never held twice.
+          move: asset.uri.startsWith(Paths.cache.uri),
+        });
+      } catch {
+        failed += 1;
+      }
     }
     for (const asset of picked) {
-      let original: { uri: string; contentType: string };
       try {
-        original = await uploadable(await originalFile(asset, access.granted));
+        const original = await uploadable(await originalFile(asset, access.granted));
+        await enqueuePhoto({ eventId: id, uri: original.uri, contentType: original.contentType, width: asset.width, height: asset.height, source: 'library' });
+        // The queue has its own copy now: drop the picker's and any JPEG made from a RAW file.
+        discardTemp(original.uri);
+        if (original.uri !== asset.uri) discardTemp(asset.uri);
       } catch {
-        Alert.alert("Couldn't add a photo", 'This phone couldn’t read one of the photos (it may be a RAW file). Try saving it as JPEG first.');
-        continue;
+        failed += 1;
       }
-      await enqueuePhoto({ eventId: id, uri: original.uri, contentType: original.contentType, width: asset.width, height: asset.height, source: 'library' });
     }
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (failed > 0) {
+      Alert.alert(
+        `${plural(failed, 'item')} couldn't be added`,
+        'This phone couldn’t read or copy them (RAW files, or the phone is full). Try saving them as JPEG first, or free up some space.',
+      );
+    }
+    if (failed < keptVideos.length + picked.length) void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }
 
   if (!id) return <NoEventYet title="Your camera" />;
 
   // The live camera: Photo and Video modes, while there's something left to take.
-  const live = granted && focused && !out && !shut && mode !== 'voice';
+  // A video being recorded keeps its camera even if you switch tabs: unmounting it would lose the clip.
+  const filming = recStart !== null;
+  const live = granted && (focused || filming) && !out && !shut && mode !== 'voice';
   const elapsed = recStart !== null ? Math.max(0, now - recStart) : 0;
   // iPhone only: the back lenses this phone has, as 0.5× / 1× / Tele buttons.
   const lensChips =
@@ -526,7 +589,7 @@ export default function CameraScreen() {
             </View>
           ) : mode === 'voice' ? (
             <VoicePanel recording={voice.recording} elapsedMs={voice.elapsedMs} leftMs={voiceLeft} />
-          ) : granted && focused ? (
+          ) : granted && (focused || filming) ? (
             <CameraView
               ref={camera}
               style={StyleSheet.absoluteFill}

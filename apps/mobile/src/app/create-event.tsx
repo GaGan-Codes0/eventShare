@@ -18,7 +18,7 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { Aperture, ArrowRight, Briefcase, Cake, Camera, ChevronLeft, Heart, ImagePlus, Sparkle, type LucideIcon } from 'lucide-react-native';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Alert, Modal, Platform, Pressable, Switch, TextInput, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -36,6 +36,9 @@ import { LockedNote } from '@/features/events/plan';
 import { api } from '@/services/api/client';
 import { useCreateEvent } from '@/services/api/hooks';
 import { defaultTheme, makeStyles, themeFor, ThemeProvider, useTheme } from '@/theme';
+
+/** How long after a step change the footer button ignores taps: longer than a double tap. */
+const STEP_SETTLE_MS = 450;
 
 const TYPES: { value: EventType; label: string; hint: string; icon: LucideIcon }[] = [
   { value: 'wedding', label: 'Wedding', hint: 'Two names, one shared roll', icon: Heart },
@@ -89,6 +92,18 @@ export default function CreateEvent() {
   const styles = useStyles();
   const create = useCreateEvent();
   const [step, setStep] = useState(0);
+  /**
+   * True just after the step changed. Continue and Create event share one button, so the second tap
+   * of a double tap would land on the next step and skip it (or create the event before its camera
+   * rules were seen). Taps in that moment are ignored.
+   */
+  const settling = useRef(false);
+  const creating = useRef(false);
+  const go = (to: number) => {
+    settling.current = true;
+    setTimeout(() => (settling.current = false), STEP_SETTLE_MS);
+    setStep(to);
+  };
   const [w, setW] = useState<Wizard>({
     type: 'wedding',
     partner1: '',
@@ -117,19 +132,22 @@ export default function CreateEvent() {
 
   function back() {
     if (step === 0) router.back();
-    else setStep(step - 1);
+    else go(step - 1);
   }
 
   function next() {
+    if (settling.current) return;
     if (step === 1) {
       const ok = wedding ? w.partner1.trim() && w.partner2.trim() : w.title.trim().length >= 2;
       if (!ok) return toast(wedding ? 'Add both names to continue' : 'Give your event a name');
     }
-    if (step < 3) return setStep(step + 1);
+    if (step < 3) return go(step + 1);
     submit();
   }
 
   function submit() {
+    if (creating.current) return;
+    creating.current = true;
     const startsAt = new Date(w.date.getFullYear(), w.date.getMonth(), w.date.getDate(), 12).toISOString();
     const input: CreateEventInput = {
       type: w.type,
@@ -151,7 +169,10 @@ export default function CreateEvent() {
         router.push('/invite');
         toast('Your event is live. Share the code');
       },
-      onError: (e) => Alert.alert("Couldn't create the event", e.message),
+      onError: (e) => {
+        creating.current = false;
+        Alert.alert("Couldn't create the event", e.message);
+      },
     });
   }
 

@@ -6,7 +6,7 @@ We build in stages. Each stage ends with something you can run and test on the s
 |---|---|---|
 | 0 | Dev environment + open in Xcode | ✅ |
 | 1 | App shell & navigation | ✅ |
-| 2 | Sign in | ✅ own email + password (argon2id, 30-day JWT, rate-limited). Clerk code kept but commented out |
+| 2 | Sign in | ✅ own email + password (argon2id, 30-day JWT, rate-limited), Sign in with Apple and Google. The unused Clerk code was removed (in git history up to `bf46006`) |
 | 3 | Backend foundation | ✅ |
 | 4 | Events: create, join, members | ✅ code + QR + link; remove guest; reset code. Contact invites later |
 | 5 | Camera + reliable upload | ✅ simulator-verified; camera capture + background upload need a real phone |

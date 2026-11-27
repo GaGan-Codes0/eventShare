@@ -1,4 +1,3 @@
-// import { useAuth } from '@clerk/expo'; // Clerk is switched off for now.
 import { Redirect } from 'expo-router';
 import { CloudOff } from 'lucide-react-native';
 import { useState, useSyncExternalStore } from 'react';
@@ -11,7 +10,6 @@ import { takePendingJoin } from '@/store/pending-join';
 
 /** Decides where the app opens: sign in, or Your events. */
 export default function Gate() {
-  // Clerk: const { isLoaded, isSignedIn } = useAuth();
   const user = useSyncExternalStore(subscribeSession, getSessionUser);
   if (!user) return <Redirect href="/sign-in" />;
   return <EventGate />;

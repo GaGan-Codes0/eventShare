@@ -1,4 +1,4 @@
-import type { EventDetail, Page, Photo } from '@eventshare/shared';
+import { REPORT_REASONS, REPORT_REASON_LABEL, type EventDetail, type Page, type Photo } from '@eventshare/shared';
 import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { Directory, File, Paths } from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
@@ -6,8 +6,8 @@ import { Image } from 'expo-image';
 import { Asset, requestPermissionsAsync } from 'expo-media-library';
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Check, Download, Eye, EyeOff, Heart, Lock, Trash2, X } from 'lucide-react-native';
-import { useCallback, useState, useSyncExternalStore } from 'react';
+import { Check, Download, Eye, EyeOff, Flag, Heart, Lock, Trash2, UserX, X } from 'lucide-react-native';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { ActivityIndicator, Alert, Pressable, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -23,7 +23,18 @@ import { dateAsSavedNow } from '@/features/gallery/saved-date';
 import { stableSource } from '@/features/gallery/stable-image';
 import { SaveSheet } from '@/features/gallery/save-sheet';
 import { usePreferences } from '@/store/preferences';
-import { getDownloadUrl, keys, useApprovePhoto, useDeletePhoto, useEvent, useLikePhoto, useMe, useSetPhotoVisibility } from '@/services/api/hooks';
+import {
+  getDownloadUrl,
+  keys,
+  useApprovePhoto,
+  useDeletePhoto,
+  useEvent,
+  useLikePhoto,
+  useMe,
+  useReportPhoto,
+  useSetBlocked,
+  useSetPhotoVisibility,
+} from '@/services/api/hooks';
 import { defaultTheme, makeStyles, ThemeProvider, useCurrentEventTheme } from '@/theme';
 import { timeAgo } from '@/utils/format';
 
@@ -69,6 +80,8 @@ function PhotoViewer() {
   const visibility = useSetPhotoVisibility(eventId);
   const approve = useApprovePhoto(eventId);
   const like = useLikePhoto(eventId);
+  const report = useReportPhoto(eventId);
+  const block = useSetBlocked();
   const [saving, setSaving] = useState(false);
   const [savingMedia, setSavingMedia] = useState(false);
   const prefs = usePreferences();
@@ -78,10 +91,20 @@ function PhotoViewer() {
   const onPhotoLoad = useCallback((w: number, h: number) => w && h && setLoadedRatio(w / h), []);
   const photo = useCachedPhoto(eventId, id);
 
-  if (!photo) {
-    router.back();
-    return null;
-  }
+  /**
+   * Leave once. After Delete, Report, Block and the like, the refetch drops the photo from the
+   * cache while the viewer is still closing; going back again then would also close the screen
+   * underneath. `shouldLeave` only ever turns true once, so the effect goes back exactly once.
+   */
+  const [closing, setClosing] = useState(false);
+  const close = () => setClosing(true);
+  // Also leave when opened for a photo that's gone (deleted elsewhere, or no longer yours to see).
+  const shouldLeave = closing || !photo;
+  useEffect(() => {
+    if (shouldLeave) router.back();
+  }, [shouldLeave]);
+
+  if (!photo) return null;
 
   const ev: EventDetail | undefined = event.data;
   const isHost = ev?.role === 'host';
@@ -95,7 +118,7 @@ function PhotoViewer() {
     del.mutate(photo!.id, {
       onSuccess: () => {
         refresh();
-        router.back();
+        close();
         toast(done);
       },
       onError: (e) => Alert.alert("Couldn't delete", e.message),
@@ -110,6 +133,54 @@ function PhotoViewer() {
     ]);
   }
 
+  const kindWord = photo.kind === 'video' ? 'video' : photo.kind === 'voice' ? 'voice note' : 'photo';
+  const firstName = photo.uploader.name.split(' ')[0] || photo.uploader.name;
+
+  /** Report as objectionable (App Store rule 1.2): pick a reason; it's gone for you at once. */
+  function confirmReport() {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    Alert.alert(`Report this ${kindWord}?`, `It disappears for you straight away, goes back to the hosts for review, and the Klickers team checks it within 24 hours. ${firstName} isn't told who reported it.`, [
+      ...REPORT_REASONS.map((reason) => ({
+        text: REPORT_REASON_LABEL[reason],
+        onPress: () =>
+          report.mutate(
+            { photoId: photo!.id, reason },
+            {
+              onSuccess: () => {
+                close();
+                toast('Reported. Thanks for telling us');
+              },
+              onError: (e) => Alert.alert("Couldn't report", e.message),
+            },
+          ),
+      })),
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }
+
+  /** Block the person who added it: nothing they add shows for you again, in any event. */
+  function confirmBlock() {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    Alert.alert(`Block ${photo!.uploader.name}?`, `You won't see anything ${firstName} adds, in any event. They aren't told. You can unblock them from your profile.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Block',
+        style: 'destructive',
+        onPress: () =>
+          block.mutate(
+            { userId: photo!.uploader.id, blocked: true },
+            {
+              onSuccess: () => {
+                close();
+                toast(`${firstName} is blocked`);
+              },
+              onError: (e) => Alert.alert("Couldn't block", e.message),
+            },
+          ),
+      },
+    ]);
+  }
+
   const actions: Action[] = [];
   if (isHost && photo.pendingReview) {
     actions.push({
@@ -119,9 +190,10 @@ function PhotoViewer() {
       onPress: () =>
         approve.mutate(photo.id, {
           onSuccess: () => {
-            router.back();
+            close();
             toast('Approved. It’s live for guests');
           },
+          onError: (e) => Alert.alert("Couldn't approve", e.message),
         }),
     });
     actions.push({ icon: X, label: 'Decline', busy: del.isPending, onPress: () => remove('Declined and removed') });
@@ -164,14 +236,20 @@ function PhotoViewer() {
             { photoId: photo.id, visibility: hidden ? 'visible' : 'hidden' },
             {
               onSuccess: () => {
-                router.back();
+                close();
                 toast(hidden ? 'Visible to guests again' : 'Hidden from guests');
               },
+              onError: (e) => Alert.alert(hidden ? "Couldn't unhide" : "Couldn't hide", e.message),
             },
           ),
       });
     }
     if (isMine || isHost) actions.push({ icon: Trash2, label: 'Delete', busy: del.isPending, onPress: confirmDelete });
+    // Hosts moderate with Hide and Delete; everyone else can report a photo and block its owner.
+    if (!isMine && !isHost) {
+      actions.push({ icon: Flag, label: 'Report', busy: report.isPending, onPress: confirmReport });
+      actions.push({ icon: UserX, label: 'Block', busy: block.isPending, onPress: confirmBlock });
+    }
   }
 
   const status = [timeAgo(photo.createdAt), photo.pendingReview && 'Waiting for review', photo.visibility === 'hidden' && 'Hidden from guests']
@@ -182,7 +260,7 @@ function PhotoViewer() {
     <View style={styles.screen}>
       <StatusBar style="light" />
       <View style={[styles.top, { paddingTop: insets.top + space.sm }]}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => router.back()} style={styles.close}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={close} style={styles.close}>
           <X size={20} color={LIGHT} strokeWidth={icon.stroke} />
         </Pressable>
         {photo.prompt && (
@@ -268,17 +346,21 @@ async function saveMedia(photo: Photo) {
   const dir = new Directory(Paths.cache, 'downloads');
   dir.create({ intermediates: true, idempotent: true });
   const file = await File.downloadFileAsync(url, dir, { idempotent: true });
-  if (photo.kind === 'voice') {
-    await Share.share({ url: file.uri });
-    return;
+  // The copy in the cache goes whatever happens: shared, saved, refused or failed.
+  try {
+    if (photo.kind === 'voice') {
+      await Share.share({ url: file.uri });
+      return;
+    }
+    const perm = await requestPermissionsAsync(true);
+    if (!perm.granted) throw new Error('Allow Klickers to add to your Photos in Settings.');
+    // Dated as saved now, so it's at the top of the gallery, not back on the event day.
+    await dateAsSavedNow(file.uri, 'video');
+    await Asset.create(file.uri);
+    toast('Video saved to your Photos');
+  } finally {
+    if (file.exists) file.delete();
   }
-  const perm = await requestPermissionsAsync(true);
-  if (!perm.granted) throw new Error('Allow Klickers to add to your Photos in Settings.');
-  // Dated as saved now, so it's at the top of the gallery, not back on the event day.
-  await dateAsSavedNow(file.uri, 'video');
-  await Asset.create(file.uri);
-  file.delete();
-  toast('Video saved to your Photos');
 }
 
 /** The photo is shown whole (contain), so put the stamp in the picture's own bottom-right corner. */

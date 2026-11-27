@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 
 import { DB, type Db } from '../db/db.module.js';
-import { eventArchives, eventMembers, events, faceProfiles, photoFaces, photoLikes, photos, users } from '../db/schema.js';
+import { eventArchives, eventMembers, events, faceProfiles, photoFaces, photoLikes, photoReports, photos, userBlocks, users } from '../db/schema.js';
 import { StorageService } from '../storage/storage.service.js';
 
 /** How many files are removed from storage at once. */
@@ -45,6 +45,9 @@ export class AccountService {
         await tx.delete(photoLikes).where(inArray(photoLikes.photoId, photoIds));
       }
       await tx.delete(photoLikes).where(eq(photoLikes.userId, userId));
+      // Reports they made and blocks either way. Reports about their photos stay (the photos are deleted).
+      await tx.delete(photoReports).where(eq(photoReports.reporterId, userId));
+      await tx.delete(userBlocks).where(or(eq(userBlocks.blockerId, userId), eq(userBlocks.blockedId, userId)));
       await tx.delete(faceProfiles).where(eq(faceProfiles.userId, userId));
 
       let archiveKeys: string[] = [];

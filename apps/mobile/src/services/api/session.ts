@@ -1,5 +1,3 @@
-// Clerk is switched off for now (own email + password login instead).
-// import { getClerkInstance } from '@clerk/expo';
 import type { AuthSession, User } from '@eventshare/shared';
 import * as SecureStore from 'expo-secure-store';
 
@@ -39,7 +37,6 @@ export function subscribeSession(listener: () => void) {
 }
 
 export async function getAuthHeaders(): Promise<Record<string, string>> {
-  // Clerk: const token = await getClerkInstance().session?.getToken();
   const token = session?.token;
   return token ? { Authorization: `Bearer ${token}` } : {};
 }

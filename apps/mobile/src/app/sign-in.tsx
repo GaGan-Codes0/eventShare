@@ -3,11 +3,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { ArrowRight, Camera, Eye, EyeOff } from 'lucide-react-native';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { LegalLinks } from '@/components/legal-links';
 import { Button, Text, TextField, Wordmark } from '@/components/ui';
 import { screenPadding, space } from '@/constants/theme';
 import { AppleSignInButton, signInWithApple, useAppleSignInAvailable } from '@/features/auth/apple-sign-in';
@@ -75,6 +76,8 @@ export default function SignIn() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Taken the moment a sign-in starts, before the screen redraws: a second quick tap does nothing. */
+  const inFlight = useRef(false);
   const appleAvailable = useAppleSignInAvailable();
 
   const isSignup = mode === 'signup';
@@ -89,7 +92,8 @@ export default function SignIn() {
 
   /** Runs a sign-in and, if it gives a session, opens the app with it. */
   async function run(signIn: () => Promise<AuthSession | null>) {
-    if (busy) return;
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -103,6 +107,7 @@ export default function SignIn() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }
@@ -151,6 +156,7 @@ export default function SignIn() {
 
           {isSignup && (
             <TextField
+              testID="signin-name"
               label="Your name"
               value={name}
               onChangeText={setName}
@@ -161,6 +167,7 @@ export default function SignIn() {
             />
           )}
           <TextField
+            testID="signin-email"
             label="Email"
             value={email}
             onChangeText={setEmail}
@@ -173,6 +180,7 @@ export default function SignIn() {
           />
           <View>
             <TextField
+              testID="signin-password"
               label="Password"
               value={password}
               onChangeText={setPassword}
@@ -196,6 +204,18 @@ export default function SignIn() {
               {showPassword ? <EyeOff size={20} color={colors.muted} /> : <Eye size={20} color={colors.muted} />}
             </Pressable>
           </View>
+          {!isSignup && (
+            <Pressable
+              accessibilityRole="link"
+              hitSlop={8}
+              disabled={busy}
+              onPress={() => router.push({ pathname: '/forgot-password', params: { email: email.trim() } })}
+              style={styles.forgot}>
+              <Text variant="caption" color="accent">
+                Forgot password?
+              </Text>
+            </Pressable>
+          )}
 
           <Button
             label={isSignup ? 'Create account' : 'Log in'}
@@ -222,6 +242,7 @@ export default function SignIn() {
             disabled={busy}
             onPress={switchMode}
           />
+          <LegalLinks lead={isSignup ? 'By creating an account you agree to our' : undefined} support={!isSignup} />
         </KeyboardAwareScrollView>
       </View>
     </SafeAreaView>
@@ -283,6 +304,7 @@ const styles = StyleSheet.create({
   // The prototype's line is 312 wide (360 less its margins), so it breaks into the same three lines.
   lede: { fontFamily: fonts.sans, fontSize: 14.5, lineHeight: 21, color: '#7E8378', maxWidth: 312 },
   passwordInput: { paddingRight: 48 },
+  forgot: { alignSelf: 'flex-end', marginTop: -space.md },
   // Centred in the input box, below the field's label.
   eye: { position: 'absolute', right: space.md, top: 54 },
 });

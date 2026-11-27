@@ -1,9 +1,10 @@
-import { ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { generateKeyPair, SignJWT } from 'jose';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Env } from '../config/env.js';
 import type { Db } from '../db/db.module.js';
+import type { MailService } from '../mail/mail.service.js';
 import type { UsersService } from '../users/users.service.js';
 import { AuthService } from './auth.service.js';
 
@@ -42,11 +43,11 @@ describe('Sign in with Google', () => {
       }),
       toDto: (u: { id: string; name: string }) => ({ id: u.id, name: u.name }),
     } as unknown as UsersService;
-    auth = new AuthService(env, db, users);
+    auth = new AuthService(env, db, users, {} as MailService);
   });
 
   it('is refused until client IDs are set', async () => {
-    const off = new AuthService({ ...env, GOOGLE_CLIENT_IDS: [] } as unknown as Env, {} as Db, {} as UsersService);
+    const off = new AuthService({ ...env, GOOGLE_CLIENT_IDS: [] } as unknown as Env, {} as Db, {} as UsersService, {} as MailService);
     await expect(off.signInWithGoogle({ idToken: await googleToken({}) })).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
@@ -59,6 +60,27 @@ describe('Sign in with Google', () => {
   it('ignores an email Google has not verified', async () => {
     await auth.signInWithGoogle({ idToken: await googleToken({ email: 'someone@example.com', email_verified: false }) });
     expect(created?.email).toBeNull();
+  });
+
+  it("never signs into a password account that only claims the same email (pre-hijacking)", async () => {
+    const findFirst = vi
+      .fn()
+      .mockResolvedValueOnce(undefined) // no Google account yet
+      .mockResolvedValueOnce({ id: 'victim', authId: 'local_x', email: 'asha@gmail.com', passwordHash: 'argon2-of-someone-elses-password' });
+    const db = { query: { users: { findFirst } } } as unknown as Db;
+    const guarded = new AuthService(env, db, { findOrCreate: vi.fn(), toDto: vi.fn() } as unknown as UsersService, {} as MailService);
+    await expect(guarded.signInWithGoogle({ idToken: await googleToken({ email: 'asha@gmail.com', email_verified: true }) })).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+  });
+
+  it('still joins another sign-in provider with the same verified email', async () => {
+    const appleUser = { id: 'u7', authId: 'apple_1', name: 'Asha', email: 'asha@gmail.com', passwordHash: null, avatarUrl: null, deletedAt: null };
+    const findFirst = vi.fn().mockResolvedValueOnce(undefined).mockResolvedValueOnce(appleUser);
+    const db = { query: { users: { findFirst } } } as unknown as Db;
+    const linked = new AuthService(env, db, { findOrCreate: vi.fn(), toDto: (u: { id: string }) => ({ id: u.id }) } as unknown as UsersService, {} as MailService);
+    const session = await linked.signInWithGoogle({ idToken: await googleToken({ email: 'asha@gmail.com', email_verified: true }) });
+    expect(session.user).toEqual({ id: 'u7' });
   });
 
   it('rejects tokens for another app, from another issuer, or signed by someone else', async () => {

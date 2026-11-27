@@ -1,3 +1,5 @@
+import { SITE_URL } from '@/constants/links';
+
 /** "482916" → "482 916" (easier to read aloud), as in the prototype. */
 export function formatCode(code: string) {
   return `${code.slice(0, 3)} ${code.slice(3)}`;
@@ -5,7 +7,7 @@ export function formatCode(code: string) {
 
 /** The invite link in QR codes and shared messages: opens Klickers if installed, otherwise a page with the code and the store. */
 export function joinLink(code: string) {
-  return `https://klickers.app/j/${code}`;
+  return `${SITE_URL}/j/${code}`;
 }
 
 export function formatEventDate(iso: string | null) {

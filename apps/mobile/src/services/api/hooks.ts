@@ -2,6 +2,7 @@ import type {
   ArchiveStatus,
   ArchiveScope,
   ArchiveSummary,
+  BlockedUser,
   ChangePlanInput,
   RestorePlanResult,
   CreateEventInput,
@@ -18,6 +19,8 @@ import type {
   PhotoListFilter,
   PhotoVisibility,
   RefillRequest,
+  RemoveMemberInput,
+  ReportReason,
   UpdateEventInput,
   UpdateMemberInput,
   UpdateProfileInput,
@@ -38,6 +41,7 @@ export const keys = {
   /** Every filtered list of an event's photos sits under this key, so one invalidation refreshes them all. */
   photos: (id: string) => ['events', id, 'photos'] as const,
   photoList: (id: string, filter: PhotoListFilter) => ['events', id, 'photos', filter] as const,
+  blocks: ['me', 'blocks'] as const,
 };
 
 export function useMe() {
@@ -118,10 +122,12 @@ export function useJoinEvent() {
   });
 }
 
+/** Host removes someone with a reason; optionally bans them and deletes what they added. */
 export function useRemoveMember(eventId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (userId: string) => api<void>(`/events/${eventId}/members/${userId}`, { method: 'DELETE' }),
+    mutationFn: ({ userId, ...input }: RemoveMemberInput & { userId: string }) =>
+      api<void>(`/events/${eventId}/members/${userId}/remove`, { method: 'POST', body: input }),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.event(eventId) }),
   });
 }
@@ -241,6 +247,37 @@ export function useSetPhotoVisibility(eventId: string) {
     mutationFn: ({ photoId, visibility }: { photoId: string; visibility: PhotoVisibility }) =>
       api<Photo>(`/photos/${photoId}`, { method: 'PATCH', body: { visibility } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.photos(eventId) }),
+  });
+}
+
+/** Report a photo as objectionable: it disappears for you, goes back to the host's review, and Klickers is told. */
+export function useReportPhoto(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ photoId, reason }: { photoId: string; reason: ReportReason }) =>
+      api<void>(`/photos/${photoId}/report`, { method: 'POST', body: { reason } }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.photos(eventId) });
+      void qc.invalidateQueries({ queryKey: keys.event(eventId) });
+    },
+  });
+}
+
+/** People you blocked. You see nothing they add, in any event. */
+export function useBlockedUsers() {
+  return useQuery({ queryKey: keys.blocks, queryFn: () => api<BlockedUser[]>('/me/blocks') });
+}
+
+/** Block or unblock someone. Every album refreshes, since their photos come and go everywhere. */
+export function useSetBlocked() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, blocked }: { userId: string; blocked: boolean }) =>
+      api<void>(`/me/blocks/${userId}`, { method: blocked ? 'PUT' : 'DELETE' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.blocks });
+      void qc.invalidateQueries({ queryKey: keys.events });
+    },
   });
 }
 

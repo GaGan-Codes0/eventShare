@@ -14,7 +14,6 @@ import { stableSource } from './stable-image';
  */
 export const FILTER_LABEL: Record<PhotoFilter, string> = { natural: 'Natural', golden: 'Golden hour', mono: 'Mono', faded: 'Faded film' };
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const SAMPLE = require('../../../assets/images/look-sample.jpg') as number;
 
 /** A picture to show the looks on before an event has photos of its own (a file the look can read). */

@@ -2,11 +2,11 @@ import type { Photo, PhotoFilter } from '@eventshare/shared';
 import { File, Paths } from 'expo-file-system';
 import { Image } from 'expo-image';
 import { Aperture, CloudUpload, EyeOff, Mic, Play, TriangleAlert } from 'lucide-react-native';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { Text } from '@/components/ui';
 import { space } from '@/constants/theme';
-import type { QueueItem } from '@/features/uploads/queue';
+import { discardItem, type QueueItem } from '@/features/uploads/queue';
 
 import { FilteredImage } from './photo-filters';
 import { makeStyles, useTheme } from '@/theme';
@@ -23,8 +23,21 @@ export function PhotoCell({ tile, meId, onOpen, filter = 'natural' }: { tile: Ti
   const styles = useStyles();
   if (tile.kind === 'local') {
     const failed = Boolean(tile.item.permanent);
+    const { id, error } = tile.item;
+    // A refused upload never goes by itself: say why, and let it be cleared off the phone.
+    const explain = () =>
+      Alert.alert("Couldn't upload", error ?? 'The event no longer takes this upload.', [
+        { text: 'Keep', style: 'cancel' },
+        { text: 'Remove from this phone', style: 'destructive', onPress: () => discardItem(id) },
+      ]);
     return (
-      <View style={styles.cell} accessibilityLabel={failed ? `Couldn't upload: ${tile.item.error ?? ''}` : 'Uploading, saved on this phone'}>
+      <Pressable
+        disabled={!failed}
+        onPress={explain}
+        style={styles.cell}
+        accessibilityRole={failed ? 'button' : undefined}
+        accessibilityLabel={failed ? `Couldn't upload: ${error ?? ''}` : 'Uploading, saved on this phone'}
+        accessibilityHint={failed ? 'Shows why, and lets you remove it' : undefined}>
         {tile.item.thumbName ? (
           <Image source={{ uri: new File(Paths.document, 'uploads', tile.item.thumbName).uri }} style={StyleSheet.absoluteFill} contentFit="cover" />
         ) : (
@@ -35,7 +48,7 @@ export function PhotoCell({ tile, meId, onOpen, filter = 'natural' }: { tile: Ti
         <View style={styles.localIcon}>
           {failed ? <TriangleAlert size={16} color={colors.white} /> : <CloudUpload size={16} color={colors.white} />}
         </View>
-      </View>
+      </Pressable>
     );
   }
   const p = tile.photo;
